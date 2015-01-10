@@ -1,0 +1,7 @@
+*R6
+(Try for .xdsl saving?)
+R5 (2015-01-03)
+- Use node labels (genie: names) when available
+- Simple moving nodes (needs much more improvement)
+R4 (2014-12-20)
+...

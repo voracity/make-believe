@@ -1,0 +1,119 @@
+<?xml version="1.0" encoding="ISO-8859-1"?>
+<smile version="1.0" id="Sub0" numsamples="1000" discsamples="10000">
+	<nodes>
+		<cpt id="asia">
+			<state id="yes" />
+			<state id="no" />
+			<probabilities>0.01 0.99</probabilities>
+		</cpt>
+		<cpt id="tub">
+			<state id="yes" />
+			<state id="no" />
+			<parents>asia</parents>
+			<probabilities>0.05 0.95 0.01 0.99</probabilities>
+		</cpt>
+		<cpt id="smoke">
+			<state id="yes" />
+			<state id="no" />
+			<probabilities>0.5 0.5</probabilities>
+		</cpt>
+		<cpt id="lung">
+			<state id="yes" />
+			<state id="no" />
+			<parents>smoke</parents>
+			<probabilities>0.1 0.9 0.01 0.99</probabilities>
+		</cpt>
+		<cpt id="bronc">
+			<state id="yes" />
+			<state id="no" />
+			<parents>smoke</parents>
+			<probabilities>0.6 0.4 0.3 0.7</probabilities>
+		</cpt>
+		<cpt id="either">
+			<state id="yes" />
+			<state id="no" />
+			<parents>lung tub</parents>
+			<probabilities>1 0 1 0 1 0 0 1</probabilities>
+		</cpt>
+		<cpt id="xray">
+			<state id="yes" />
+			<state id="no" />
+			<parents>either</parents>
+			<probabilities>0.98 0.02 0.05 0.95</probabilities>
+		</cpt>
+		<cpt id="dysp">
+			<state id="yes" />
+			<state id="no" />
+			<parents>bronc either</parents>
+			<probabilities>0.9 0.1 0.8 0.2 0.7 0.3 0.1 0.9</probabilities>
+		</cpt>
+	</nodes>
+	<extensions>
+		<genie version="1.0" app="GeNIe 2.0.5219.0" name="Sub0" faultnameformat="nodestate">
+			<node id="asia">
+				<name>asia</name>
+				<interior color="e5f6f7" />
+				<outline color="0000bb" />
+				<font color="000000" name="Arial" size="8" />
+				<position>36 24 112 60</position>
+				<barchart active="true" width="128" height="64" />
+			</node>
+			<node id="tub">
+				<name>tub</name>
+				<interior color="e5f6f7" />
+				<outline color="0000bb" />
+				<font color="000000" name="Arial" size="8" />
+				<position>36 154 112 190</position>
+				<barchart active="true" width="128" height="64" />
+			</node>
+			<node id="smoke">
+				<name>smoke</name>
+				<interior color="e5f6f7" />
+				<outline color="0000bb" />
+				<font color="000000" name="Arial" size="8" />
+				<position>294 24 370 60</position>
+				<barchart active="true" width="128" height="64" />
+			</node>
+			<node id="lung">
+				<name>lung</name>
+				<interior color="e5f6f7" />
+				<outline color="0000bb" />
+				<font color="000000" name="Arial" size="8" />
+				<position>294 154 370 190</position>
+				<barchart active="true" width="128" height="64" />
+			</node>
+			<node id="bronc">
+				<name>bronc</name>
+				<interior color="e5f6f7" />
+				<outline color="0000bb" />
+				<font color="000000" name="Arial" size="8" />
+				<position>552 154 628 190</position>
+				<barchart active="true" width="128" height="64" />
+			</node>
+			<node id="either">
+				<name>either</name>
+				<interior color="e5f6f7" />
+				<outline color="0000bb" />
+				<font color="000000" name="Arial" size="8" />
+				<position>36 284 112 320</position>
+				<barchart active="true" width="128" height="64" />
+			</node>
+			<node id="xray">
+				<name>xray</name>
+				<interior color="e5f6f7" />
+				<outline color="0000bb" />
+				<font color="000000" name="Arial" size="8" />
+				<position>36 414 112 450</position>
+				<barchart active="true" width="128" height="64" />
+			</node>
+			<node id="dysp">
+				<name>dysp</name>
+				<interior color="e5f6f7" />
+				<outline color="0000bb" />
+				<font color="000000" name="Arial" size="8" />
+				<position>294 414 370 450</position>
+				<barchart active="true" width="128" height="64" />
+			</node>
+		</genie>
+	</extensions>
+</smile>

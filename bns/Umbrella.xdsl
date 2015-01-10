@@ -1,0 +1,71 @@
+<?xml version="1.0" encoding="ISO-8859-1"?>
+<smile version="1.0" id="TakeUmbrellaProblem" numsamples="1000" discsamples="10000">
+	<nodes>
+		<cpt id="Weather">
+			<state id="Rain" />
+			<state id="NoRain" />
+			<probabilities>0.3 0.7</probabilities>
+		</cpt>
+		<cpt id="Forecast">
+			<state id="Sunny" />
+			<state id="Cloudy" />
+			<state id="Rainy" />
+			<parents>Weather</parents>
+			<probabilities>0.05 0.15 0.8 0.5 0.3 0.2</probabilities>
+		</cpt>
+		<decision id="Umbrella">
+			<state id="Take" />
+			<state id="DoNotTake" />
+			<parents>Forecast</parents>
+		</decision>
+		<utility id="Hapiness">
+			<parents>Weather Umbrella</parents>
+			<utilities>80 0 90 100</utilities>
+		</utility>
+	</nodes>
+	<extensions>
+		<genie version="1.0" app="GeNIe 2.0.5219.0" name="Deciding wether to take or not to take the umbrella" faultnameformat="nodestate">
+			<comment>A simple Influence Diagram</comment>
+			<node id="Weather">
+				<name>State of the Weather</name>
+				<interior color="e5f6f7" />
+				<outline color="0000bb" />
+				<font color="000000" name="Arial" size="8" />
+				<position>245 141 361 178</position>
+				<comment>Will it Rain?</comment>
+				<barchart active="true" width="128" height="64" />
+			</node>
+			<node id="Forecast">
+				<name>Weather Forecast</name>
+				<interior color="e5f6f7" />
+				<outline color="0000bb" />
+				<font color="000000" name="Arial" size="8" />
+				<position>152 21 257 57</position>
+				<barchart active="true" width="128" height="72" />
+			</node>
+			<node id="Umbrella">
+				<name>Take Umbrella?</name>
+				<interior color="e5f6f7" />
+				<outline color="0000bb" />
+				<font color="000000" name="Arial" size="8" />
+				<position>36 141 126 177</position>
+				<comment>To take or not to take. That is the question.</comment>
+				<barchart active="true" width="128" height="64" />
+			</node>
+			<node id="Hapiness">
+				<name>Total Hapiness</name>
+				<interior color="e5f6f7" />
+				<outline color="0000bb" />
+				<font color="000000" name="Arial" size="8" />
+				<position>154 262 253 297</position>
+				<comment>Am I Happy?</comment>
+				<barchart active="true" width="128" height="64" />
+			</node>
+			<textbox>
+				<caption>A run of the mill umbrella problem with a weather forecast.\nThe probabilities and utilities are invented for the purpose of demonstration.</caption>
+				<font color="3366ff" name="Arial" size="10" bold="true" />
+				<position>433 73 578 185</position>
+			</textbox>
+		</genie>
+	</extensions>
+</smile>

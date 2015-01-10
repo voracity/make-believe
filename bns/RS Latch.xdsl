@@ -1,0 +1,70 @@
+<?xml version="1.0" encoding="ISO-8859-1"?>
+<smile version="1.0" id="Network2" numsamples="1000" discsamples="10000">
+	<nodes>
+		<cpt id="R" dynamic="plate">
+			<state id="True" />
+			<state id="False" />
+			<probabilities>0.5 0.5</probabilities>
+		</cpt>
+		<cpt id="S" dynamic="plate">
+			<state id="True" />
+			<state id="False" />
+			<probabilities>0.5 0.5</probabilities>
+		</cpt>
+		<cpt id="NOR2" dynamic="plate">
+			<state id="True" />
+			<state id="False" />
+			<parents>S</parents>
+			<probabilities>0 1 1 0</probabilities>
+		</cpt>
+		<cpt id="NOR1" dynamic="plate">
+			<state id="True" />
+			<state id="False" />
+			<parents>R NOR2</parents>
+			<probabilities>0 1 0 1 0 1 1 0</probabilities>
+		</cpt>
+	</nodes>
+	<dynamic numslices="10">
+		<cpt id="NOR2" order="1">
+			<parents>NOR1</parents>
+			<probabilities>0 1 0 1 0 1 1 0</probabilities>
+		</cpt>
+	</dynamic>
+	<extensions>
+		<genie version="1.0" app="GeNIe 2.0.5219.0" name="Network2" faultnameformat="nodestate">
+			<plate leftwidth="120" rightwidth="120">36 21 798 330</plate>
+			<node id="NOR1">
+				<name>NOR1</name>
+				<interior color="e5f6f7" />
+				<outline color="000080" />
+				<font color="000000" name="Arial" size="8" />
+				<position>492 110 538 138</position>
+				<barchart active="true" width="128" height="64" />
+			</node>
+			<node id="NOR2">
+				<name>NOR2</name>
+				<interior color="e5f6f7" />
+				<outline color="000080" />
+				<font color="000000" name="Arial" size="8" />
+				<position>492 245 538 273</position>
+				<barchart active="true" width="128" height="64" />
+			</node>
+			<node id="R">
+				<name>R</name>
+				<interior color="e5f6f7" />
+				<outline color="000080" />
+				<font color="000000" name="Arial" size="8" />
+				<position>272 112 318 140</position>
+				<barchart active="true" width="128" height="64" />
+			</node>
+			<node id="S">
+				<name>S</name>
+				<interior color="e5f6f7" />
+				<outline color="000080" />
+				<font color="000000" name="Arial" size="8" />
+				<position>274 243 320 271</position>
+				<barchart active="true" width="128" height="64" />
+			</node>
+		</genie>
+	</extensions>
+</smile>
