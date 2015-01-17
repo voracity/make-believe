@@ -1,5 +1,7 @@
-*R6
-(Try for .xdsl saving?)
+*R7
+R6
+- Backend rewrite to remove dependencies on .xdsl format for BN representation and display
+- Extremely experimental .xdsl saving (basic networks only)
 R5 (2015-01-03)
 - Use node labels (genie: names) when available
 - Simple moving nodes (needs much more improvement)

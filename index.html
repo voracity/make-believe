@@ -22,11 +22,11 @@ SOFTWARE.
 <!doctype HTML>
 <html>
 <head>
-	<title>Make-Believe (R5)</title>
+	<title>Make-Believe (R6)</title>
 	<script src="jquery.min.js"></script>
 	<script src="sylvester.js"></script>
 	<script>
-	var titlePostfix = "Make-Believe (R5)";
+	var titlePostfix = "Make-Believe (R6)";
 	var openBns = [];
 	var currentBn = null;
 
@@ -67,6 +67,7 @@ SOFTWARE.
 		reader.onload = function(e) {
 			openBns.push(new BN({source: e.target.result, outputEl: $(".bnview")}));
 			currentBn = openBns[openBns.length-1];
+			currentBn.fileName = baseName(file.name);
 			$(".status").text(currentBn.nodes.length+" nodes");
 		}
 		reader.readAsText(file);
@@ -76,6 +77,7 @@ SOFTWARE.
 		$.get(fileName, function(data) {
 			openBns.push(new BN({source: data, outputEl: $(".bnview")}));
 			currentBn = openBns[openBns.length-1];
+			currentBn.fileName = baseName(fileName);
 			document.title = baseName(fileName) + " - " + titlePostfix;
 			$(".status").text(currentBn.nodes.length+" nodes");
 			if (callback)  callback();
@@ -209,6 +211,8 @@ SOFTWARE.
 		this.slice = 0;
 		/// Whether this node is a dynamic node
 		this.dynamic = false;
+		/// Parents of nodes in slices t>0. Each parent should be specified as [<parent>,<order>]
+		this.dynamicParents = [];
 		/// Whether this node should be visible to the engine only, and not the user
 		this.engineOnly = false;
 
@@ -409,6 +413,7 @@ SOFTWARE.
 						var tempNode = makeNodeFromXdslEl(this, bn.objs, {engineOnly:true});
 						tempNode.id = tempNode.id+"_"+sliceNum;
 						var node = bn.nodesById[tempNode.id];
+
 						/// If we've seen enough slices to accommodate the node's DBN order,
 						/// start including the node in network
 						if (sliceNum >= tempNode.dbnOrder) {
@@ -421,6 +426,15 @@ SOFTWARE.
 					});
 				}
 
+			});
+
+			/// Store the parents/order of all dynamic nodes (useful for display)
+			this.objs.find("> dynamic > cpt").each(function() {
+				var node = bn.nodesById[$(this).attr("id")];
+				var parentNames = $(this).find("parents").text().split(/\s+/);
+				for (var pi=0; pi<parentNames.length; pi++) {
+					node.dynamicParents.push( [bn.nodesById[parentNames[pi]], Number($(this).find("cpt").attr("order")) ] );
+				}
 			});
 
 			console.log(bn.nodes);
@@ -515,6 +529,53 @@ SOFTWARE.
 			}
 			this._nodeOrdering = q;
 			console.log("nodeOrdering:", this._nodeOrdering.length);
+		},
+		/// Returns an xdsl string
+		save_xdsl: function() {
+			var bn = this;
+			var $smile = $("<smile version='1.0' id='sub0'>")
+				/// XXX Clarify the difference btw numsamples/discsamples
+				.attr("numsamples", this.iterations)
+				.attr("discsamples", this.iterations);
+			$smile.append("<nodes>");
+			for (var i=0; i<this.nodes.length; i++) {
+				var node = this.nodes[i];
+				var $cpt = null;
+				$smile.find("> nodes").append(
+					$cpt = $("<cpt>").attr("id", node.id)
+				);
+				(function(){
+				for (var i=0; i<node.states.length; i++) {
+					var $state = $("<state>").attr("id", node.states[i].id);
+					$cpt.append($state);
+				}
+				var $parents = $("<parents>");
+				var p = "";
+				for (var i=0; i<node.parents.length; i++) {
+					p += (i!=0?" ":"") + node.parents[i].id;
+				}
+				if (p!=="")  $cpt.append($parents.text(p));
+				$cpt.append(
+					$("<probabilities>").text(Array.slice(node.cpt).join(" "))
+				);
+				})();
+			}
+			$smile.append(
+				'<extensions><genie version="1.0" app="GeNIe 2.0.5219.0" name="Sub0" faultnameformat="nodestate"></genie></extensions>'
+			);
+			for (var i=0; i<this.nodes.length; i++) {
+				var node = this.nodes[i];
+				var $node = $("<node>").attr("id", node.id);
+				$node
+					.append($("<name>").text(node.label ? node.label : node.id))
+					.append($("<position>").text(node.pos.x+" "+node.pos.y+" "+node.size.width+" "+node.size.height))
+					/// GeNIe is awfully fussy
+					.append('<interior color="e5f6f7" />\
+				<outline color="0000bb" />\
+				<font color="000000" name="Arial" size="8" />')
+				$smile.find("> extensions > genie").append($node);
+			}
+			return '<?xml version="1.0"?>' + $smile[0].outerHTML;
 		},
 		setUpdateMethod: function(method) {
 			this.updateBeliefs = this["updateBeliefs_"+method];
@@ -1022,16 +1083,10 @@ SOFTWARE.
 				if (node.engineOnly)  continue;
 
 				/// XXX Remove dependency on XDSL
-				var $node = bn.objs.find("nodes > #"+node.id+", dynamic > #"+node.id);
-				var $extInfo = bn.objs.find("> extensions > genie > node#"+node.id);
-				var posInfo = $extInfo.find("position").text().split(/\s+/);
-				var parents = [];
-				$node.find("parents").each(function() {
-					parents = parents.concat( $(this).text().split(/\s+/) );
-				})
-				if (parents!="") {
+				var parents = node.parents.concat(node.dynamicParents);
+				if (parents.length) {
 					for (var i=0; i<parents.length; i++) {
-						var n = displayNodes[parents[i]];
+						var n = displayNodes[Array.isArray(parents[i]) ? parents[i][0].id : parents[i].id];
 						var par = draw.getBox(n);
 						//onsole.log("par:", parents[i], par);
 						n = displayNodes[node.id];
@@ -1048,6 +1103,12 @@ SOFTWARE.
 	var app = {
 		loadFile: function() {
 			loadFile();
+		},
+		saveFile: function() {
+			$("a#download")
+				.attr('href', 'data:text/plain;,'+currentBn.save_xdsl())
+				.attr('download', currentBn.fileName)
+				[0].click();
 		},
 		updateBN: function() {
 			var start = performance.now();
@@ -1245,6 +1306,7 @@ SOFTWARE.
 	<div class="toolbar">
 		<input type="file" id="openFile" style="display:none;" onchange="fileLoaded(this)" accept=".xdsl">
 		<button type="button" onclick="app.loadFile()">Load File</button>
+		<button type="button" onclick="app.saveFile()">Save File</button>
 		<button onclick="app.updateBN()">Update</button>
 		Example BNs: <select class="exampleBns">
 		<option></option>
@@ -1261,5 +1323,6 @@ SOFTWARE.
 	<!--div class=a>a</div>
 	<div class=b>b</div>
 	<div class=c>c</div-->
+	<a id="download" href="" download=""></a>
 </body>
 </html>
