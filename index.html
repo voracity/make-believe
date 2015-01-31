@@ -22,11 +22,11 @@ SOFTWARE.
 <!doctype HTML>
 <html>
 <head>
-	<title>Make-Believe (R6)</title>
+	<title>Make-Believe (R7)</title>
 	<script src="jquery.min.js"></script>
 	<script src="sylvester.js"></script>
 	<script>
-	var titlePostfix = "Make-Believe (R6)";
+	var titlePostfix = "Make-Believe (R7)";
 	var openBns = [];
 	var currentBn = null;
 
@@ -84,8 +84,8 @@ SOFTWARE.
 		}, "text");
 	}
 
-	function updateBN() {
-		currentBn.updateAndDisplayBeliefs();
+	function updateBN(callback) {
+		currentBn.updateAndDisplayBeliefs(null, callback);
 	}
 
 	function newArray(size, initial) {
@@ -315,6 +315,11 @@ SOFTWARE.
 		this.source = o.source;
 		this.sourceFormat = o.format;
 		this.outputEl = $(o.outputEl);
+
+		/// Use worker threads to do belief updating?
+		this.useWorkers = false;
+		this._workers = [];
+		this.numWorkers = 1;
 
 		this.evidence = {};
 
@@ -597,6 +602,68 @@ SOFTWARE.
 					totalUtility += ev;
 				}
 				currentBn.expectedValue = totalUtility;
+			}
+		},
+		updateBeliefs_worker: function(callback) {
+			var bn = this;
+			/// Extract the key parts of the BN needed to do the inference
+			var bnToPass = {nodes: []};
+			for (var k in bn) {
+				if (typeof(bn[k])!="function") {
+					bnToPass[k] = bn[k];
+				}
+			}
+			bnToPass.objs = null;
+			bnToPass.outputEl = null;
+			bnToPass._workers = null;
+
+			/// Convert evidence to array
+			var evidenceArr = new Int32Array(new ArrayBuffer(bn.nodes.length*4));
+			for (var i=0; i<evidenceArr.length; i++)  evidenceArr[i] = -1;
+			for (var i in this.evidence)  evidenceArr[bn.nodesById[i].intId] = Number(this.evidence[i]);
+
+			var numWorkers = this.numWorkers;
+
+			/// Make the workers and store the BN just once
+			if (!this._workers.length) {
+				this._workers = [];
+				for (var wi=0; wi<numWorkers; wi++) {
+					this._workers[wi] = new Worker("beliefUpdate_worker.js");
+					this._workers[wi].postMessage([0, bnToPass]);
+				}
+			}
+
+			var numComplete = 0;
+			for (var wi=0; wi<numWorkers; wi++) {
+				var w = this._workers[wi];
+				w.postMessage([1, evidenceArr]);
+				w.onmessage = function(e) {
+					if (e.data[0]==0) {
+						numComplete++;
+						var workerBeliefs = e.data[1];
+						for (var i=0; i<workerBeliefs.length; i++) {
+							/*console.log(workerBn.nodes[i].id, workerBn.nodes[i].beliefs);*/
+							if (numComplete==1) {
+								bn.nodes[i].beliefs = workerBeliefs[i];
+							}
+							else {
+								var allBeliefs = bn.nodes[i].beliefs;
+								for (var bi=0; bi<allBeliefs.length; bi++) {
+									allBeliefs[bi] += workerBeliefs[i][bi];
+									if (numComplete == numWorkers) {
+										allBeliefs[bi] /= numComplete;
+									}
+								}
+							}
+						}
+						if (numComplete == numWorkers) {
+							if (callback)  callback(bn);
+						}
+					}
+					else if (e.data[0] == 1) {
+						console.log(e.data);
+					}
+				};
 			}
 		},
 		updateBeliefs_local: function() {
@@ -1006,9 +1073,19 @@ SOFTWARE.
 
 	/// Add display capabilities to the BN
 	BN.prototype = $.extend(BN.prototype, {
-		updateAndDisplayBeliefs: function(outputEl) {
-			this.updateBeliefs();
-			this.displayBeliefs(outputEl);
+		updateAndDisplayBeliefs: function(outputEl, callback) {
+			var bn = this;
+			if (this.useWorkers) {
+				this.updateBeliefs_worker(function() {
+					bn.displayBeliefs(outputEl);
+					if (callback)  callback(bn);
+				});
+			}
+			else {
+				this.updateBeliefs();
+				this.displayBeliefs(outputEl);
+				if (callback)  callback(this);
+			}
 		},
 		displayBeliefs: function(outputEl) {
 			outputEl = outputEl || this.outputEl;
@@ -1112,12 +1189,13 @@ SOFTWARE.
 		},
 		updateBN: function() {
 			var start = performance.now();
-			updateBN();
-			var durationMs = (performance.now() - start);
-			if ($(".status .duration").length==0) {
-				$(".status").append("<span class=duration title='Time taken for last computation'>Last: <span class=val></span>ms</span>");
-			}
-			$(".status .duration .val").text(Math.round(durationMs*1000)/1000);
+			updateBN(function() {
+				var durationMs = (performance.now() - start);
+				if ($(".status .duration").length==0) {
+					$(".status").append("<span class=duration title='Time taken for last computation'>Last: <span class=val></span>ms</span>");
+				}
+				$(".status .duration .val").text(Math.round(durationMs*1000)/1000);
+			});
 		},
 		findGoodDecisions: function() {
 			var str = "";

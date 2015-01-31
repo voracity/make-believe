@@ -1,4 +1,6 @@
-*R7
+*R8
+R7
+- Added experimental worker threads (currently worse perf)
 R6
 - Backend rewrite to remove dependencies on .xdsl format for BN representation and display
 - Extremely experimental .xdsl saving (basic networks only)
