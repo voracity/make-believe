@@ -6,7 +6,8 @@ onmessage = function(e) {
 	}
 	else if (e.data[0]==1) { //Worker has been sent the evidence (for belief update)
 		var evidenceArr = e.data[1];
-		updateBeliefs_local(bn, evidenceArr);
+		var iterations = e.data[2];
+		updateBeliefs_local(bn, evidenceArr, iterations);
 		var allBeliefs = [];
 		for (var i=0; i<bn.nodes.length; i++) {
 			allBeliefs.push(bn.nodes[i].beliefs);
@@ -25,7 +26,7 @@ function renewArray(arr, initial) {
 	return arr;
 }
 
-function updateBeliefs_local(bn, evidenceArr) {
+function updateBeliefs_local(bn, evidenceArr, iterations) {
 	var cas = new Int32Array(new ArrayBuffer(bn.nodes.length*4));
 
 	for (var i=0; i<bn.nodes.length; i++) {
@@ -40,7 +41,7 @@ function updateBeliefs_local(bn, evidenceArr) {
 	for (var i in bn.evidence)  evidenceArr[bn.nodesById[i].intId] = Number(bn.evidence[i]);*/
 
 	/// Generate cases
-	for (var i=0; i<bn.iterations; i++) {
+	for (var i=0; i<iterations; i++) {
 		var weight = generateCase(bn, evidenceArr, cas);
 
 		/// For each state of a non-E node, count occurrence given E

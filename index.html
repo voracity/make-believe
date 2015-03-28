@@ -22,11 +22,16 @@ SOFTWARE.
 <!doctype HTML>
 <html>
 <head>
-	<title>Make-Believe (R7)</title>
+	<title>Make-Believe (R10)</title>
 	<script src="jquery.min.js"></script>
+	<script src="beliefUpdate_worker.js"></script>
 	<script src="sylvester.js"></script>
+	<script src="dagre.min.js"></script>
+	<script src="menu.js"></script>
+	<link href="menu_styles.css" type="text/css" rel="stylesheet" />
+	<script src="menu_styles.js"></script>
 	<script>
-	var titlePostfix = "Make-Believe (R7)";
+	var titlePostfix = "Make-Believe (R10)";
 	var openBns = [];
 	var currentBn = null;
 
@@ -340,7 +345,7 @@ SOFTWARE.
 	}
 	BN.prototype = {
 		init: function() {
-			this.iterations = 10000;
+			this.iterations = 1000;
 
 			this["load_"+this.sourceFormat](this.source);
 			this.display();
@@ -633,37 +638,43 @@ SOFTWARE.
 				}
 			}
 
-			var numComplete = 0;
-			for (var wi=0; wi<numWorkers; wi++) {
-				var w = this._workers[wi];
-				w.postMessage([1, evidenceArr]);
-				w.onmessage = function(e) {
-					if (e.data[0]==0) {
-						numComplete++;
-						var workerBeliefs = e.data[1];
-						for (var i=0; i<workerBeliefs.length; i++) {
-							/*console.log(workerBn.nodes[i].id, workerBn.nodes[i].beliefs);*/
-							if (numComplete==1) {
-								bn.nodes[i].beliefs = workerBeliefs[i];
-							}
-							else {
-								var allBeliefs = bn.nodes[i].beliefs;
-								for (var bi=0; bi<allBeliefs.length; bi++) {
-									allBeliefs[bi] += workerBeliefs[i][bi];
-									if (numComplete == numWorkers) {
-										allBeliefs[bi] /= numComplete;
+			if (false) {
+				updateBeliefs_local(bnToPass, evidenceArr);
+				if (callback)  callback(bn);
+			}
+			else {
+				var numComplete = 0;
+				for (var wi=0; wi<numWorkers; wi++) {
+					var w = this._workers[wi];
+					w.postMessage([1, evidenceArr, bn.iterations]);
+					w.onmessage = function(e) {
+						if (e.data[0]==0) {
+							numComplete++;
+							var workerBeliefs = e.data[1];
+							for (var i=0; i<workerBeliefs.length; i++) {
+								/*console.log(workerBn.nodes[i].id, workerBn.nodes[i].beliefs);*/
+								if (numComplete==1) {
+									bn.nodes[i].beliefs = workerBeliefs[i];
+								}
+								else {
+									var allBeliefs = bn.nodes[i].beliefs;
+									for (var bi=0; bi<allBeliefs.length; bi++) {
+										allBeliefs[bi] += workerBeliefs[i][bi];
+										if (numComplete == numWorkers) {
+											allBeliefs[bi] /= numComplete;
+										}
 									}
 								}
 							}
+							if (numComplete == numWorkers) {
+								if (callback)  callback(bn);
+							}
 						}
-						if (numComplete == numWorkers) {
-							if (callback)  callback(bn);
+						else if (e.data[0] == 1) {
+							console.log(e.data);
 						}
-					}
-					else if (e.data[0] == 1) {
-						console.log(e.data);
-					}
-				};
+					};
+				}
 			}
 		},
 		updateBeliefs_local: function() {
@@ -679,7 +690,7 @@ SOFTWARE.
 			/// Convert evidence to array
 			var evidenceArr = new Int32Array(new ArrayBuffer(bn.nodes.length*4));
 			for (var i=0; i<evidenceArr.length; i++)  evidenceArr[i] = -1;
-			for (var i in this.evidence)  evidenceArr[bn.nodesById[i].intId] = Number(this.evidence[i]);
+			for (var i=0; i<this.evidence.length; i++)  evidenceArr[bn.nodesById[i].intId] = Number(this.evidence[i]);
 
 			/// Generate cases
 			for (var i=0; i<this.iterations; i++) {
@@ -697,30 +708,35 @@ SOFTWARE.
 				}
 			}
 
-			for (var i in bn.nodes) {
+			for (var i=0; i<bn.nodes.length; i++) {
 				var node = bn.nodes[i];
-				for (var j in node.beliefs) {
+				for (var j=0; j<node.beliefs.length; j++) {
 					if (node.seen>0)  node.beliefs[j] = node.counts[j]/node.seen;
 				}
 			}
 		},
 		generateCase: function(evidence, cas) {
 			var bn = this;
-			//ar cas = {};
-
-			/// Get the root nodes, add to queue
-			//var q = this._rootNodes.slice();
 
 			var weight = 1;
 
-			/// Dequeue nodes
+			/// Run through nodes in topological order
 			var numNodes = bn._nodeOrdering.length;
 			var ni=0;
 			for (;ni < numNodes; ni++) {
 				var _node = bn._nodeOrdering[ni];
 				cas[_node.intId] = 0;
 
-				var rowI = this._getRowI(_node.parents, cas);
+				/** I believe inlining this is very slightly quicker **/
+				//var rowI = this._getRowI(_node.parents, cas);
+				var parents = _node.parents;
+				var rowI = 0;
+				var multiplier = 1;
+				for (var pi=parents.length-1; pi>=0; pi--) {
+					rowI += multiplier*cas[parents[pi].intId];
+					multiplier *= parents[pi].states.length;
+				}
+				//return rowI;
 
 				if (_node.cpt) {
 					if (evidence[_node.intId] != -1) {
@@ -767,12 +783,18 @@ SOFTWARE.
 						cas[_node.intId] = _node.funcTable[rowI];
 					}
 				}
-
-				/// Push node children onto stack
-				//q = q.concat(_node.children);
 			}
 
 			return weight;
+		},
+		_getRowI: function(parents, cas) {
+			var rowI = 0;
+			var multiplier = 1;
+			for (var pi=parents.length-1; pi>=0; pi--) {
+				rowI += multiplier*cas[parents[pi].intId];
+				multiplier *= parents[pi].states.length;
+			}
+			return rowI;
 		},
 		searchDecisionsAll: function() {
 			var decStates = initialStates(this._decisionNodes);
@@ -886,31 +908,21 @@ SOFTWARE.
 			this.evidence = origEvidence;
 			return [ev, JSON.stringify(decStates)];
 		},
-		_getRowI: function(parents, cas) {
-			var rowI = 0;
-			var multiplier = 1;
-			for (var pi=parents.length-1; pi>=0; pi--) {
-				rowI += multiplier*cas[parents[pi].intId];
-				multiplier *= parents[pi].states.length;
-			}
-			return rowI;
-		},
-		/*_getRowI: function(parents, cas) {
-			//var rowI = 0;
-			//var multiplier = 1;
-			this.getRowIInts[0] = 0;
-			this.getRowIInts[1] = 1;
-			for (var pi=parents.length-1; pi>=0; pi--) {
-				this.getRowIInts[0] += this.getRowIInts[1]*cas[parents[pi].intId];
-				this.getRowIInts[1] = parents[pi].states.length;
-			}
-			return this.getRowIInts[0];
-		},*/
 		perfTest: function() {
 			console.profile("Starting...");
 			this.updateBeliefs_local(1000);
 			console.profileEnd("Stopped.");
 			console.debug(this.nodes);
+		},
+		perfCheck: function() {
+			var t, dt, st = 0;
+			for (var i=0; i<100; i++) {
+				t = performance.now();
+				this.updateBeliefs_local(1000);
+				dt = performance.now() - t;
+				st += dt;
+			}
+			alert(st/100);
 		},
 		/// nodeRef: for now, the id as a string
 		getBeliefs: function(nodeRef) {
@@ -1198,6 +1210,11 @@ SOFTWARE.
 			});
 		},
 		findGoodDecisions: function() {
+			if (!currentBn._decisionNodes.length) {
+				popupDialog("<p>This network has no decision nodes.<div class=controls><button type=button class=okButton>OK</button></div>");
+				$(".dialog .okButton").one("click", dismissDialogs);
+				return;
+			}
 			var str = "";
 			var dec;
 			if (numNodeStateCombinations(currentBn._decisionNodes) < 100) {
@@ -1213,9 +1230,66 @@ SOFTWARE.
 			popupDialog(str+"<div class=controls><button type=button class=okButton>OK</button></div>");
 			$(".dialog .okButton").one("click", dismissDialogs);
 		},
+		autoLayout: function() {
+			var g = new dagre.graphlib.Graph();
+			g.setGraph({});
+			g.setDefaultEdgeLabel(function(){ return {}; });
+
+			for (var i=0; i < currentBn.nodes.length; i++) {
+				var node = currentBn.nodes[i];
+				g.setNode(node.id, { label: (node.label || node.id), width: node.size.width, height: node.size.height} );
+			}
+
+			for (var i=0; i < currentBn.nodes.length; i++) {
+				var node = currentBn.nodes[i];
+				for (var j=0; j < node.children.length; j++) {
+					g.setEdge(node.id, node.children[j].id);
+				}
+			}
+
+			dagre.layout(g);
+
+			g.nodes().forEach(function(nodeId) {
+				console.log(currentBn.nodesById[nodeId]);
+				currentBn.nodesById[nodeId].pos.x = g.node(nodeId).x;
+				currentBn.nodesById[nodeId].pos.y = g.node(nodeId).y;
+			});
+
+			currentBn.display();
+			currentBn.displayBeliefs();
+		},
 	};
 
-	$(window).ready(function() {
+	$(document).ready(function() {
+		var exampleBns = "Asia.xdsl|RS Latch.xdsl|Umbrella.xdsl|Water.xdsl".split(/\|/);
+		var exampleBnActions = [];
+		for (var i in exampleBns) {
+			/// Need html escape function
+			exampleBnActions[i] = MenuAction('<span data-name="'+exampleBns[i]+'">'+exampleBns[i]+'</span>', function() {
+				window.location.href = "?file=bns/"+$(this).find('span').data("name");
+			});
+		}
+
+		var menu = Menu({type: "bar", items: [
+			Menu({label:"File", items: [
+				MenuAction("Open...", function(){ app.loadFile(); dismissActiveMenus(); }),
+				MenuAction("Save...", function(){ app.saveFile(); dismissActiveMenus(); }),
+				Menu({label: "Example BNs&nbsp;&nbsp; &#9656;", items: exampleBnActions}),
+			]}),
+			Menu({label:"View", items: [
+				MenuAction('<input type="range" name="viewZoom" min="0.25" max="3" step="0.25" value="1"> <span class="viewZoomText">100%</span>', function(){}),
+			]}),
+			Menu({label:"Network", items: [
+				MenuAction("Update", function() { app.updateBN(); dismissActiveMenus(); }),
+				MenuAction("Find Good Decisions", function() { app.findGoodDecisions(); dismissActiveMenus(); }),
+				MenuAction("Auto-Layout", function() { app.autoLayout(); dismissActiveMenus(); }),
+				MenuAction('# Samples: <input type="text" name="iterations" value="1000">', function() { }),
+				//MenuAction('(perfcheck)', function() { currentBn.perfCheck(); }),
+			]}),
+		]});
+
+		$("body").prepend(menu.make());
+
 		$(".bnview").on("click", ".stateName", function() {
 			var nodeId = $(this).closest(".node").attr("id").replace(/^display_/, '');
 			var node = currentBn.nodesById[nodeId];
@@ -1313,7 +1387,7 @@ SOFTWARE.
 					$("#beliefBarAnimations")[0].sheet.disabled = false;
 				}, 0);
 			});
-		})
+		});
 
 		$("[name=viewZoom]").on("input change", function(evt) {
 			var $range = $(evt.target);
@@ -1328,6 +1402,12 @@ SOFTWARE.
 		/// Handle an example BN load
 		$(".exampleBns").on("change", function() {
 			window.location.href = "?file=bns/"+$(this).find("option:selected").text();
+		});
+
+		/// Handle changes to iterations
+		$("[name=iterations]").on("keyup", function(evt) {
+			var numIterations = $(evt.target).val();
+			currentBn.iterations = numIterations;
 		});
 
 		if (window.qs.file) {
@@ -1362,13 +1442,15 @@ SOFTWARE.
 
 	/** Layout **/
 	body { display: flex; flex-direction: column; height: 100%; }
-	.toolbar { border-bottom: 1px solid #aaa; }
 	.bnouterview { flex: 1; overflow: auto; width: 100%; }
 	.status { background: white;
 		border-top: 1px solid #AAA;
 		width: 100%; z-index: 1000; opacity: 0.8; }
 	.status .expectedValue, .status .duration { margin-left: 1em; }
 	.decisionNet { display: none; }
+
+	/** Menus **/
+	.menu.bar { border-bottom: 1px solid #aaa; }
 
 	/** Dialogs **/
 	.dialog { display: none; position: absolute; z-index: 10000; background: rgb(255,255,255); background: rgba(255,255,255,0.95);
@@ -1381,7 +1463,7 @@ SOFTWARE.
 	</style>
 </head>
 <body>
-	<div class="toolbar">
+	<div class="toolbar" style="display: none;">
 		<input type="file" id="openFile" style="display:none;" onchange="fileLoaded(this)" accept=".xdsl">
 		<button type="button" onclick="app.loadFile()">Load File</button>
 		<button type="button" onclick="app.saveFile()">Save File</button>
@@ -1395,6 +1477,8 @@ SOFTWARE.
 		</select>
 		<input type="range" name="viewZoom" min="0.25" max="3" step="0.25" value="1"> <span class="viewZoomText">100%</span>
 		<button type="button" onclick="app.findGoodDecisions()" class="decisionNet">Find Good Decisions</button>
+		<button type="button" onclick="app.autoLayout()">Auto Layout</button>
+		# Samples: <input type="text" name="iterations" value="1000">
 	</div>
 	<div class="bnouterview"><div class="bnview"></div></div>
 	<div class="status">(No net loaded.)</div>

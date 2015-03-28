@@ -1,0 +1,39 @@
+<!DOCTYPE html>
+<html>
+<head>
+<script src="jquery.min.js"></script>
+<script src="menu.js"></script>
+<link href="menu_styles.css" type="text/css" rel="stylesheet" />
+<script src="menu_styles.js"></script>
+<script>
+$(document).ready(function() {
+	var menu = Menu({
+		type: "bar",
+		items: [
+			MenuAction("<div style='width: 380px; background: red;'>x</div>", function(){}),
+			Menu({label: "File", items: [
+				MenuAction("Open...", function() { alert('Open'); dismissActiveMenus(); }),
+				MenuAction("Save...", function() { alert('Save'); dismissActiveMenus(); }),
+				Menu({label: "Example BNs", items: [
+					Menu({label: "Example BNs", items: [
+						MenuAction("Open...", function() { alert('Open'); dismissActiveMenus(); }),
+					]}),
+					MenuAction("Open...", function() { alert('Open'); dismissActiveMenus(); }),
+				]}),
+				Menu({label: "Example BNs", items: [
+					MenuAction("Open...", function() { alert('Open'); dismissActiveMenus(); }),
+				]}),
+			]}),
+			Menu({label: "Edit", items: [
+				MenuAction("Copy", function() { alert('Copy'); dismissActiveMenus(); }),
+			]}),
+		]
+	})
+
+	$("body").append(menu.make());
+});
+</script>
+</head>
+<body>
+</body>
+</html>
