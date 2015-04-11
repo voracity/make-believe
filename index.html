@@ -35,6 +35,24 @@ SOFTWARE.
 	var openBns = [];
 	var currentBn = null;
 
+	/// I'm not sure if this guarantees a nicely formatted string.
+	function sigFig(num, digits) {
+		if (num==0)  return 0;
+		/// Get a multiplier based on the log position of most sig digit (add 1 to avoid 100...0 not being rounded up)
+		var mul = Math.pow(10,Math.floor(Math.log10(num)));
+		var sigPow = Math.pow(10,digits-1);
+		return Math.round((num/mul)*sigPow)*mul/sigPow;
+	}
+
+	/// Inconsistencies between html and svg are very annoying
+	function makeSvg(tag, attrs) {
+		var el= document.createElementNS('http://www.w3.org/2000/svg', tag);
+		for (var k in attrs) {
+			el.setAttribute(k, attrs[k]);
+		}
+		return el;
+	}
+
 	String.prototype._splitNotEmpty = function() {
 		return this.length==0 ? [] : this.split.apply(this, arguments);
 	}
@@ -224,6 +242,9 @@ SOFTWARE.
 		/// Visual properties
 		this.pos = {x: 0, y: 0};
 		this.size = {width: 0, height: 0};
+		/// For arc drawing/updating
+		this.pathsIn = [];
+		this.pathsOut = [];
 
 		/// Set options based on constructor args
 		for (var i in o) {
@@ -237,6 +258,9 @@ SOFTWARE.
 				numParentStates *= this.parents[j].states.length;
 			}
 			return numParentStates;
+		},
+		getRow: function(i) {
+			return Array.prototype.slice.call(this.cpt, i*this.states.length, i*this.states.length+this.states.length);
 		},
 	};
 
@@ -967,6 +991,18 @@ SOFTWARE.
 	};
 
 	var draw = {
+		createSvg: function(outputEl, x, y, width, height, cls) {
+			return $("<svg width="+(width)+" height="+(height)+"><defs>\
+					<marker id='arrowhead' viewBox='0 0 10 10' refX='10' refY='5' \
+					markerUnits='strokeWidth' orient='auto'\
+					markerWidth='10' markerHeight='9'>\
+					<polyline points='0,0 10,5 0,10 1,5' fill=black/>\
+					</marker>\
+					</defs></svg>")
+				.attr("class", cls)
+				.css({left: x, top: y, position: "absolute"})
+				.appendTo(outputEl);
+		},
 		getAngle: function(refVector, angledVector) {
 			var r = Math.atan2(angledVector[0], angledVector[1]) - Math.atan2(refVector[0], refVector[1]);
 			if (r > Math.PI)  r -= 2*Math.PI;
@@ -983,6 +1019,22 @@ SOFTWARE.
 			var width = Math.abs(from.x - to.x);
 			var height = Math.abs(from.y - to.y);
 
+			var $svg = null;
+			var insideSvg = $(outputEl)[0].tagName.toUpperCase() == "SVG";
+
+			if (insideSvg) {
+				$svg = $(outputEl);
+			}
+			else {
+				$svg = $("<svg width="+(width+20)+" height="+(height+20)+"><defs>\
+					<marker id='arrowhead' viewBox='0 0 10 10' refX='10' refY='5' \
+					markerUnits='strokeWidth' orient='auto'\
+					markerWidth='10' markerHeight='9'>\
+					<polyline points='0,0 10,5 0,10 1,5' fill=black/>\
+					</marker>\
+					</defs></svg>").appendTo(outputEl);
+			}
+
 			var firstX, firstY, lastX, lastY, svgX, svgY;
 			if (from.x < to.x) { firstX = sx; lastX = sx+width; svgX = from.x; }
 			else { firstX = sx+width; lastX = sx; svgX = to.x; }
@@ -990,15 +1042,25 @@ SOFTWARE.
 			else { firstY = sy+height; lastY = sy; svgY = to.y; }
 
 			//onsole.debug(svgX, svgY);
-			$("<svg width="+(width+20)+" height="+(height+20)+"><defs>\
-	<marker id='arrowhead' viewBox='0 0 10 10' refX='10' refY='5' \
-	markerUnits='strokeWidth' orient='auto'\
-	markerWidth='10' markerHeight='9'>\
-	<polyline points='0,0 10,5 0,10 1,5' fill=black/>\
-	</marker>\
-	</defs><path d='M "+firstX+" "+firstY+" L "+lastX+" "+lastY+"' stroke=black stroke-width=1 marker-end='url(#arrowhead)'/></svg>")
-				.css({left: svgX-sx, top: svgY-sy, position: "absolute"})
-				.appendTo(outputEl);
+			var path = null;
+			if (insideSvg) {
+				$svg.append(path = makeSvg("path", {
+					d: "M "+(svgX-sx+firstX)+" "+(svgY-sy+firstY)+" L "+(svgX-sx+lastX)+" "+(svgY-sy+lastY),
+					stroke: "black",
+					"stroke-width": 1,
+					"marker-end": "url(#arrowhead)"
+				}));
+			}
+			else {
+				$svg.append(path = makeSvg("path", {
+					d: "M "+firstX+" "+firstY+" L "+lastX+" "+lastY,
+					stroke: "black",
+					"stroke-width": 1,
+					"marker-end": "url(#arrowhead)"
+				}))
+					.css({left: svgX-sx, top: svgY-sy, position: "absolute"});
+			}
+			return path;
 		},
 		makePolyline: function(width, height, viewWidth, viewHeight, points) {
 			var pointsStr = "";
@@ -1079,7 +1141,14 @@ SOFTWARE.
 				childIntersect = p1.intersectionWith(p2);
 			}
 
-			draw.drawArrow(outputEl, {x: parIntersect.e(1), y: parIntersect.e(2)}, {x: childIntersect.e(1), y: childIntersect.e(2)});
+			/// If we've been given a path, just update the d attribute
+			if ($(outputEl)[0].tagName.toUpperCase() == "PATH") {
+				var p = {x: parIntersect.e(1), y: parIntersect.e(2)}, c = {x: childIntersect.e(1), y: childIntersect.e(2)};
+				return $(outputEl).attr("d", "M "+p.x+" "+p.y+" L "+c.x+" "+c.y);
+			}
+			else {
+				return draw.drawArrow(outputEl, {x: parIntersect.e(1), y: parIntersect.e(2)}, {x: childIntersect.e(1), y: childIntersect.e(2)});
+			}
 		},
 	};
 
@@ -1136,7 +1205,14 @@ SOFTWARE.
 			var bn = this;
 			var displayNodes = {};
 			var nodeBeliefs = this.getAllBeliefs();
+			/// Setup an SVG canvas on which to draw things. At this stage,
+			/// this will just be arrows.
+			/// Need to wait for nodes to be drawn before we know size
+			draw.createSvg(outputEl, 0, 0, 10, 10, "netSvgCanvas");
+
 			/// Draw all the nodes
+			var maxX = 0;
+			var maxY = 0;
 			for (var i=0; i<bn.nodes.length; i++) {
 				var node = bn.nodes[i];
 				if (node.engineOnly)  continue;
@@ -1164,7 +1240,17 @@ SOFTWARE.
 						)
 					);
 				}
+
+				/// Get max x/y as extents for canvas
+				var b = draw.getBox($displayNode);
+				maxX = Math.max(maxX, b.x+b.width);
+				maxY = Math.max(maxY, b.y+b.height);
 			}
+
+			/// Resize the SVG
+			console.log(maxX, maxY);
+			$(".netSvgCanvas").attr("width", maxX).attr("height", maxY);
+
 			/// Draw all the arcs
 			var allNodes = bn.nodes;
 			for (var ni=0; ni<allNodes.length; ni++) {
@@ -1175,16 +1261,41 @@ SOFTWARE.
 				var parents = node.parents.concat(node.dynamicParents);
 				if (parents.length) {
 					for (var i=0; i<parents.length; i++) {
-						var n = displayNodes[Array.isArray(parents[i]) ? parents[i][0].id : parents[i].id];
+						/// Clarify: Parents will be an array if from dynamicParents, maybe?
+						var parent = Array.isArray(parents[i]) ? parents[i][0] : parents[i];
+						var n = displayNodes[parent.id];
 						var par = draw.getBox(n);
 						//onsole.log("par:", parents[i], par);
 						n = displayNodes[node.id];
 						var child = draw.getBox(n);
 						//onsole.log("child:", node.id, child);
 
-						draw.drawArrowBetweenBoxes(outputEl, par, child);
+						var path = draw.drawArrowBetweenBoxes($(".netSvgCanvas"), par, child);
+						/// XXX Update these if nodes can be deleted
+						node.pathsIn.push([path,parent]);
+						parent.pathsOut.push([path,node]);
 					}
 				}
+			}
+		},
+		redrawArcs: function(node, width, height) {
+			var $node = this.outputEl.find("#display_"+node.id);
+
+			/// Update max x/y as extents for canvas if necessary
+			var b = draw.getBox($node);
+			var maxX = Math.max(width, b.x+b.width);
+			var maxY = Math.max(height, b.y+b.height);
+			if (maxX != width || maxY != height) {
+				$(".netSvgCanvas").attr("width", maxX).attr("height", maxY);
+			}
+
+			for (var i=0; i<node.pathsIn.length; i++) {
+				var $parent = this.outputEl.find("#display_"+node.pathsIn[i][1].id);
+				draw.drawArrowBetweenBoxes(node.pathsIn[i][0], draw.getBox($parent), draw.getBox($node));
+			}
+			for (var i=0; i<node.pathsOut.length; i++) {
+				var $child = this.outputEl.find("#display_"+node.pathsOut[i][1].id);
+				draw.drawArrowBetweenBoxes(node.pathsOut[i][0], draw.getBox($node), draw.getBox($child));
 			}
 		},
 	});
@@ -1360,17 +1471,32 @@ SOFTWARE.
 			my = event.originalEvent.pageY;
 			var $node = $(this).closest(".node");
 			var o = $(this).offset();
+
+			/// Get the width/height if the mousedown node were not part of the network
+			var maxX = 0, maxY = 0;
+			for (var i=0; i<currentBn.nodes.length; i++) {
+				if (("display_"+currentBn.nodes[i].id)==$node.attr("id"))  continue;
+				var n = draw.getBox($("#display_"+currentBn.nodes[i].id));
+				maxX = Math.max(maxX, n.x+n.width);
+				maxY = Math.max(maxY, n.y+n.height);
+			}
+
 			$(".bnview").on("mousemove", function(event) {
 				var nmx = event.originalEvent.pageX;
 				var nmy = event.originalEvent.pageY;
+				/// Move the DOM object, but not the net object yet
 				$node.offset({left: o.left + (nmx - mx), top: o.top + (nmy - my)});
+				var n = currentBn.nodesById[$node.attr("id").replace(/^display_/,"")];
+				currentBn.redrawArcs(n, maxX, maxY);
 			});
 			$(".bnview").one("mouseup", function(event) {
+				/// Update position of the node
 				var nmx = event.originalEvent.pageX;
 				var nmy = event.originalEvent.pageY;
 				$node.offset({left: o.left + (nmx - mx), top: o.top + (nmy - my)});
 				$(".bnview").unbind("mousemove");
 
+				/// Now it's final, update the net object
 				var n = currentBn.nodesById[$node.attr("id").replace(/^display_/,"")];
 				n.pos.x += (nmx - mx);
 				n.pos.y += (nmy - my);
@@ -1378,15 +1504,35 @@ SOFTWARE.
 				var pos = $extInfo.find("position").text().split(/\s+/);
 				$extInfo.find("position").text((Number(pos[0]) + (nmx - mx))+" "+(Number(pos[1]) + (nmy - my)));*/
 
+				/// Update the arcs going into/out of this node
+				currentBn.redrawArcs(n, maxX, maxY);
+
 				/// Need something much more efficient than this!
-				$("#beliefBarAnimations")[0].sheet.disabled = true;
+				/*$("#beliefBarAnimations")[0].sheet.disabled = true;
 				currentBn.display();
 				currentBn.displayBeliefs();
 				/// Turn them back on, but not in the current execution block
 				window.setTimeout(function() {
 					$("#beliefBarAnimations")[0].sheet.disabled = false;
-				}, 0);
+				}, 0);*/
 			});
+		});
+
+		$(document).on("dblclick", ".node", function() {
+			var $table = $("<table>");
+			var node = currentBn.nodesById[$(this).attr("id").replace(/^display_/, '')];
+			var npc = node.numParentCombinations();
+			for (var i=0; i<npc; i++) {
+				var row = node.getRow(i);
+				var $tr = $("<tr>");
+				for (var j=0; j<row.length; j++) {
+					$tr.append("<td>"+sigFig(row[j],3)+"</td>");
+				}
+				$table.append($tr);
+			}
+			popupDialog("<h2>CPT</h2>"+$("<div>").append($table).html()
+				+"<div class=controls><button type=button class='okButton'>OK</button></div>");
+			$(".dialog .okButton").one("click", dismissDialogs);
 		});
 
 		$("[name=viewZoom]").on("input change", function(evt) {
