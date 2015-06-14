@@ -1,0 +1,44 @@
+<?xml version="1.0" encoding="ISO-8859-1"?>
+<smile version="1.0" id="Network1" numsamples="1000" discsamples="10000">
+	<nodes>
+		<equation id="LongLived">
+			<definition lower="0" upper="1">LongLived=Bernoulli(0.7)</definition>
+		</equation>
+		<equation id="MaxAge">
+			<parents>LongLived</parents>
+			<definition lower="40" upper="140">MaxAge=(LongLived&gt;0.9 ? Normal(90,5) : Normal(65,10))</definition>
+		</equation>
+		<equation id="CurrentAge">
+			<parents>MaxAge</parents>
+			<definition lower="0" upper="1000">CurrentAge=Uniform(0,MaxAge)</definition>
+		</equation>
+	</nodes>
+	<extensions>
+		<genie version="1.0" app="GeNIe 2.0.5219.0" name="Network1" faultnameformat="nodestate">
+			<node id="MaxAge">
+				<name>MaxAge</name>
+				<interior color="e5f6f7" />
+				<outline color="000080" />
+				<font color="000000" name="Arial" size="8" />
+				<position>277 193 329 225</position>
+				<barchart active="true" width="128" height="64" />
+			</node>
+			<node id="CurrentAge">
+				<name>CurrentAge</name>
+				<interior color="e5f6f7" />
+				<outline color="000080" />
+				<font color="000000" name="Arial" size="8" />
+				<position>444 395 513 438</position>
+				<barchart active="true" width="128" height="64" />
+			</node>
+			<node id="LongLived">
+				<name>LongLived</name>
+				<interior color="e5f6f7" />
+				<outline color="000080" />
+				<font color="000000" name="Arial" size="8" />
+				<position>433 74 497 114</position>
+				<barchart active="true" />
+			</node>
+		</genie>
+	</extensions>
+</smile>

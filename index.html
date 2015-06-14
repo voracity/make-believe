@@ -22,16 +22,18 @@ SOFTWARE.
 <!doctype HTML>
 <html>
 <head>
-	<title>Make-Believe (R10)</title>
+	<title>Make-Believe (R12)</title>
 	<script src="jquery.min.js"></script>
+	<script src="vkbeautify.0.99.00.beta.js"></script>
 	<script src="beliefUpdate_worker.js"></script>
+	<script src="equationFunctions.js"></script>
 	<script src="sylvester.js"></script>
 	<script src="dagre.min.js"></script>
 	<script src="menu.js"></script>
 	<link href="menu_styles.css" type="text/css" rel="stylesheet" />
 	<script src="menu_styles.js"></script>
 	<script>
-	var titlePostfix = "Make-Believe (R10)";
+	var titlePostfix = "Make-Believe (R12)";
 	var openBns = [];
 	var currentBn = null;
 
@@ -41,7 +43,17 @@ SOFTWARE.
 		/// Get a multiplier based on the log position of most sig digit (add 1 to avoid 100...0 not being rounded up)
 		var mul = Math.pow(10,Math.floor(Math.log10(num)));
 		var sigPow = Math.pow(10,digits-1);
-		return Math.round((num/mul)*sigPow)*mul/sigPow;
+		/// XXX: I need to work this out properly at some point
+		var v = Math.round((num/mul)*sigPow);
+		if ((mul/sigPow) < 1) {
+			var d = Math.round(1/(mul/sigPow));
+			v = v/d;
+		}
+		else {
+			var d = Math.round(mul/sigPow);
+			v = v*d;
+		}
+		return v;
 	}
 
 	/// Inconsistencies between html and svg are very annoying
@@ -111,11 +123,42 @@ SOFTWARE.
 		currentBn.updateAndDisplayBeliefs(null, callback);
 	}
 
+	/// From https://developer.mozilla.org/en-US/docs/Web/Guide/API/DOM/The_structured_clone_algorithm
+	function clone(objectToBeCloned) {
+	  // Basis.
+	  if (!(objectToBeCloned instanceof Object)) {
+	    return objectToBeCloned;
+	  }
+
+	  var objectClone;
+
+	  // Filter out special objects.
+	  var Constructor = objectToBeCloned.constructor;
+	  switch (Constructor) {
+	    // Implement other special objects here.
+	    case RegExp:
+	      objectClone = new Constructor(objectToBeCloned);
+	      break;
+	    case Date:
+	      objectClone = new Constructor(objectToBeCloned.getTime());
+	      break;
+	    default:
+	      objectClone = new Constructor();
+	  }
+
+	  // Clone each property.
+	  for (var prop in objectToBeCloned) {
+	    objectClone[prop] = clone(objectToBeCloned[prop]);
+	  }
+
+	  return objectClone;
+	}
+
 	function newArray(size, initial) {
 		var arr = new Array(size);
 
 		for (var i=0; i<size; i++) {
-			arr[i] = initial;
+			arr[i] = clone(initial);
 		}
 
 		return arr;
@@ -125,7 +168,7 @@ SOFTWARE.
 		var size = arr.length;
 
 		for (var i=0; i<size; i++) {
-			arr[i] = initial;
+			arr[i] = clone(initial);
 		}
 
 		return arr;
@@ -207,7 +250,7 @@ SOFTWARE.
 		this.label = null;
 		/// Type of node: nature, decision, utility
 		this.type = "nature";
-		/// A list of states XXX
+		/// A list of states (state objects) XXX
 		this.states = [];
 		/// A map of state ids -> position in states array
 		this.statesById = {};
@@ -219,6 +262,8 @@ SOFTWARE.
 		this.cpt = null;
 		/// The deterministic function table (only if discrete deterministic)
 		this.funcTable = null;
+		/// The function for this node (which can be any javascript function that returns a real value)
+		this.func = null;
 		/// The utilities associated with this node's states
 		this.utilities = [];
 		/// The current beliefs for this node (net must have been updated separately)
@@ -228,6 +273,9 @@ SOFTWARE.
 		/// like 'experience' in Netica, but not really.
 		this.counts = null;
 		this.seen = 0;
+		/// 'samples' are for continuous nodes, and are a list of all the samples
+		/// created for this node
+		this.samples = [];
 		/// In a DBN, the time-dependent version of the CPT/funcTable (e.g. t=0, t=1, etc. within a CPT in GeNIe)
 		this.dbnOrder = 0;
 		/// In a DBN, what temporal step this node falls into
@@ -238,6 +286,9 @@ SOFTWARE.
 		this.dynamicParents = [];
 		/// Whether this node should be visible to the engine only, and not the user
 		this.engineOnly = false;
+
+		/// Does the display need updating?
+		this._updateDisplay = false;
 
 		/// Visual properties
 		this.pos = {x: 0, y: 0};
@@ -262,6 +313,18 @@ SOFTWARE.
 		getRow: function(i) {
 			return Array.prototype.slice.call(this.cpt, i*this.states.length, i*this.states.length+this.states.length);
 		},
+		removeStates: function() {
+			/// XXX This will leave CPTs, etc. in an inconsistent state at this point
+			this.states = [];
+			this.statesById = {};
+		},
+		addStates: function(newStates) {
+			for (var i=0; i<newStates.length; i++) {
+				var stateName = newStates[i];
+				this.states.push({id: stateName});
+				this.statesById[stateName] = this.states.length-1;
+			}
+		},
 	};
 
 	/**
@@ -276,6 +339,7 @@ SOFTWARE.
 		var stateIndex = {}; states.forEach(function(a,i) { stateIndex[a.id] = i; });
 		var cpt = null;
 		var funcTable = null;
+		var func = null;
 		var utils = null;
 
 		if ($el.is("cpt")) {
@@ -297,7 +361,14 @@ SOFTWARE.
 				}
 			}
 			console.log(cpt);*/
-
+		}
+		else if ($el.is("equation")) {
+			/// Do the minimum conversion needed to get it into JS
+			/// XXX-fix: Properly parse the equation!
+			/// Note: Parents will always be in the order defined here, so this approach is fine
+			func = new Function($el.find("parents").text().replace(/\s+/g, ','),
+				'return '+$el.find("definition").text().replace(new RegExp('^'+$el.attr('id')+'\\s*=\\s*', 'g'), '')
+			);
 		}
 		else if ($el.is("decision")) {
 			/// Replace with uniform CPT --- later, though, because we don't necessarily know
@@ -324,12 +395,13 @@ SOFTWARE.
 			parents: $el.find("parents").text()._splitNotEmpty(/\s+/),
 			cpt: cpt,
 			funcTable: funcTable,
+			func: func,
 			utilities: utils,
 			dbnOrder: $el.is("[order]") ? Number($el.attr("order")) : 0,
 			dynamic: $el.attr("dynamic")=="plate",
 			engineOnly: opts.engineOnly,
 			pos: {x: Number(posInfo[0]), y: Number(posInfo[1])},
-			size: {width: Number(posInfo[2]), height: Number(posInfo[3])},
+			size: {width: Number(posInfo[2])-Number(posInfo[0]), height: Number(posInfo[3])-Number(posInfo[1])},
 		});
 		console.log(node, $extInfo);
 		node.beliefs = newArray(node.states.length,0);
@@ -348,7 +420,7 @@ SOFTWARE.
 		/// Use worker threads to do belief updating?
 		this.useWorkers = false;
 		this._workers = [];
-		this.numWorkers = 1;
+		this.numWorkers = 4;
 
 		this.evidence = {};
 
@@ -385,7 +457,7 @@ SOFTWARE.
 			this._decisionNodes = [];
 			this.nodesById = {};
 			this._rootNodes = [];
-			this.objs.find("> nodes cpt, > nodes deterministic, > nodes decision, > nodes utility").each(function() {
+			this.objs.find("> nodes cpt, > nodes deterministic, > nodes decision, > nodes utility, > nodes equation").each(function() {
 				var node = makeNodeFromXdslEl(this, bn.objs);
 				bn.nodes.push(node);
 				bn.nodesById[node.id] = node;
@@ -574,25 +646,85 @@ SOFTWARE.
 			$smile.append("<nodes>");
 			for (var i=0; i<this.nodes.length; i++) {
 				var node = this.nodes[i];
-				var $cpt = null;
-				$smile.find("> nodes").append(
-					$cpt = $("<cpt>").attr("id", node.id)
-				);
-				(function(){
-				for (var i=0; i<node.states.length; i++) {
-					var $state = $("<state>").attr("id", node.states[i].id);
-					$cpt.append($state);
+				if (node.type=="nature") {
+					if (node.cpt) {
+						var $el = null;
+						$smile.find("> nodes").append(
+							$el = $("<cpt>").attr("id", node.id)
+						);
+						(function(){
+						for (var i=0; i<node.states.length; i++) {
+							var $state = $("<state>").attr("id", node.states[i].id);
+							$el.append($state);
+						}
+						var $parents = $("<parents>");
+						var p = "";
+						for (var i=0; i<node.parents.length; i++) {
+							p += (i!=0?" ":"") + node.parents[i].id;
+						}
+						if (p!=="")  $el.append($parents.text(p));
+						$el.append(
+							$("<probabilities>").text(Array.prototype.slice.call(node.cpt).join(" "))
+						);
+						})();
+					}
+					else if (node.funcTable) {
+						var $el = null;
+						$smile.find("> nodes").append(
+							$el = $("<deterministic>").attr("id", node.id)
+						);
+						(function(){
+						for (var i=0; i<node.states.length; i++) {
+							var $state = $("<state>").attr("id", node.states[i].id);
+							$el.append($state);
+						}
+						var $parents = $("<parents>");
+						var p = "";
+						for (var i=0; i<node.parents.length; i++) {
+							p += (i!=0?" ":"") + node.parents[i].id;
+						}
+						if (p!=="")  $el.append($parents.text(p));
+						$el.append(
+							$("<resultingstates>").text(Array.prototype.slice.call(node.funcTable).map(function(s){return node.states[s].id;}).join(" "))
+						);
+						})();
+					}
 				}
-				var $parents = $("<parents>");
-				var p = "";
-				for (var i=0; i<node.parents.length; i++) {
-					p += (i!=0?" ":"") + node.parents[i].id;
+				else if (node.type == "decision") {
+					var $el = null;
+					$smile.find("> nodes").append(
+						$el = $("<decision>").attr("id", node.id)
+					);
+					(function(){
+					for (var i=0; i<node.states.length; i++) {
+						var $state = $("<state>").attr("id", node.states[i].id);
+						$el.append($state);
+					}
+					var $parents = $("<parents>");
+					var p = "";
+					for (var i=0; i<node.parents.length; i++) {
+						p += (i!=0?" ":"") + node.parents[i].id;
+					}
+					if (p!=="")  $el.append($parents.text(p));
+					})();
 				}
-				if (p!=="")  $cpt.append($parents.text(p));
-				$cpt.append(
-					$("<probabilities>").text(Array.slice(node.cpt).join(" "))
-				);
-				})();
+				else if (node.type == "utility") {
+					var $el = null;
+					$smile.find("> nodes").append(
+						$el = $("<utility>").attr("id", node.id)
+					);
+					(function(){
+					var $parents = $("<parents>");
+					var p = "";
+					for (var i=0; i<node.parents.length; i++) {
+						p += (i!=0?" ":"") + node.parents[i].id;
+					}
+					if (p!=="")  $el.append($parents.text(p));
+					$el.append(
+						$("<utilities>").text(Array.prototype.slice.call(node.funcTable).map(function(s){return node.states[s].id;}).join(" "))
+					);
+					})();
+				}
 			}
 			$smile.append(
 				'<extensions><genie version="1.0" app="GeNIe 2.0.5219.0" name="Sub0" faultnameformat="nodestate"></genie></extensions>'
@@ -602,14 +734,14 @@ SOFTWARE.
 				var $node = $("<node>").attr("id", node.id);
 				$node
 					.append($("<name>").text(node.label ? node.label : node.id))
-					.append($("<position>").text(node.pos.x+" "+node.pos.y+" "+node.size.width+" "+node.size.height))
+					.append($("<position>").text(node.pos.x+" "+node.pos.y+" "+(node.pos.x+node.size.width)+" "+(node.pos.y+node.size.height)))
 					/// GeNIe is awfully fussy
 					.append('<interior color="e5f6f7" />\
 				<outline color="0000bb" />\
 				<font color="000000" name="Arial" size="8" />')
 				$smile.find("> extensions > genie").append($node);
 			}
-			return '<?xml version="1.0"?>' + $smile[0].outerHTML;
+			return vkbeautify.xml('<?xml version="1.0"?>' + $smile[0].outerHTML).replace(/\r?\n/g, '\r\n');
 		},
 		setUpdateMethod: function(method) {
 			this.updateBeliefs = this["updateBeliefs_"+method];
@@ -704,38 +836,89 @@ SOFTWARE.
 		updateBeliefs_local: function() {
 			var bn = this;
 			var cas = new Int32Array(new ArrayBuffer(bn.nodes.length*4));
+			/// XXX Use following when have continuous (and write code to handle properly)
+			var realCas = new Float32Array(new ArrayBuffer(bn.nodes.length*4));
 
 			for (var i=0; i<bn.nodes.length; i++) {
 				var node = bn.nodes[i];
 				renewArray(node.counts, 0);
 				node.seen = 0;
+				if (node.func) {
+					/// XXX Just to test it out. This is way slower than an Int32Array (about 3 times slower)
+					if (i==0)  cas = new Float32Array(new ArrayBuffer(bn.nodes.length*4));
+					node.samples = [];
+				}
 			}
 
 			/// Convert evidence to array
 			var evidenceArr = new Int32Array(new ArrayBuffer(bn.nodes.length*4));
 			for (var i=0; i<evidenceArr.length; i++)  evidenceArr[i] = -1;
-			for (var i=0; i<this.evidence.length; i++)  evidenceArr[bn.nodesById[i].intId] = Number(this.evidence[i]);
+			for (var i in this.evidence)  evidenceArr[bn.nodesById[i].intId] = Number(this.evidence[i]);
 
 			/// Generate cases
 			for (var i=0; i<this.iterations; i++) {
-				var weight = this.generateCase(evidenceArr, cas);
+				var weight = this.generateCase(evidenceArr, cas, realCas);
 
 				/// For each state of a non-E node, count occurrence given E
 				//onsole.log(evidenceArr, Array.apply([], cas), weight);
 				for (var intId=0; intId<cas.length; intId++) {
 					var node = bn.nodes[intId];
-					//node.counts[cas[v]] += 1;
-					//node.seen += 1;
-					// Do likelihood weighting instead
-					node.counts[cas[intId]] += weight;
-					node.seen += weight;
+					if (node.func) {
+						node.samples.push(cas[intId]);
+					}
+					else {
+						//node.counts[cas[v]] += 1;
+						//node.seen += 1;
+						// Do likelihood weighting instead
+						node.counts[cas[intId]] += weight;
+						node.seen += weight;
+					}
 				}
 			}
 
 			for (var i=0; i<bn.nodes.length; i++) {
 				var node = bn.nodes[i];
-				for (var j=0; j<node.beliefs.length; j++) {
-					if (node.seen>0)  node.beliefs[j] = node.counts[j]/node.seen;
+				if (node.func) {
+					var maxStates = 10;
+					/// Do we have something that looks discrete?
+					var samplesSeen = new Map();
+					for (var j=0; j<node.samples.length; j++) {
+						samplesSeen.set(node.samples[j], (samplesSeen.get(node.samples[j]) || 0) + 1);
+						if (samplesSeen.size > maxStates)  break;
+					}
+					if (samplesSeen.size <= maxStates) {
+						var states = [];
+						samplesSeen.forEach(function(v,k) {
+							states.push([k,v]);
+						});
+						states.sort(function(a,b) { return a[0] - b[0] });
+						var labels = [];
+						var beliefs = [];
+						for (var j=0; j<states.length; j++) {
+							labels.push(states[j][0]);
+							beliefs.push(states[j][1]/node.samples.length);
+						}
+						node.removeStates();
+						node.addStates(labels);
+						node.beliefs = beliefs;
+					}
+					else {
+						var discInfo = generateMultinomialFromSamples(node.samples, maxStates);
+						node.removeStates();
+						var labels = [];
+						for (var j=0; j<discInfo.boundaries.length-1; j++) {
+							labels[j] = '['+sigFig(discInfo.boundaries[j],3)+"-"+sigFig(discInfo.boundaries[j+1],3);
+							labels[j] += (j+2==discInfo.boundaries.length) ? ']' : ')';
+						}
+						node.addStates(labels);
+						node.beliefs = discInfo.bins;
+					}
+					node._updateDisplay = true;
+				}
+				else {
+					for (var j=0; j<node.beliefs.length; j++) {
+						if (node.seen>0)  node.beliefs[j] = node.counts[j]/node.seen;
+					}
 				}
 			}
 		},
@@ -762,7 +945,22 @@ SOFTWARE.
 				}
 				//return rowI;
 
-				if (_node.cpt) {
+				if (_node.func) {
+					/// Evidence not supported yet!
+					if (evidence[_node.intId] != -1) {
+
+					}
+					else {
+						/// Generate value for node
+						var parents = _node.parents;
+						var parentStates = [];
+						for (var pi=0; pi<parents.length; pi++) {
+							parentStates.push(cas[parents[pi].intId]);
+						}
+						cas[_node.intId] = _node.func.apply(null, parentStates);
+					}
+				}
+				else if (_node.cpt) {
 					if (evidence[_node.intId] != -1) {
 						/// Force evidence
 						cas[_node.intId] = evidence[_node.intId];
@@ -947,6 +1145,26 @@ SOFTWARE.
 				st += dt;
 			}
 			alert(st/100);
+		},
+		perfCheckWorker: function() {
+			var bn = this;
+			var t, dt, st = 0;
+			var i = -1;
+			t = performance.now();
+			(function u() {
+				i++;
+				if (i>0) {
+					dt = performance.now() - t;
+					st += dt;
+				}
+				if (i<100) {
+					t = performance.now();
+					bn.updateBeliefs_worker(u);
+				}
+				else {
+					alert(st/100);
+				}
+			})();
 		},
 		/// nodeRef: for now, the id as a string
 		getBeliefs: function(nodeRef) {
@@ -1175,6 +1393,10 @@ SOFTWARE.
 				if (node.slice != 0)  break;
 
 				var $displayNode = outputEl.find("#display_"+node.id);
+				if (node._updateDisplay) {
+					this.displayNode(outputEl, node, $displayNode);
+					node._updateDisplay = false;
+				}
 				var stateI = 0;
 				var allBeliefs = this.getDbnBeliefs(node.id);
 				$displayNode.find(".state").each(function() {
@@ -1199,6 +1421,37 @@ SOFTWARE.
 				$(".status .expectedValue .val").text(Math.round(this.expectedValue*1000)/1000);
 			}
 		},
+		displayNode: function(outputEl, node, $displayNode) {
+			if (!$displayNode) {
+				$displayNode = $("<div class=node id=display_"+node.id+" draggable=true>")
+					.css({left: node.pos.x+"px", top: node.pos.y+"px"})
+					.append(
+						$("<h6>").text(node.label ? node.label : node.id)
+					)
+					.appendTo(outputEl);
+			}
+			if (node.dynamic)  $displayNode.addClass("dynamic");
+			$displayNode.addClass(node.type);
+			/// Clear out any existing states first
+			$displayNode.find(".state").remove();
+			for (var j=0; j<node.states.length; j++) {
+				var state = node.states[j];
+				$displayNode.append(
+					$("<div class=state>").append(
+						$("<div class=stateName>").text(state.id)
+					).append(
+						$("\
+						<div class=prob></div>\
+						<div class=beliefBarView>\
+							<div class=beliefBar></div>\
+						</div>\
+						")
+					)
+				);
+			}
+
+			return $displayNode;
+		},
 		display: function(outputEl) {
 			outputEl = outputEl || this.outputEl;
 			outputEl.empty();
@@ -1217,29 +1470,8 @@ SOFTWARE.
 				var node = bn.nodes[i];
 				if (node.engineOnly)  continue;
 
-				var $displayNode = displayNodes[node.id] = $("<div class=node id=display_"+node.id+" draggable=true>")
-					.css({left: node.pos.x+"px", top: node.pos.y+"px"})
-					.append(
-						$("<h6>").text(node.label ? node.label : node.id)
-					)
-					.appendTo(outputEl);
-				if (node.dynamic)  $displayNode.addClass("dynamic");
-				$displayNode.addClass(node.type);
-				for (var j=0; j<node.states.length; j++) {
-					var state = node.states[j];
-					$displayNode.append(
-						$("<div class=state>").append(
-							$("<div class=stateName>").text(state.id)
-						).append(
-							$("\
-							<div class=prob></div>\
-							<div class=beliefBarView>\
-								<div class=beliefBar></div>\
-							</div>\
-							")
-						)
-					);
-				}
+				var $displayNode = this.displayNode(outputEl, node);
+				displayNodes[node.id] = $displayNode;
 
 				/// Get max x/y as extents for canvas
 				var b = draw.getBox($displayNode);
@@ -1248,7 +1480,7 @@ SOFTWARE.
 			}
 
 			/// Resize the SVG
-			console.log(maxX, maxY);
+			//console.log(maxX, maxY);
 			$(".netSvgCanvas").attr("width", maxX).attr("height", maxY);
 
 			/// Draw all the arcs
@@ -1271,9 +1503,10 @@ SOFTWARE.
 						//onsole.log("child:", node.id, child);
 
 						var path = draw.drawArrowBetweenBoxes($(".netSvgCanvas"), par, child);
+						$(path).attr("id", (""+Math.random()).replace(/\./, '_'));
 						/// XXX Update these if nodes can be deleted
-						node.pathsIn.push([path,parent]);
-						parent.pathsOut.push([path,node]);
+						node.pathsIn.push([$(path).attr("id"),parent]);
+						parent.pathsOut.push([$(path).attr("id"),node]);
 					}
 				}
 			}
@@ -1291,12 +1524,25 @@ SOFTWARE.
 
 			for (var i=0; i<node.pathsIn.length; i++) {
 				var $parent = this.outputEl.find("#display_"+node.pathsIn[i][1].id);
-				draw.drawArrowBetweenBoxes(node.pathsIn[i][0], draw.getBox($parent), draw.getBox($node));
+				draw.drawArrowBetweenBoxes($("#"+node.pathsIn[i][0]), draw.getBox($parent), draw.getBox($node));
 			}
 			for (var i=0; i<node.pathsOut.length; i++) {
 				var $child = this.outputEl.find("#display_"+node.pathsOut[i][1].id);
-				draw.drawArrowBetweenBoxes(node.pathsOut[i][0], draw.getBox($node), draw.getBox($child));
+				draw.drawArrowBetweenBoxes($("#"+node.pathsOut[i][0]), draw.getBox($node), draw.getBox($child));
 			}
+		},
+		resizeCanvasToFit: function() {
+			var maxX = 0;
+			var maxY = 0;
+			for (var i=0; i<currentBn.nodes.length; i++) {
+				var node = currentBn.nodes[i];
+				var $displayNode = $("#display_"+node.id);
+				/// Get max x/y as extents for canvas
+				var b = draw.getBox($displayNode);
+				maxX = Math.max(maxX, b.x+b.width);
+				maxY = Math.max(maxY, b.y+b.height);
+			}
+			$(".netSvgCanvas").attr("width", maxX).attr("height", maxY);
 		},
 	});
 
@@ -1306,7 +1552,7 @@ SOFTWARE.
 		},
 		saveFile: function() {
 			$("a#download")
-				.attr('href', 'data:text/plain;,'+currentBn.save_xdsl())
+				.attr('href', 'data:text/plain;base64,'+window.btoa(currentBn.save_xdsl()))
 				.attr('download', currentBn.fileName)
 				[0].click();
 		},
@@ -1348,7 +1594,10 @@ SOFTWARE.
 
 			for (var i=0; i < currentBn.nodes.length; i++) {
 				var node = currentBn.nodes[i];
-				g.setNode(node.id, { label: (node.label || node.id), width: node.size.width, height: node.size.height} );
+				var $node = $("#display_"+node.id);
+				var width = $node.outerWidth();
+				var height = $node.outerHeight();
+				g.setNode(node.id, { label: (node.label || node.id), width: width, height: height} );
 			}
 
 			for (var i=0; i < currentBn.nodes.length; i++) {
@@ -1361,22 +1610,34 @@ SOFTWARE.
 			dagre.layout(g);
 
 			g.nodes().forEach(function(nodeId) {
-				console.log(currentBn.nodesById[nodeId]);
-				currentBn.nodesById[nodeId].pos.x = g.node(nodeId).x;
-				currentBn.nodesById[nodeId].pos.y = g.node(nodeId).y;
+				//console.log(currentBn.nodesById[nodeId]);
+				var x = Math.round(g.node(nodeId).x), y = Math.round(g.node(nodeId).y);
+				currentBn.nodesById[nodeId].pos.x = x;
+				currentBn.nodesById[nodeId].pos.y = y;
+				$("#display_"+nodeId).css({top: y, left: x});
 			});
 
-			currentBn.display();
-			currentBn.displayBeliefs();
+			for (var i=0; i<currentBn.nodes.length; i++) {
+				var node = currentBn.nodes[i];
+				var $child = $("#display_"+node.id);
+				for (var j=0; j<node.pathsIn.length; j++) {
+					$parent = $("#display_"+node.pathsIn[j][1].id);
+					draw.drawArrowBetweenBoxes($("#"+node.pathsIn[j][0]), draw.getBox($parent), draw.getBox($child));
+				}
+			}
+
+			currentBn.resizeCanvasToFit();
+			/*currentBn.display();
+			currentBn.displayBeliefs();*/
 		},
 	};
 
 	$(document).ready(function() {
-		var exampleBns = "Asia.xdsl|RS Latch.xdsl|Umbrella.xdsl|Water.xdsl".split(/\|/);
+		var exampleBns = "Asia.xdsl|Continuous Test.xdsl|RS Latch.xdsl|Umbrella.xdsl|Water.xdsl".split(/\|/);
 		var exampleBnActions = [];
 		for (var i in exampleBns) {
 			/// Need html escape function
-			exampleBnActions[i] = MenuAction('<span data-name="'+exampleBns[i]+'">'+exampleBns[i]+'</span>', function() {
+			exampleBnActions[i] = MenuAction('<span data-name="'+exampleBns[i]+'" style="white-space: nowrap;">'+exampleBns[i]+'</span>', function() {
 				window.location.href = "?file=bns/"+$(this).find('span').data("name");
 			});
 		}
@@ -1395,7 +1656,8 @@ SOFTWARE.
 				MenuAction("Find Good Decisions", function() { app.findGoodDecisions(); dismissActiveMenus(); }),
 				MenuAction("Auto-Layout", function() { app.autoLayout(); dismissActiveMenus(); }),
 				MenuAction('# Samples: <input type="text" name="iterations" value="1000">', function() { }),
-				//MenuAction('(perfcheck)', function() { currentBn.perfCheck(); }),
+				MenuAction('(perfcheck)', function() { currentBn.perfCheck(); }),
+				MenuAction('(perfcheckworker)', function() { currentBn.perfCheckWorker(); }),
 			]}),
 		]});
 

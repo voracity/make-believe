@@ -56,9 +56,9 @@ function updateBeliefs_local(bn, evidenceArr, iterations) {
 		}
 	}
 
-	for (var i in bn.nodes) {
+	for (var i=0; i<bn.nodes.length; i++) {
 		var node = bn.nodes[i];
-		for (var j in node.beliefs) {
+		for (var j=0; j<node.beliefs.length; j++) {
 			if (node.seen>0)  node.beliefs[j] = node.counts[j]/node.seen;
 		}
 	}
@@ -79,7 +79,15 @@ function generateCase(bn, evidence, cas) {
 		var _node = bn._nodeOrdering[ni];
 		cas[_node.intId] = 0;
 
-		var rowI = _getRowI(_node.parents, cas);
+		/** I believe inlining this is very slightly quicker **/
+		//var rowI = this._getRowI(_node.parents, cas);
+		var parents = _node.parents;
+		var rowI = 0;
+		var multiplier = 1;
+		for (var pi=parents.length-1; pi>=0; pi--) {
+			rowI += multiplier*cas[parents[pi].intId];
+			multiplier *= parents[pi].states.length;
+		}
 
 		if (_node.cpt) {
 			if (evidence[_node.intId] != -1) {
