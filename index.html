@@ -22,7 +22,7 @@ SOFTWARE.
 <!doctype HTML>
 <html>
 <head>
-	<title>Make-Believe (R12)</title>
+	<title>Make-Believe (R13)</title>
 	<script src="jquery.min.js"></script>
 	<script src="vkbeautify.0.99.00.beta.js"></script>
 	<script src="beliefUpdate_worker.js"></script>
@@ -33,7 +33,7 @@ SOFTWARE.
 	<link href="menu_styles.css" type="text/css" rel="stylesheet" />
 	<script src="menu_styles.js"></script>
 	<script>
-	var titlePostfix = "Make-Believe (R12)";
+	var titlePostfix = "Make-Believe (R13)";
 	var openBns = [];
 	var currentBn = null;
 
@@ -256,6 +256,8 @@ SOFTWARE.
 		this.statesById = {};
 		/// Pointers to the parents of this node
 		this.parents = [];
+		/// Cache of parent state values
+		this.parentStates = [];
 		/// Pointers to the children of this node
 		this.children = [];
 		/// The CPT, preferably as a typed float array (only if discrete probabilistic)
@@ -325,6 +327,44 @@ SOFTWARE.
 				this.statesById[stateName] = this.states.length-1;
 			}
 		},
+		discretizeFromSamples: function() {
+			var node = this;
+			var maxStates = 10;
+			/// Do we have something that looks discrete?
+			var samplesSeen = new Map();
+			for (var j=0; j<node.samples.length; j++) {
+				samplesSeen.set(node.samples[j], (samplesSeen.get(node.samples[j]) || 0) + 1);
+				if (samplesSeen.size > maxStates)  break;
+			}
+			if (samplesSeen.size <= maxStates) {
+				var states = [];
+				samplesSeen.forEach(function(v,k) {
+					states.push([k,v]);
+				});
+				states.sort(function(a,b) { return a[0] - b[0] });
+				var labels = [];
+				var beliefs = [];
+				for (var j=0; j<states.length; j++) {
+					labels.push(states[j][0]);
+					beliefs.push(states[j][1]/node.samples.length);
+				}
+				node.removeStates();
+				node.addStates(labels);
+				node.beliefs = beliefs;
+			}
+			else {
+				var discInfo = generateMultinomialFromSamples(node.samples, maxStates);
+				node.removeStates();
+				var labels = [];
+				for (var j=0; j<discInfo.boundaries.length-1; j++) {
+					labels[j] = '['+sigFig(discInfo.boundaries[j],3)+"-"+sigFig(discInfo.boundaries[j+1],3);
+					labels[j] += (j+2==discInfo.boundaries.length) ? ']' : ')';
+				}
+				node.addStates(labels);
+				node.beliefs = discInfo.bins;
+			}
+			node._updateDisplay = true;
+		}
 	};
 
 	/**
@@ -340,6 +380,7 @@ SOFTWARE.
 		var cpt = null;
 		var funcTable = null;
 		var func = null;
+		var funcDef = null;
 		var utils = null;
 
 		if ($el.is("cpt")) {
@@ -366,9 +407,20 @@ SOFTWARE.
 			/// Do the minimum conversion needed to get it into JS
 			/// XXX-fix: Properly parse the equation!
 			/// Note: Parents will always be in the order defined here, so this approach is fine
-			func = new Function($el.find("parents").text().replace(/\s+/g, ','),
-				'return '+$el.find("definition").text().replace(new RegExp('^'+$el.attr('id')+'\\s*=\\s*', 'g'), '')
-			);
+			var pars = $el.find("parents").text().split(/\s+/);
+			var bodyDef = $el.find("definition").text().replace(new RegExp('^'+$el.attr('id')+'\\s*=\\s*', 'g'), '');
+			for (var p=0; p<pars.length; p++) {
+				if (pars[p]) {
+					console.log(pars, bodyDef);
+					bodyDef = bodyDef.replace(new RegExp('\\b'+pars[p]+'\\b', 'g'), '__pars['+p+']');
+					console.log(pars, bodyDef);
+				}
+			}
+			funcDef = [
+				'__pars',
+				'return '+bodyDef
+			];
+			//func = new Function(funcDef[0], funcDef[1]);
 		}
 		else if ($el.is("decision")) {
 			/// Replace with uniform CPT --- later, though, because we don't necessarily know
@@ -396,6 +448,7 @@ SOFTWARE.
 			cpt: cpt,
 			funcTable: funcTable,
 			func: func,
+			funcDef: funcDef,
 			utilities: utils,
 			dbnOrder: $el.is("[order]") ? Number($el.attr("order")) : 0,
 			dynamic: $el.attr("dynamic")=="plate",
@@ -404,8 +457,9 @@ SOFTWARE.
 			size: {width: Number(posInfo[2])-Number(posInfo[0]), height: Number(posInfo[3])-Number(posInfo[1])},
 		});
 		console.log(node, $extInfo);
-		node.beliefs = newArray(node.states.length,0);
-		node.counts = newArray(node.states.length,0);
+		node.beliefs = new Float32Array(new ArrayBuffer(node.states.length*4));
+		node.counts = new Int32Array(new ArrayBuffer(node.states.length*4));
+		node.parentStates = new Float32Array(new ArrayBuffer(node.parents.length*4));
 		return node;
 	}
 
@@ -418,9 +472,9 @@ SOFTWARE.
 		this.outputEl = $(o.outputEl);
 
 		/// Use worker threads to do belief updating?
-		this.useWorkers = false;
+		this.useWorkers = true;
 		this._workers = [];
-		this.numWorkers = 4;
+		this.numWorkers = 2;
 
 		this.evidence = {};
 
@@ -765,7 +819,8 @@ SOFTWARE.
 				currentBn.expectedValue = totalUtility;
 			}
 		},
-		updateBeliefs_worker: function(callback) {
+		updateBeliefs_worker: function(callback, iterations) {
+			if (!iterations) { iterations = this.iterations; }
 			var bn = this;
 			/// Extract the key parts of the BN needed to do the inference
 			var bnToPass = {nodes: []};
@@ -773,6 +828,9 @@ SOFTWARE.
 				if (typeof(bn[k])!="function") {
 					bnToPass[k] = bn[k];
 				}
+			}
+			for (var i=0; i<bnToPass.nodes.length; i++) {
+				bnToPass.nodes[i].func = null;
 			}
 			bnToPass.objs = null;
 			bnToPass.outputEl = null;
@@ -802,23 +860,30 @@ SOFTWARE.
 				var numComplete = 0;
 				for (var wi=0; wi<numWorkers; wi++) {
 					var w = this._workers[wi];
-					w.postMessage([1, evidenceArr, bn.iterations]);
+					w.postMessage([1, evidenceArr, Math.ceil(iterations/numWorkers)]);
 					w.onmessage = function(e) {
 						if (e.data[0]==0) {
 							numComplete++;
 							var workerBeliefs = e.data[1];
+							var workerSamples = e.data[2];
 							for (var i=0; i<workerBeliefs.length; i++) {
 								/*console.log(workerBn.nodes[i].id, workerBn.nodes[i].beliefs);*/
 								if (numComplete==1) {
 									bn.nodes[i].beliefs = workerBeliefs[i];
+									bn.nodes[i].samples = workerSamples[i];
 								}
 								else {
 									var allBeliefs = bn.nodes[i].beliefs;
+									var allSamples = Array.prototype.slice.call(bn.nodes[i].samples);
 									for (var bi=0; bi<allBeliefs.length; bi++) {
 										allBeliefs[bi] += workerBeliefs[i][bi];
 										if (numComplete == numWorkers) {
 											allBeliefs[bi] /= numComplete;
 										}
+									}
+									allSamples.concat(workerSamples[i]);
+									if (bn.nodes[i].funcDef && numComplete == numWorkers) {
+										bn.nodes[i].discretizeFromSamples();
 									}
 								}
 							}
@@ -833,7 +898,31 @@ SOFTWARE.
 				}
 			}
 		},
-		updateBeliefs_local: function() {
+		updateBeliefs_local: function(iterations) {
+			if (!iterations) { iterations = this.iterations; }
+			var bn = this;
+
+			/// Convert evidence to array
+			var evidenceArr = new Int32Array(new ArrayBuffer(bn.nodes.length*4));
+			for (var i=0; i<evidenceArr.length; i++)  evidenceArr[i] = -1;
+			for (var i in this.evidence)  evidenceArr[bn.nodesById[i].intId] = Number(this.evidence[i]);
+
+			updateBeliefs_local(bn, evidenceArr, iterations);
+
+			for (var i=0; i<bn.nodes.length; i++) {
+				var node = bn.nodes[i];
+				if (node.func) {
+					node.discretizeFromSamples();
+				}
+				else {
+					for (var j=0; j<node.beliefs.length; j++) {
+						if (node.seen>0)  node.beliefs[j] = node.counts[j]/node.seen;
+					}
+				}
+			}
+			return;
+
+			/*if (!iterations) { iterations = this.iterations; }
 			var bn = this;
 			var cas = new Int32Array(new ArrayBuffer(bn.nodes.length*4));
 			/// XXX Use following when have continuous (and write code to handle properly)
@@ -843,7 +932,8 @@ SOFTWARE.
 				var node = bn.nodes[i];
 				renewArray(node.counts, 0);
 				node.seen = 0;
-				if (node.func) {
+				if (node.funcDef) {
+					node.func = new Function(node.funcDef[0], node.funcDef[1]);
 					/// XXX Just to test it out. This is way slower than an Int32Array (about 3 times slower)
 					if (i==0)  cas = new Float32Array(new ArrayBuffer(bn.nodes.length*4));
 					node.samples = [];
@@ -879,48 +969,14 @@ SOFTWARE.
 			for (var i=0; i<bn.nodes.length; i++) {
 				var node = bn.nodes[i];
 				if (node.func) {
-					var maxStates = 10;
-					/// Do we have something that looks discrete?
-					var samplesSeen = new Map();
-					for (var j=0; j<node.samples.length; j++) {
-						samplesSeen.set(node.samples[j], (samplesSeen.get(node.samples[j]) || 0) + 1);
-						if (samplesSeen.size > maxStates)  break;
-					}
-					if (samplesSeen.size <= maxStates) {
-						var states = [];
-						samplesSeen.forEach(function(v,k) {
-							states.push([k,v]);
-						});
-						states.sort(function(a,b) { return a[0] - b[0] });
-						var labels = [];
-						var beliefs = [];
-						for (var j=0; j<states.length; j++) {
-							labels.push(states[j][0]);
-							beliefs.push(states[j][1]/node.samples.length);
-						}
-						node.removeStates();
-						node.addStates(labels);
-						node.beliefs = beliefs;
-					}
-					else {
-						var discInfo = generateMultinomialFromSamples(node.samples, maxStates);
-						node.removeStates();
-						var labels = [];
-						for (var j=0; j<discInfo.boundaries.length-1; j++) {
-							labels[j] = '['+sigFig(discInfo.boundaries[j],3)+"-"+sigFig(discInfo.boundaries[j+1],3);
-							labels[j] += (j+2==discInfo.boundaries.length) ? ']' : ')';
-						}
-						node.addStates(labels);
-						node.beliefs = discInfo.bins;
-					}
-					node._updateDisplay = true;
+					node.discretizeFromSamples();
 				}
 				else {
 					for (var j=0; j<node.beliefs.length; j++) {
 						if (node.seen>0)  node.beliefs[j] = node.counts[j]/node.seen;
 					}
 				}
-			}
+			}*/
 		},
 		generateCase: function(evidence, cas) {
 			var bn = this;
@@ -953,11 +1009,10 @@ SOFTWARE.
 					else {
 						/// Generate value for node
 						var parents = _node.parents;
-						var parentStates = [];
 						for (var pi=0; pi<parents.length; pi++) {
-							parentStates.push(cas[parents[pi].intId]);
+							_node.parentStates[pi] = cas[parents[pi].intId];
 						}
-						cas[_node.intId] = _node.func.apply(null, parentStates);
+						cas[_node.intId] = _node.func(_node.parentStates);
 					}
 				}
 				else if (_node.cpt) {
@@ -1138,9 +1193,9 @@ SOFTWARE.
 		},
 		perfCheck: function() {
 			var t, dt, st = 0;
-			for (var i=0; i<100; i++) {
+			for (var i=0; i<this.perfLoops; i++) {
 				t = performance.now();
-				this.updateBeliefs_local(1000);
+				this.updateBeliefs_local(this.perfIterations);
 				dt = performance.now() - t;
 				st += dt;
 			}
@@ -1157,9 +1212,9 @@ SOFTWARE.
 					dt = performance.now() - t;
 					st += dt;
 				}
-				if (i<100) {
+				if (i<bn.perfLoops) {
 					t = performance.now();
-					bn.updateBeliefs_worker(u);
+					bn.updateBeliefs_worker(u, this.perfIterations);
 				}
 				else {
 					alert(st/100);
@@ -1656,8 +1711,13 @@ SOFTWARE.
 				MenuAction("Find Good Decisions", function() { app.findGoodDecisions(); dismissActiveMenus(); }),
 				MenuAction("Auto-Layout", function() { app.autoLayout(); dismissActiveMenus(); }),
 				MenuAction('# Samples: <input type="text" name="iterations" value="1000">', function() { }),
-				MenuAction('(perfcheck)', function() { currentBn.perfCheck(); }),
-				MenuAction('(perfcheckworker)', function() { currentBn.perfCheckWorker(); }),
+			]}),
+			Menu({label:"(Debug)", items: [
+				MenuAction('# Workers: <input type="text" name="numWorkers" value="2">', function() { }),
+				MenuAction('# Perf Loops: <input type="text" name="perfLoops" value="100">', function() { }),
+				MenuAction('# Perf Samples: <input type="text" name="perfIterations" value="1000">', function() { }),
+				MenuAction('Perf Check Local', function() { currentBn.perfCheck(); }),
+				MenuAction('Perf Check Worker', function() { currentBn.perfCheckWorker(); }),
 			]}),
 		]});
 
@@ -1816,6 +1876,18 @@ SOFTWARE.
 		$("[name=iterations]").on("keyup", function(evt) {
 			var numIterations = $(evt.target).val();
 			currentBn.iterations = numIterations;
+		});
+		$("[name=perfLoops]").on("keyup", function(evt) {
+			var numLoops = $(evt.target).val();
+			currentBn.perfLoops = numLoops;
+		});
+		$("[name=perfIterations]").on("keyup", function(evt) {
+			var numIterations = $(evt.target).val();
+			currentBn.perfIterations = numIterations;
+		});
+		$("[name=numWorkers]").on("keyup", function(evt) {
+			var numWorkers = $(evt.target).val();
+			currentBn.numWorkers = parseInt(numWorkers);
 		});
 
 		if (window.qs.file) {
