@@ -1,0 +1,93 @@
+// ~->[DNET-1]->~
+
+bnet Sub0 {
+    title = "Sub0";
+    comment = "";
+    visual V1 {
+    };
+
+node Pollution {
+    kind = NATURE;
+    discrete = TRUE;
+    chance = CHANCE;
+    title = "Pollution";
+    parents = ();
+    states = (low, high);
+    probs = 
+        (0.90000000, 0.10000000);
+    user U1 {
+    };
+visual V1 {
+    center = (227, 100);
+};
+};
+
+node Smoker {
+    kind = NATURE;
+    discrete = TRUE;
+    chance = CHANCE;
+    title = "Smoker";
+    parents = ();
+    states = (True, False);
+    probs = 
+        (0.30000000, 0.70000000);
+    user U1 {
+    };
+visual V1 {
+    center = (509, 100);
+};
+};
+
+node Cancer {
+    kind = NATURE;
+    discrete = TRUE;
+    chance = CHANCE;
+    title = "Cancer";
+    parents = (Pollution, Smoker);
+    states = (True, False);
+    probs = 
+        (((0.03000000, 0.97000000),
+        (0.00100000, 0.99900000)),
+        ((0.05000000, 0.95000000),
+        (0.02000000, 0.98000000)));
+    user U1 {
+    };
+visual V1 {
+    center = (370, 224);
+};
+};
+
+node Xray {
+    kind = NATURE;
+    discrete = TRUE;
+    chance = CHANCE;
+    title = "Xray";
+    parents = (Cancer);
+    states = (positive, negative);
+    probs = 
+        ((0.90000000, 0.10000000),
+        (0.20000000, 0.80000000));
+    user U1 {
+    };
+visual V1 {
+    center = (509, 343);
+};
+};
+
+node Dyspnoea {
+    kind = NATURE;
+    discrete = TRUE;
+    chance = CHANCE;
+    title = "Dyspnoea";
+    parents = (Cancer);
+    states = (True, False);
+    probs = 
+        ((0.65000000, 0.35000000),
+        (0.30000000, 0.70000000));
+    user U1 {
+    };
+visual V1 {
+    center = (227, 343);
+};
+};
+};
