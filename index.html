@@ -59,6 +59,15 @@ SOFTWARE.
 		return v;
 	}
 
+	function toHtml(str) {
+		str = str
+			.replace(/</g, '&lt;')
+			.replace(/>/g, '&gt;')
+			.replace(/"/g, '&quot;')
+			.replace(/&/g, '&amp;');
+		return str;
+	}
+
 	/// Inconsistencies between html and svg are very annoying
 	function makeSvg(tag, attrs) {
 		var el= document.createElementNS('http://www.w3.org/2000/svg', tag);
@@ -244,7 +253,7 @@ SOFTWARE.
 
 	function dismissDialog($a, callback) {
 		$a.fadeOut(300);
-		$a.data("veil").animate({opacity: 0}, 300, function() { $(this).hide(); if (callback)  callback(); });
+		$a.data("veil").animate({opacity: 0}, 300, function() { $(this).hide(); if (typeof(callback)=="function")  callback(); });
 		$a.data("veil").remove();
 		$a.remove();
 	}
@@ -264,6 +273,8 @@ SOFTWARE.
 		/*
 			Member vars and their defaults
 		*/
+		/// The net to which the node belongs
+		this.net = null;
 		/// The node's ID (as per GeNIe)
 		this.id = null;
 		/// The node's label (equivalent to Netica's 'title', or GeNIe's 'name')
@@ -323,6 +334,7 @@ SOFTWARE.
 		for (var i in o) {
 			this[i] = o[i];
 		}
+		console.log("XXXXXXXXX", this);
 	}
 	Node.prototype = {
 		numParentCombinations: function() {
@@ -384,7 +396,22 @@ SOFTWARE.
 				node.beliefs = discInfo.bins;
 			}
 			node._updateDisplay = true;
-		}
+		},
+		/// Need to avoid clashes with property names
+		cpt1d: function(newCpt) {
+			if (typeof(newCpt)=="undefined") {
+				return this.cpt;
+			}
+			else {
+				/// XXX Need to add lots of validation, fixes and the like
+				/// here
+				for (var i=0; i<newCpt.length; i++) {
+					/// Since cpt is a float32 array, this will auto-convert strings
+					this.cpt[i] = newCpt[i];
+				}
+				this.net.needsCompile = true;
+			}
+		},
 	};
 
 	/**
@@ -457,9 +484,12 @@ SOFTWARE.
 		var $extInfo = $xdsl.find("> extensions > genie > node#"+$el.attr("id"));
 		var posInfo = $extInfo.find("position").text().split(/\s+/);
 
+		console.log("OPTS:", opts);
+
 		/// We will define what we can for Node, and then fix things
 		/// up later.
 		var node = new Node({
+			net: opts.net,
 			id: $el.attr("id"),
 			label: $el.attr("name"),
 			type: $el.is("decision") ? "decision" : $el.is("utility") ? "utility" : "nature",
@@ -532,7 +562,7 @@ SOFTWARE.
 			this.nodesById = {};
 			this._rootNodes = [];
 			this.objs.find("> nodes cpt, > nodes deterministic, > nodes decision, > nodes utility, > nodes equation").each(function() {
-				var node = makeNodeFromXdslEl(this, bn.objs);
+				var node = makeNodeFromXdslEl(this, bn.objs, {net: bn});
 				bn.nodes.push(node);
 				bn.nodesById[node.id] = node;
 				if ($(this).is("utility")) {
@@ -580,7 +610,7 @@ SOFTWARE.
 					}
 
 					bn.objs.find("> nodes cpt, > nodes deterministic, > nodes decision, > nodes utility").each(function() {
-						var node = makeNodeFromXdslEl(this, bn.objs, {engineOnly:true});
+						var node = makeNodeFromXdslEl(this, bn.objs, {engineOnly:true, net: bn});
 						node.id = node.id +"_"+ sliceNum;
 						node.slice = sliceNum;
 						bn.nodes.push(node);
@@ -590,7 +620,7 @@ SOFTWARE.
 					});
 
 					$dyn.find("> cpt, > deterministic, > nodes decision, > nodes utility").each(function() {
-						var tempNode = makeNodeFromXdslEl(this, bn.objs, {engineOnly:true});
+						var tempNode = makeNodeFromXdslEl(this, bn.objs, {engineOnly:true, net: bn});
 						tempNode.id = tempNode.id+"_"+sliceNum;
 						var node = bn.nodesById[tempNode.id];
 
@@ -651,6 +681,7 @@ SOFTWARE.
 				catch (e) {}
 				console.log("CPT:", cpt);
 				var node = new Node({
+					net: this,
 					id: omNode.children[1],
 					parents: JSON.search(omNode, '//*[children[1]="parents"]/children[3]/children')[0].replace(/[\(\)\s]/g, '')._splitNotEmpty(/,/),
 					states: states,
@@ -900,7 +931,9 @@ SOFTWARE.
 					bnToPass[k] = bn[k];
 				}
 			}
+			/// Not sure about nulling out net and then restoring it after sent
 			for (var i=0; i<bnToPass.nodes.length; i++) {
+				bnToPass.nodes[i].net = null;
 				bnToPass.nodes[i].func = null;
 			}
 			bnToPass.objs = null;
@@ -915,12 +948,17 @@ SOFTWARE.
 			var numWorkers = this.numWorkers;
 
 			/// Make the workers and store the BN just once
-			if (!this._workers.length) {
+			if (this.needsCompile || !this._workers.length) {
 				this._workers = [];
 				for (var wi=0; wi<numWorkers; wi++) {
 					this._workers[wi] = new Worker("beliefUpdate_worker.js");
 					this._workers[wi].postMessage([0, bnToPass]);
 				}
+				this.needsCompile = false;
+			}
+
+			for (var i=0; i<bnToPass.nodes.length; i++) {
+				bnToPass.nodes[i].net = this;
 			}
 
 			if (false) {
@@ -1331,6 +1369,39 @@ SOFTWARE.
 			}
 
 			return allBeliefs;
+		},
+		setupIndexes: function(nodes) {
+			var indexes = new Array(nodes.length);
+			for (var i=0; i<indexes.length; i++)  indexes[i] = 0;
+			return indexes;
+		},
+		nextCombination: function(nodes, indexes) {
+			var hasMore = false;
+			for (var i=indexes.length-1; i>=0; i--) {
+				indexes[i]++;
+				if (indexes[i] >= nodes[i].states.length) {
+					indexes[i] = 0;
+				}
+				else {
+					hasMore = true;
+					break;
+				}
+			}
+			return hasMore;
+		},
+		prevCombination: function(nodes, indexes) {
+			var hasMore = false;
+			for (var i=indexes.length-1; i>=0; i--) {
+				indexes[i]--;
+				if (indexes[i] < 0) {
+					indexes[i] = 0;
+				}
+				else {
+					hasMore = true;
+					break;
+				}
+			}
+			return hasMore;
 		},
 	};
 
@@ -1912,20 +1983,50 @@ SOFTWARE.
 		});
 
 		$(document).on("dblclick", ".node", function() {
-			var $table = $("<table>");
+			var $table = $("<table class=cpt>");
 			var node = currentBn.nodesById[$(this).attr("id").replace(/^display_/, '')];
 			var npc = node.numParentCombinations();
+			var parentIndexes = currentBn.setupIndexes(node.parents);
+			/// Write out header
+			var $tr = $('<tr>');
+			for (var i=0; i<node.parents.length; i++) {
+				$tr.append('<th>'+toHtml(node.parents[i].id)+'</th>');
+			}
+			for (var i=0; i<node.states.length; i++) {
+				$tr.append('<th>'+toHtml(node.states[i].id)+'</th>');
+			}
+			$table.append($tr);
+			/// Write out each row
 			for (var i=0; i<npc; i++) {
 				var row = node.getRow(i);
 				var $tr = $("<tr>");
+				/// List all parents on the side (Netica style)
+				for (var k=0; k<node.parents.length; k++) {
+					var parent = node.parents[k];
+					$tr.append("<th>"+toHtml(parent.states[parentIndexes[k]].id)+"</th>");
+				}
+				currentBn.nextCombination(node.parents, parentIndexes);
+				/// Now list the distro for each row
 				for (var j=0; j<row.length; j++) {
-					$tr.append("<td>"+sigFig(row[j],3)+"</td>");
+					$tr.append("<td><span class=prob contenteditable>"+sigFig(row[j],3)+"</span></td>");
 				}
 				$table.append($tr);
 			}
-			popupDialog("<h2>CPT</h2>"+$("<div>").append($table).html()
-				+"<div class=controls><button type=button class='okButton'>OK</button></div>");
-			$(".dialog .okButton").one("click", dismissDialogs);
+			var $cptDialog = $('<div class=cptDialog>').append(
+				"<h2>CPT</h2>"+$("<div>").append($table).html()
+					+"<div class=controls><button type=button class='saveButton' disabled>Save</button> <button type=button class='closeButton'>Close</button></div>"
+			);
+			popupDialog($cptDialog.html());
+			$(".dialog .closeButton").one("click", dismissDialogs);
+			$(".dialog .saveButton").on("click", function() {
+				var newCpt = $(".dialog .prob").map(function() { return $(this).text(); }).toArray();
+				node.cpt1d(newCpt);
+				$(".dialog .saveButton")[0].disabled = true;
+				currentBn.updateAndDisplayBeliefs();
+			});
+			$(".dialog").on("change keyup", function() {
+				$(".dialog .saveButton")[0].disabled = false;
+			});
 		});
 
 		$("[name=viewZoom]").on("input change", function(evt) {
@@ -1991,6 +2092,8 @@ SOFTWARE.
 	.node.utility { background: #F3A5CD; }
 	.node.utility h6 { border-bottom: none; }
 
+	.cpt { }
+
 	/** Layout **/
 	body { display: flex; flex-direction: column; height: 100%; }
 	.bnouterview { flex: 1; overflow: auto; width: 100%; }
@@ -2005,8 +2108,10 @@ SOFTWARE.
 
 	/** Dialogs **/
 	.dialog { display: none; position: absolute; z-index: 10000; background: rgb(255,255,255); background: rgba(255,255,255,0.95);
-		border: solid 1px black; box-shadow: 2px 2px 2px #888; padding: 1.2em; text-align: center; }
+		border: solid 1px black; box-shadow: 2px 2px 2px #888; padding: 1.2em; text-align: center; min-width: 150px; }
 	.dialog.page { width: 80%; height: 70%; }
+	.dialog h2 { margin: 0; margin-bottom: 8px; }
+	.dialog .controls { margin-top: 8px; }
 	.veil { position: absolute; z-index: 1000; background: white; opacity: 0; top: 0; left: 0; }
 	</style>
 	<style id="beliefBarAnimations">
