@@ -1,0 +1,43 @@
+<?xml version="1.0" encoding="ISO-8859-1"?>
+<smile version="1.0" id="Network1" numsamples="1000" discsamples="10000">
+	<nodes>
+		<equation id="PropLongLived">
+			<definition>PropLongLived=0.99</definition>
+		</equation>
+		<equation id="PopSize">
+			<definition>PopSize=1000</definition>
+		</equation>
+		<equation id="DistLongLived">
+			<parents>PopSize PropLongLived</parents>
+			<definition>DistLongLived=Binomial(PopSize,PropLongLived)</definition>
+		</equation>
+	</nodes>
+	<extensions>
+		<genie version="1.0" app="GeNIe 2.0.5219.0" name="Network1" faultnameformat="nodestate">
+			<node id="PropLongLived">
+				<name>PropLongLived</name>
+				<interior color="e5f6f7" />
+				<outline color="000080" />
+				<font color="000000" name="Arial" size="8" />
+				<position>548 51 632 103</position>
+				<barchart active="true" width="128" height="64" />
+			</node>
+			<node id="DistLongLived">
+				<name>DistLongLived</name>
+				<interior color="e5f6f7" />
+				<outline color="000080" />
+				<font color="000000" name="Arial" size="8" />
+				<position>678 188 758 238</position>
+				<barchart active="true" width="128" height="64" />
+			</node>
+			<node id="PopSize">
+				<name>PopSize</name>
+				<interior color="e5f6f7" />
+				<outline color="000080" />
+				<font color="000000" name="Arial" size="8" />
+				<position>819 62 873 95</position>
+				<barchart active="true" width="128" height="64" />
+			</node>
+		</genie>
+	</extensions>
+</smile>

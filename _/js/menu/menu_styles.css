@@ -1,0 +1,26 @@
+.menu { z-index: 10; font-size: 10pt; }
+.menu > .itemList { display: none; border: solid 1px black;  background: white; }
+.menu > .header:hover { color: #999; }
+.menu.active > .header,
+	.menuAction.active
+	{ background: blue; color: white; }
+.menu.active > .itemList { display: block; }
+.menu > .itemList { box-shadow: 2px 2px 2px rgba(0,0,0,0.3); }
+
+.menu.bar { background: #eee; }
+.menu.bar > .itemList { border: none; box-shadow: none; }
+.menu.bar > .itemList > .menu > .header { padding: 1px 5px; }
+.menu.bar .menu.active .itemList { position: absolute; }
+.menu.bar > .itemList { display: inline-block; }
+.menu.bar > .itemList > * { display: inline-block; }
+
+.menuAction, .menu .menu > .header { padding: 3px 5px; cursor: default; }
+.menu .menu > .itemList { min-width: 8em; }
+
+/** Embedded menus are just part of the current block. e.g. in a tab, or on a page **/
+.menu.embedded { background: #eee; }
+.menu.embedded > .itemList { border: none; box-shadow: none; }
+.menu.embedded > .itemList > .menu > .header { padding: 1px 5px; }
+.menu.embedded .menu.active .itemList { position: absolute; }
+.menu.embedded > .itemList { display: block; }
+.menu.embedded > .itemList > * { display: block; }

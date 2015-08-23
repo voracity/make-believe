@@ -1,11 +1,13 @@
-*R8
-R7
-- Added experimental worker threads (currently worse perf)
-R6
-- Backend rewrite to remove dependencies on .xdsl format for BN representation and display
-- Extremely experimental .xdsl saving (basic networks only)
+R4 (2014-12-20)
+...
 R5 (2015-01-03)
 - Use node labels (genie: names) when available
 - Simple moving nodes (needs much more improvement)
-R4 (2014-12-20)
-...
+R6
+- Backend rewrite to remove dependencies on .xdsl format for BN representation and display
+- Extremely experimental .xdsl saving (basic networks only)
+R7
+- Added experimental worker threads (currently worse perf)
+*R8
+R16
+- Right click/context menu triggers CPT dialog

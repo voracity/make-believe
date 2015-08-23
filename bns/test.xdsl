@@ -1,0 +1,58 @@
+<?xml version="1.0" encoding="ISO-8859-1"?>
+<smile version="1.0" id="V1" numsamples="1000" discsamples="10000">
+	<nodes>
+		<cpt id="Pollution">
+			<state id="low" />
+			<state id="high" />
+			<probabilities>0.9 0.1</probabilities>
+		</cpt>
+		<cpt id="Smoker">
+			<state id="True" />
+			<state id="False" />
+			<probabilities>0.3 0.7</probabilities>
+		</cpt>
+		<cpt id="Asbestos">
+			<state id="True" />
+			<state id="False" />
+			<probabilities>0.3 0.7</probabilities>
+		</cpt>
+		<cpt id="Cancer">
+			<state id="True" />
+			<state id="False" />
+			<parents>Pollution Smoker Asbestos</parents>
+			<probabilities>0.03 0.97 0.1 0.9 0.001 0.999 0.005 0.995 0.05 0.95 0.08 0.92 0.02 0.98 0.01 0.99</probabilities>
+		</cpt>
+	</nodes>
+	<extensions>
+		<genie version="1.0" app="GeNIe 2.0.5219.0" name="Sub0" faultnameformat="nodestate">
+			<node id="Pollution">
+				<name>Pollution</name>
+				<interior color="e5f6f7" />
+				<outline color="0000bb" />
+				<font color="000000" name="Arial" size="8" />
+				<position>112 138 188 174</position>
+			</node>
+			<node id="Smoker">
+				<name>Smoker</name>
+				<interior color="e5f6f7" />
+				<outline color="0000bb" />
+				<font color="000000" name="Arial" size="8" />
+				<position>286 138 362 174</position>
+			</node>
+			<node id="Asbestos">
+				<name>Asbestos</name>
+				<interior color="e5f6f7" />
+				<outline color="0000bb" />
+				<font color="000000" name="Arial" size="8" />
+				<position>472 138 548 174</position>
+			</node>
+			<node id="Cancer">
+				<name>Cancer</name>
+				<interior color="e5f6f7" />
+				<outline color="0000bb" />
+				<font color="000000" name="Arial" size="8" />
+				<position>266 266 342 302</position>
+			</node>
+		</genie>
+	</extensions>
+</smile>

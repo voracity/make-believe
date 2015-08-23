@@ -22,23 +22,48 @@ SOFTWARE.
 <!doctype HTML>
 <html>
 <head>
-	<title>Make-Believe (R15)</title>
-	<script src="jquery.min.js"></script>
-	<script src="defiant.min.js"></script>
-	<script src="vkbeautify.0.99.00.beta.js"></script>
-	<script src="beliefUpdate_worker.js"></script>
-	<script src="equationFunctions.js"></script>
-	<script src="sylvester.js"></script>
-	<script src="dagre.min.js"></script>
-	<script src="menu.js"></script>
-	<script src="utils.js"></script>
-	<script src="parsing.js"></script>
-	<link href="menu_styles.css" type="text/css" rel="stylesheet" />
-	<script src="menu_styles.js"></script>
+	<title>Make-Believe (R16)</title>
+	<script src="_/js/jquery.min.js"></script>
+	<script src="_/js/defiant.min.js"></script>
+	<script src="_/js/vkbeautify.0.99.00.beta.js"></script>
+	<script src="_/js/beliefUpdate_worker.js"></script>
+	<script src="_/js/equationFunctions.js"></script>
+	<script src="_/js/sylvester.js"></script>
+	<script src="_/js/dagre.min.js"></script>
+	<script src="_/js/menu/menu.js"></script>
+	<script src="_/js/tabs.js"></script>
+	<script src="_/js/utils.js"></script>
+	<script src="_/js/parsing.js"></script>
+	<link href="_/js/menu/menu_styles.css" type="text/css" rel="stylesheet" />
+	<script src="_/js/menu/menu_styles.js"></script>
 	<script>
-	var titlePostfix = "Make-Believe (R15)";
+	var titlePostfix = "Make-Believe (R16)";
 	var openBns = [];
+	var openData = [];
 	var currentBn = null;
+
+	if (!Array.prototype.findIndex) {
+	  Object.defineProperty(Array.prototype, 'findIndex', {value: function(predicate) {
+		if (this === null) {
+		  throw new TypeError('Array.prototype.findIndex called on null or undefined');
+		}
+		if (typeof predicate !== 'function') {
+		  throw new TypeError('predicate must be a function');
+		}
+		var list = Object(this);
+		var length = list.length >>> 0;
+		var thisArg = arguments[1];
+		var value;
+
+		for (var i = 0; i < length; i++) {
+		  value = list[i];
+		  if (predicate.call(thisArg, value, i, list)) {
+			return i;
+		  }
+		}
+		return -1;
+	  }});
+	}
 
 	/// I'm not sure if this guarantees a nicely formatted string.
 	function sigFig(num, digits) {
@@ -66,6 +91,21 @@ SOFTWARE.
 			.replace(/"/g, '&quot;')
 			.replace(/&/g, '&amp;');
 		return str;
+	}
+
+	function normalize(vec) {
+		var sum = 0;
+		for (var i=0; i<vec.length; i++)  if (vec[i]>0)  sum += vec[i];
+
+		var newVec = new Array(vec.length);
+		if (sum>0) {
+			for (var i=0; i<vec.length; i++)  newVec[i] = vec[i]>0 ? vec[i]/sum : 0;
+		}
+		else {
+			for (var i=0; i<vec.length; i++)  newVec[i] = 1/vec.length;
+		}
+
+		return newVec;
 	}
 
 	/// Inconsistencies between html and svg are very annoying
@@ -120,7 +160,7 @@ SOFTWARE.
 			format = "xdsl";
 		}
 
-		console.debug(file);
+		//onsole.debug(file);
 		var reader = new FileReader();
 		reader.onload = function(e) {
 			openBns.push(new BN({source: e.target.result, outputEl: $(".bnview"), format: format}));
@@ -146,6 +186,31 @@ SOFTWARE.
 			$(".status").text(currentBn.nodes.length+" nodes");
 			if (callback)  callback();
 		}, "text");
+	}
+
+	function readChosenFile(inp, callback) {
+		var file = inp.files[0];
+		console.debug(file);
+		var reader = new FileReader();
+		reader.onload = function(e) {
+			if (callback)  callback(e.target.result, e);
+		}
+		reader.readAsText(file);
+	}
+
+	function loadTabbedData(text) {
+		var lines = text.replace(/^\s*|\s*$/g, '').split(/\r?\n/);
+		var data = [];
+		for (var ent of lines.entries()) {
+			var i = ent[0], line = ent[1];
+			lines[i] = line.split(/\t/);
+			if (i>0) {
+				var row = {};
+				for (var ent of lines[0].entries()) { var hi=ent[0],header=ent[1]; row[header] = lines[i][hi]; }
+				data.push(row);
+			}
+		}
+		openData.push(data);
 	}
 
 	function updateBN(callback) {
@@ -225,12 +290,20 @@ SOFTWARE.
 	}
 
 	/** Dialogs **/
-	function popupDialog($a) {
-		if (typeof($a)=="string") {
-			$a = $("<div class=dialog>")
-				.html($a)
-				.appendTo("body");
-		}
+	function popupDialog($a, opts) {
+		var opts = opts || {};
+		opts.buttons = opts.buttons || [];
+		opts.className = opts.className || "";
+
+		/// $a could be a string, element or jquery element
+		$a = $("<div class=dialog>")
+			.addClass(opts.className)
+			.html($a)
+			.appendTo("body");
+
+		/// Add controls
+		$a.append($('<div class=controls>').append(opts.buttons));
+
 		var $veil = $("<div class=veil>").width($(window).width()).height($(window).height())
 			.css({opacity: 0})
 			.animate({opacity: 0.5}, 300)
@@ -266,7 +339,25 @@ SOFTWARE.
 			first = false;
 		});
 	}
+
+	function nyi() {
+		popupDialog('Not yet implemented :(', {buttons:[
+			$('<button type=button>OK</button>').click(dismissDialogs),
+		]});
+	}
 	/** End Dialogs **/
+
+	function State(o) {
+		/// The state's ID (as per GeNIe)
+		this.id = null;
+		/// The state's index in the node state list
+		this.index = null;
+
+		/// Set options based on constructor args
+		for (var i in o) {
+			this[i] = o[i];
+		}
+	}
 
 	/** To create a node, call new Node({opt1:...,opt2:...}) **/
 	function Node(o) {
@@ -347,17 +438,101 @@ SOFTWARE.
 		getRow: function(i) {
 			return Array.prototype.slice.call(this.cpt, i*this.states.length, i*this.states.length+this.states.length);
 		},
+		getCptRowI: function(parentStates) {
+			var rowI = 0;
+			var multiplier = 1;
+			var parentState = -1;
+			for (var pi=this.parents.length-1; pi>=0; pi--) {
+				parentState = parentStates[pi];
+				if (typeof(parentState)=="string")  parentState = this.parents[pi].statesById[parentState].index;
+				rowI += multiplier*parentState;
+				multiplier *= this.parents[pi].states.length;
+			}
+			return rowI;
+		},
 		removeStates: function() {
 			/// XXX This will leave CPTs, etc. in an inconsistent state at this point
 			this.states = [];
 			this.statesById = {};
 		},
+		rename: function(newId) {
+			delete this.net.nodesById[this.id];
+			this.id = newId;
+			this.net.nodesById[newId] = this;
+		},
 		addStates: function(newStates) {
 			for (var i=0; i<newStates.length; i++) {
 				var stateName = newStates[i];
-				this.states.push({id: stateName});
-				this.statesById[stateName] = this.states.length-1;
+				this.states.push(new State({id: stateName, index: i}));
+				this.statesById[stateName] = this.states[this.states.length-1];
 			}
+		},
+		/// Delete this node from its network
+		delete: function() {
+			var node = this;
+			/// Remove from the net's references
+			for (var nodeListType of ['nodes','_rootNodes','_decisionNodes','_utilityNodes','_nodeOrdering']) {
+				var index = this.net[nodeListType].findIndex(function(n) { return n.id == node.id; });
+				if (index !== -1)  this.net[nodeListType].splice(index, 1);
+			}
+			delete this.net.nodesById[this.id];
+
+			/// Remove from other node's references (in parents)
+			for (var otherNode of this.net.nodes) {
+				/// Can't be in/out multiple times.
+				for (var nodeListType of ['pathsIn','pathsOut']) {
+					var index = otherNode[nodeListType].findIndex(function(p) { return p[1].id == node.id; });
+					if (index !== -1)  otherNode[nodeListType].splice(index, 1);
+				}
+
+				var asChildIndex = otherNode.children.findIndex(function(n){return n.id == node.id});
+				if (asChildIndex !== -1)  otherNode.children.splice(asChildIndex, 1);
+
+				/// Parents need special treatment, because it affects CPT
+				var asParentIndex = otherNode.parents.findIndex(function(n) { return n.id == node.id; });
+				if (asParentIndex != -1) {
+					/// It was one of otherNode's parents, so need to remove and
+					/// fix CPT/equation
+
+
+					if (otherNode.cpt && node.cpt) {
+						/// This includes all the
+						var nodeAndLaterCombos = numNodeStateCombinations(otherNode.parents.slice(asParentIndex));
+						var laterCombos = numNodeStateCombinations(otherNode.parents.slice(asParentIndex+1));
+						var earlierCombos = numNodeStateCombinations(otherNode.parents.slice(0, asParentIndex));
+						var earlierAndNodeCombos = numNodeStateCombinations(otherNode.parents.slice(0, asParentIndex+1));
+						//onsole.log(nodeAndLaterCombos, laterCombos, earlierCombos, earlierAndNodeCombos, otherNode.cpt);
+
+						/// Collapse/marginalise CPT
+						var newCpt = new Float32Array(new ArrayBuffer(earlierCombos*laterCombos*otherNode.states.length*4));
+						for (var j1=0; j1<earlierCombos; j1++) {
+							for (var k=0; k<node.states.length; k++) {
+								for (var j2=0; j2<laterCombos; j2++) {
+									oldRow = (j1 * nodeAndLaterCombos) + (k * laterCombos) + j2;
+									newRow = (j1 * laterCombos) + j2;
+									for (var i=0; i<otherNode.states.length; i++) {
+										newCpt[newRow*otherNode.states.length + i] += otherNode.cpt[oldRow*otherNode.states.length + i];
+									}
+								}
+							}
+						}
+						/// Normalise (actually, this may be slightly off due to rounding)
+						for (var i=0; i<newCpt.length; i++) {
+							newCpt[i] = newCpt[i]/node.states.length;
+						}
+						node.cpt = newCpt;
+						//onsole.log(newCpt);
+
+					}
+					/// Remove
+					otherNode.parents.splice(asParentIndex, 1);
+
+				}
+			}
+
+			/** Display is updated in display section below. **/
+
+			this.net.needsCompile = true;
 		},
 		discretizeFromSamples: function() {
 			var node = this;
@@ -422,7 +597,7 @@ SOFTWARE.
 		opts.engineOnly = opts.engineOnly || false;
 
 		var $el = $(el);
-		var states = $el.find("state").toArray().map(function(a){ return {id:$(a).attr("id")}; });
+		var states = $el.find("state").toArray().map(function(a,i){ return new State({id:$(a).attr("id"), index: i}); });
 		var stateIndex = {}; states.forEach(function(a,i) { stateIndex[a.id] = i; });
 		var cpt = null;
 		var funcTable = null;
@@ -475,7 +650,7 @@ SOFTWARE.
 		}
 		else if ($el.is("utility")) {
 			utils = $el.find("utilities").text()._splitNotEmpty(/\s+/).map(function(p){return parseFloat(p)});
-			states = utils.map(function(a){ return {id: a} });
+			states = utils.map(function(a,i){ return new State({id: a, index: i}) });
 			funcTable = [];
 			for (var i in utils) {
 				funcTable[i] = i;
@@ -529,9 +704,9 @@ SOFTWARE.
 		this.evidence = {};
 
 		/// Does the cache information need updating?
-		this.cacheDirty = false;
+		this.needsCompile = false;
 		/// (No longer true: These are intended to be cache-only. To update the net, call the modification functions
-		/// (once they''re written!) or change this.objs and then call this.updateCache.)
+		/// (once they''re written!) or change this.objs and then set this.needsCompile.)
 		this.nodes = [];
 		this._utilityNodes = [];
 		this._decisionNodes = [];
@@ -673,7 +848,7 @@ SOFTWARE.
 				if (skipNode)  continue;
 				var centerPos = JSON.search(omNode, '//*[children[1]="center"]/children[3]/children')[0].replace(/[\(\)\s]/g, '')._splitNotEmpty(/,/);
 				var states = JSON.search(omNode, '//*[children[1]="states"]/children[3]/children')[0].replace(/[\(\)\s]/g, '')._splitNotEmpty(/,/);
-				states = states.map(function(x){ return {id: x} });
+				states = states.map(function(x,i){ return new State({id: x, index: i}) });
 				var cpt = null;
 				try {
 					cpt = JSON.search(omNode, '//*[children[1]="probs"]/children[3]/children')[0].replace(/[\(\)\s\n\r]|&[^&;]+;/g, '')._splitNotEmpty(/,/);
@@ -696,7 +871,10 @@ SOFTWARE.
 			this.loadPostprocess();
 		},
 		/** After basic loading, need to run various cleanups, replace named objects with object points,
-		    store things in more optimised form, etc. **/
+		    store things in more optimised form, etc.
+
+		    This is now basically a compile function.
+		    **/
 		loadPostprocess: function() {
 			var bn = this;
 			/// Replace references to parent ids, with references to node cache
@@ -711,12 +889,15 @@ SOFTWARE.
 				/// For fast referencing (without going to a dict lookup)
 				node.intId = i;
 				for (var j in node.parents) {
-					console.log(node.parents, j, node.parents[j]);
-					node.parents[j] = bn.nodesById[node.parents[j]];
-					node.parents[j].children.push(node);
+					if (typeof(node.parents[j])==="string") {
+						console.log(node.parents, j, node.parents[j]);
+						node.parents[j] = bn.nodesById[node.parents[j]];
+						node.parents[j].children.push(node);
+					}
 				}
+				node.statesById = {};
 				for (var j in node.states) {
-					node.statesById[node.states[j].id] = j;
+					node.statesById[node.states[j].id] = node.states[j];
 				}
 				console.log(node._name, node);
 			}
@@ -761,7 +942,6 @@ SOFTWARE.
 					bn._rootNodes.push(node);
 				}
 			}
-
 
 			function arcCopies(node) {
 				node._tempParents = node.parents.slice();
@@ -899,6 +1079,51 @@ SOFTWARE.
 			}
 			return vkbeautify.xml('<?xml version="1.0"?>' + $smile[0].outerHTML).replace(/\r?\n/g, '\r\n');
 		},
+		/// Lot's of limitations: discrete, no auto-discretize, etc.
+		/// XXX: I've just written this without testing it yet!
+		learnParametersCounting: function(data) {
+			/// Start fresh (everything has a count of 1)
+			for (var node of this.nodes) {
+				node.cptCounts = new Int32Array(new ArrayBuffer(4*node.cpt.length));
+				for (var i=0; i<node.cptCounts.length; i++)  node.cptCounts[i] = 1;
+			}
+			/// Run through data, counting parent combos + child values
+			//var i = 0;
+			for (var row of data) {
+				//console.log(i); i++;
+				for (var node of this.nodes) {
+					var parentStates = new Array(node.parents.length);
+					var missing = !(node.id in row) || row[node.id]==='*';
+					if (!missing) {
+						for (var ent of node.parents.entries()) { var pi=ent[0],parent=ent[1];
+							if (parent.id in row && row[parent.id]!=='*') {
+								parentStates[pi] = row[parent.id];
+							}
+							else {
+								missing = true; break;
+							}
+						}
+					}
+					/// Skip if missing
+					if (!missing) {
+						var rowI = node.getCptRowI(parentStates);
+						//console.log(parentStates, rowI, node.statesById[row[node.id]].index);
+						node.cptCounts[rowI*node.states.length + node.statesById[row[node.id]].index] += 1;
+					}
+				}
+			}
+			/// Run through counts, normalize, and update CPTs
+			for (var node of this.nodes) {
+				/// Step through each row
+				for (var i=0; i<node.cptCounts.length; i += node.states.length) {
+					var normalized = normalize(Array.prototype.slice.call(node.cptCounts, i, i+node.states.length));
+					for (var ent of normalized.entries()) { var vi=ent[0],v=ent[1];
+						node.cpt[i+vi] = v;
+					}
+				}
+			}
+			this.needsCompile = true;
+		},
 		setUpdateMethod: function(method) {
 			this.updateBeliefs = this["updateBeliefs_"+method];
 		},
@@ -951,7 +1176,8 @@ SOFTWARE.
 			if (this.needsCompile || !this._workers.length) {
 				this._workers = [];
 				for (var wi=0; wi<numWorkers; wi++) {
-					this._workers[wi] = new Worker("beliefUpdate_worker.js");
+					this._workers[wi] = new Worker("_/js/beliefUpdate_worker.js");
+					//onsole.log(bnToPass);
 					this._workers[wi].postMessage([0, bnToPass]);
 				}
 				this.needsCompile = false;
@@ -1351,8 +1577,8 @@ SOFTWARE.
 
 			return sliceNodes;
 		},
+		/// XXX: What does this function do?
 		setNodeStates: function(nodes, state) {
-			//currentBn.nodesById[nodeId].statesById[$(this).text()]
 			for (var i=0; i<nodes.length; i++) {
 				currentBn.evidence[nodes[i].id] = state;
 			}
@@ -1567,7 +1793,9 @@ SOFTWARE.
 		},
 	};
 
-	/// Add display capabilities to the BN
+	/////////////////////////////////////////////////////
+	/// Add display capabilities to the BN, nodes, etc.
+	/////////////////////////////////////////////////////
 	BN.prototype = $.extend(BN.prototype, {
 		updateAndDisplayBeliefs: function(outputEl, callback) {
 			var bn = this;
@@ -1742,6 +1970,98 @@ SOFTWARE.
 			$(".netSvgCanvas").attr("width", maxX).attr("height", maxY);
 		},
 	});
+	Node.prototype = $.extend(Node.prototype, {
+		contextMenu: function() {
+			var node = this;
+
+			var whatsDirty = {cpt: false, nodeId: false};
+
+			/** Options **/
+			var $options = $('<div class=options>');
+			var menu = Menu({type: "embedded", items: [
+				MenuAction("Node ID: <input type=text class=nodeId value='"+toHtml(node.id)+"' pattern='[a-zA-Z_][a-zA-Z_0-9]*'>", function() { }),
+				MenuAction("Delete...", function() { node.guiDelete(); app.updateBN(); dismissDialogs(); }),
+			]});
+			$options.append(menu.make());
+			/** End options **/
+
+			/** CPT **/
+			var $table = $("<table class=cpt>");
+			var npc = node.numParentCombinations();
+			var parentIndexes = currentBn.setupIndexes(node.parents);
+			/// Write out header
+			var $tr = $('<tr>');
+			for (var i=0; i<node.parents.length; i++) {
+				$tr.append('<th>'+toHtml(node.parents[i].id)+'</th>');
+			}
+			for (var i=0; i<node.states.length; i++) {
+				$tr.append('<th>'+toHtml(node.states[i].id)+'</th>');
+			}
+			$table.append($tr);
+			/// Write out each row
+			for (var i=0; i<npc; i++) {
+				var row = node.getRow(i);
+				var $tr = $("<tr>");
+				/// List all parents on the side (Netica style)
+				for (var k=0; k<node.parents.length; k++) {
+					var parent = node.parents[k];
+					$tr.append("<th>"+toHtml(parent.states[parentIndexes[k]].id)+"</th>");
+				}
+				currentBn.nextCombination(node.parents, parentIndexes);
+				/// Now list the distro for each row
+				for (var j=0; j<row.length; j++) {
+					$tr.append("<td><span class=prob contenteditable>"+sigFig(row[j],3)+"</span></td>");
+				}
+				$table.append($tr);
+			}
+			/// XXX: Finish adding the tab set to the context menu popup
+			var $cptDialog = $('<div class=cptDialog>').append($table);
+
+			var tabs = new TabSet([
+				{id: 'main', label: 'Options', content: $options, active: true},
+				{id: 'cpt', label: 'CPT', content: $cptDialog},
+			]);
+			popupDialog(tabs.$tabs, {className: 'node contextMenu', buttons: [
+				$('<button type=button class=saveButton disabled>').html('Save').on('click', function() {
+					$(".dialog .saveButton")[0].disabled = true;
+					console.log(whatsDirty);
+					if (whatsDirty.cpt) {
+						whatsDirty.cpt = false;
+						var newCpt = $(".dialog .prob").map(function() { return $(this).text(); }).toArray();
+						node.cpt1d(newCpt);
+						$(".dialog .saveButton")[0].disabled = true;
+						currentBn.updateAndDisplayBeliefs();
+					}
+					else if (whatsDirty.nodeId) {
+						whatsDirty.nodeId = false;
+						if ($('.dialog input.nodeId').is(':valid')) {
+							var newId = $('.dialog input.nodeId').val();
+							var $displayNode = $('#display_'+node.id);
+							$displayNode.attr("id", 'display_'+newId);
+							$displayNode.find('h6').text(newId);
+							node.rename(newId);
+						}
+					}
+				}),
+				$('<button type=button class=closeButton>').html('Close').on('click', dismissDialogs),
+			]});
+			$(".dialog").on("change keyup", function(event) {
+				if ($(event.target).closest('.cpt').length)  whatsDirty.cpt = true;
+				if ($(event.target).closest('input.nodeId').length)  whatsDirty.nodeId = true;
+				$(".dialog .saveButton")[0].disabled = false;
+			});
+		},
+		guiDelete: function() {
+			this.delete();
+
+			/// Remove objects for node and arcs (and probably more in future)
+			this.net.outputEl.find('#display_'+this.id).remove();
+			for (var p of this.pathsIn)  this.net.outputEl.find('#'+p[0]).remove();
+			for (var p of this.pathsOut)  this.net.outputEl.find('#'+p[0]).remove();
+		},
+	});
+
+
 
 	var app = {
 		loadFile: function() {
@@ -1827,6 +2147,15 @@ SOFTWARE.
 			/*currentBn.display();
 			currentBn.displayBeliefs();*/
 		},
+		learnParametersCounting: function() {
+			$('#openDataFile').on('change', function() {
+				readChosenFile(this, function(fileData) {
+					loadTabbedData(fileData);
+					currentBn.learnParametersCounting(openData[openData.length-1]);
+					app.updateBN();
+				});
+			}).click();
+		},
 	};
 
 	$(document).ready(function() {
@@ -1853,6 +2182,7 @@ SOFTWARE.
 				MenuAction("Find Good Decisions", function() { app.findGoodDecisions(); dismissActiveMenus(); }),
 				MenuAction("Auto-Layout", function() { app.autoLayout(); dismissActiveMenus(); }),
 				MenuAction('# Samples: <input type="text" name="iterations" value="1000">', function() { }),
+				MenuAction('Learn Parameters (Counting) ...', function() { app.learnParametersCounting(); dismissActiveMenus(); } ),
 			]}),
 			Menu({label:"(Debug)", items: [
 				MenuAction('# Workers: <input type="text" name="numWorkers" value="2">', function() { }),
@@ -1860,6 +2190,9 @@ SOFTWARE.
 				MenuAction('# Perf Samples: <input type="text" name="perfIterations" value="1000">', function() { }),
 				MenuAction('Perf Check Local', function() { currentBn.perfCheck(); }),
 				MenuAction('Perf Check Worker', function() { currentBn.perfCheckWorker(); }),
+				MenuAction("Load Data...", function(){ $('#openDataFile').change(function() {
+					readChosenFile(this, loadTabbedData);
+				}).click(); dismissActiveMenus(); }),
 			]}),
 		]});
 
@@ -1868,7 +2201,7 @@ SOFTWARE.
 		$(".bnview").on("click", ".stateName", function() {
 			var nodeId = $(this).closest(".node").attr("id").replace(/^display_/, '');
 			var node = currentBn.nodesById[nodeId];
-			var stateI = node.statesById[$(this).text()];
+			var stateI = node.statesById[$(this).text()].index;
 			if (node.dynamic) {
 				var checks = "";
 				var selectStr = "<select>";
@@ -1931,12 +2264,15 @@ SOFTWARE.
 
 		var mx = 0, my = 0;
 		$(".bnview").on("mousedown", ".node h6", function(event) {
+			if (event.which > 1)  return;
+			event.preventDefault();
 			mx = event.originalEvent.pageX;
 			my = event.originalEvent.pageY;
+			//onsole.log("mousedown:", mx, my);
 			var $node = $(this).closest(".node");
-			var o = $(this).offset();
+			var o = $node.offset();
 
-			/// Get the width/height if the mousedown node were not part of the network
+			/// Get the width/height if the mousedown node was not part of the network
 			var maxX = 0, maxY = 0;
 			for (var i=0; i<currentBn.nodes.length; i++) {
 				if (("display_"+currentBn.nodes[i].id)==$node.attr("id"))  continue;
@@ -1945,88 +2281,38 @@ SOFTWARE.
 				maxY = Math.max(maxY, n.y+n.height);
 			}
 
-			$(".bnview").on("mousemove", function(event) {
+			$(".bnouterview").on("mousemove", function(event) {
 				var nmx = event.originalEvent.pageX;
 				var nmy = event.originalEvent.pageY;
+				//onsole.log("mousemove:", nmx, nmy, {left: o.left + (nmx - mx), top: o.top + (nmy - my)});
 				/// Move the DOM object, but not the net object yet
 				$node.offset({left: o.left + (nmx - mx), top: o.top + (nmy - my)});
 				var n = currentBn.nodesById[$node.attr("id").replace(/^display_/,"")];
 				currentBn.redrawArcs(n, maxX, maxY);
 			});
-			$(".bnview").one("mouseup", function(event) {
+			$(".bnouterview").on("mouseup", function(event) {
 				/// Update position of the node
 				var nmx = event.originalEvent.pageX;
 				var nmy = event.originalEvent.pageY;
+				//onsole.log("mouseup:", nmx, nmy, {left: o.left + (nmx - mx), top: o.top + (nmy - my)});
 				$node.offset({left: o.left + (nmx - mx), top: o.top + (nmy - my)});
-				$(".bnview").unbind("mousemove");
+				$(".bnouterview").unbind("mousemove").unbind("mouseup");
 
 				/// Now it's final, update the net object
 				var n = currentBn.nodesById[$node.attr("id").replace(/^display_/,"")];
 				n.pos.x += (nmx - mx);
 				n.pos.y += (nmy - my);
-				/*var $extInfo = currentBn.objs.find("> extensions > genie > node#"+$node.attr("id").replace(/^display_/,""));
-				var pos = $extInfo.find("position").text().split(/\s+/);
-				$extInfo.find("position").text((Number(pos[0]) + (nmx - mx))+" "+(Number(pos[1]) + (nmy - my)));*/
 
 				/// Update the arcs going into/out of this node
 				currentBn.redrawArcs(n, maxX, maxY);
-
-				/// Need something much more efficient than this!
-				/*$("#beliefBarAnimations")[0].sheet.disabled = true;
-				currentBn.display();
-				currentBn.displayBeliefs();
-				/// Turn them back on, but not in the current execution block
-				window.setTimeout(function() {
-					$("#beliefBarAnimations")[0].sheet.disabled = false;
-				}, 0);*/
 			});
 		});
 
-		$(document).on("dblclick", ".node", function() {
-			var $table = $("<table class=cpt>");
+		$(document).on("dblclick contextmenu", ".node", function(evt) {
+			if (evt.shiftKey)  return false;
 			var node = currentBn.nodesById[$(this).attr("id").replace(/^display_/, '')];
-			var npc = node.numParentCombinations();
-			var parentIndexes = currentBn.setupIndexes(node.parents);
-			/// Write out header
-			var $tr = $('<tr>');
-			for (var i=0; i<node.parents.length; i++) {
-				$tr.append('<th>'+toHtml(node.parents[i].id)+'</th>');
-			}
-			for (var i=0; i<node.states.length; i++) {
-				$tr.append('<th>'+toHtml(node.states[i].id)+'</th>');
-			}
-			$table.append($tr);
-			/// Write out each row
-			for (var i=0; i<npc; i++) {
-				var row = node.getRow(i);
-				var $tr = $("<tr>");
-				/// List all parents on the side (Netica style)
-				for (var k=0; k<node.parents.length; k++) {
-					var parent = node.parents[k];
-					$tr.append("<th>"+toHtml(parent.states[parentIndexes[k]].id)+"</th>");
-				}
-				currentBn.nextCombination(node.parents, parentIndexes);
-				/// Now list the distro for each row
-				for (var j=0; j<row.length; j++) {
-					$tr.append("<td><span class=prob contenteditable>"+sigFig(row[j],3)+"</span></td>");
-				}
-				$table.append($tr);
-			}
-			var $cptDialog = $('<div class=cptDialog>').append(
-				"<h2>CPT</h2>"+$("<div>").append($table).html()
-					+"<div class=controls><button type=button class='saveButton' disabled>Save</button> <button type=button class='closeButton'>Close</button></div>"
-			);
-			popupDialog($cptDialog.html());
-			$(".dialog .closeButton").one("click", dismissDialogs);
-			$(".dialog .saveButton").on("click", function() {
-				var newCpt = $(".dialog .prob").map(function() { return $(this).text(); }).toArray();
-				node.cpt1d(newCpt);
-				$(".dialog .saveButton")[0].disabled = true;
-				currentBn.updateAndDisplayBeliefs();
-			});
-			$(".dialog").on("change keyup", function() {
-				$(".dialog .saveButton")[0].disabled = false;
-			});
+			node.contextMenu();
+			return false;
 		});
 
 		$("[name=viewZoom]").on("input change", function(evt) {
@@ -2111,8 +2397,25 @@ SOFTWARE.
 		border: solid 1px black; box-shadow: 2px 2px 2px #888; padding: 1.2em; text-align: center; min-width: 150px; }
 	.dialog.page { width: 80%; height: 70%; }
 	.dialog h2 { margin: 0; margin-bottom: 8px; }
-	.dialog .controls { margin-top: 8px; }
+	.dialog .controls { margin-top: 8px; text-align: right; }
 	.veil { position: absolute; z-index: 1000; background: white; opacity: 0; top: 0; left: 0; }
+
+	/** Tabs **/
+	.tab { display: none; min-height: 15em; min-width: 30em; border: solid 1px black; border-bottom: none;
+	  background: white; text-align: left; padding: 5px 10px; z-index: 10; position: relative; }
+	.tab.active { display: block; }
+	.tabSet .tabStrip { display: block; text-align: left; }
+	.tabSet .tabStrip button { background: #eee; border: solid 1px black; border-bottom: none;
+	  margin-right: -1px; margin-bottom: -1px; color: black; padding: 2px 5px; position: relative; opacity: 0.6; }
+	.tabSet .tabStrip button.active { color: black; z-index: 15; background: white; opacity: 1; }
+
+	/** Context menu **/
+	.dialog.contextMenu { border: none; box-shadow:none; background: none; }
+	.dialog.contextMenu .controls { margin-top: 0px; border: solid 1px black; border-top: solid 1px #ccc; background: white; }
+
+	.dialog.node .controls { box-shadow: 2px 2px 2px rgba(0, 0, 0, 0.3); position: relative; z-index: 10; }
+	.dialog.node .tab.active { box-shadow: 2px 2px 2px rgba(0, 0, 0, 0.3); }
+	.dialog.node .tab { overflow-y: auto; max-height: 20em; overflow-x: hidden; }
 	</style>
 	<style id="beliefBarAnimations">
 	.node .state .beliefBar { transition: width 0.3s; }
@@ -2121,6 +2424,7 @@ SOFTWARE.
 <body>
 	<div class="toolbar" style="display: none;">
 		<input type="file" id="openFile" style="display:none;" onchange="fileLoaded(this, updateBN)" accept=".xdsl,.dne">
+		<input type="file" id="openDataFile" style="display:none;">
 		<button type="button" onclick="app.loadFile()">Load File</button>
 		<button type="button" onclick="app.saveFile()">Save File</button>
 		<button onclick="app.updateBN()">Update</button>

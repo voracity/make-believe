@@ -1,0 +1,3 @@
+Pollution	Smoker	Cancer	Xray	Dyspnoea
+low	False	False	negative	True
+low	False	False	positive	True

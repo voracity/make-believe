@@ -1,0 +1,116 @@
+// ~->[DNET-1]->~
+
+// File created by someone at MonashU using Netica 5.12 on Aug 13, 2015 at 18:11:42.
+
+bnet test {
+AutoCompile = TRUE;
+autoupdate = TRUE;
+whenchanged = 1439453502;
+
+visual V1 {
+	defdispform = BELIEFBARS;
+	nodelabeling = TITLE;
+	NodeMaxNumEntries = 50;
+	nodefont = font {shape= "Arial"; size= 9;};
+	linkfont = font {shape= "Arial"; size= 9;};
+	windowposn = (130, 130, 1005, 436);
+	resolution = 72;
+	drawingbounds = (1080, 720);
+	showpagebreaks = FALSE;
+	usegrid = TRUE;
+	gridspace = (6, 6);
+	NodeSet Node {BuiltIn = 1; Color = 0x00E1E1E1;};
+	NodeSet Nature {BuiltIn = 1; Color = 0x00F8EED2;};
+	NodeSet Deterministic {BuiltIn = 1; Color = 0x00D3CAA6;};
+	NodeSet Finding {BuiltIn = 1; Color = 0x00C8C8C8;};
+	NodeSet Constant {BuiltIn = 1; Color = 0x00FFFFFF;};
+	NodeSet ConstantValue {BuiltIn = 1; Color = 0x00FFFFB4;};
+	NodeSet Utility {BuiltIn = 1; Color = 0x00FFBDBD;};
+	NodeSet Decision {BuiltIn = 1; Color = 0x00DEE8FF;};
+	NodeSet Documentation {BuiltIn = 1; Color = 0x00F0FAFA;};
+	NodeSet Title {BuiltIn = 1; Color = 0x00FFFFFF;};
+	PrinterSetting A {
+		margins = (1270, 1270, 1270, 1270);
+		};
+	};
+
+node Pollution {
+	kind = NATURE;
+	discrete = TRUE;
+	chance = CHANCE;
+	states = (low, high);
+	parents = ();
+	probs = 
+		// low          high         
+		  (0.9,         0.1);
+	title = "Pollution";
+	whenchanged = 0;
+	belief = (0.9, 0.1);
+	visual V1 {
+		center = (150, 156);
+		height = 3;
+		};
+	};
+
+node Smoker {
+	kind = NATURE;
+	discrete = TRUE;
+	chance = CHANCE;
+	states = (True, False);
+	parents = ();
+	probs = 
+		// True         False        
+		  (0.3,         0.7);
+	title = "Smoker";
+	whenchanged = 0;
+	belief = (0.3, 0.7);
+	visual V1 {
+		center = (324, 156);
+		height = 2;
+		};
+	};
+
+node Asbestos {
+	kind = NATURE;
+	discrete = TRUE;
+	chance = CHANCE;
+	states = (True, False);
+	parents = ();
+	probs = 
+		// True         False        
+		  (0.3,         0.7);
+	title = "Asbestos";
+	whenchanged = 1439453434;
+	belief = (0.3, 0.7);
+	visual V1 {
+		center = (510, 156);
+		height = 4;
+		};
+	};
+
+node Cancer {
+	kind = NATURE;
+	discrete = TRUE;
+	chance = CHANCE;
+	states = (True, False);
+	parents = (Pollution, Smoker, Asbestos);
+	probs = 
+		// True         False         // Pollution Smoker Asbestos 
+		  (0.03,        0.97,         // low       True   True     
+		   0.1,         0.9,          // low       True   False    
+		   0.001,       0.999,        // low       False  True     
+		   0.005,       0.995,        // low       False  False    
+		   0.05,        0.95,         // high      True   True     
+		   0.08,        0.92,         // high      True   False    
+		   0.02,        0.98,         // high      False  True     
+		   0.01,        0.99);        // high      False  False    ;
+	title = "Cancer";
+	whenchanged = 1439453490;
+	belief = (0.026764, 0.973236);
+	visual V1 {
+		center = (304, 284);
+		height = 1;
+		};
+	};
+ElimOrder = (Pollution, Smoker, Asbestos, Cancer);
+};
