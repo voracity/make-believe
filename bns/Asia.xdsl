@@ -70,7 +70,7 @@
 				<name>smoke</name>
 				<interior color="e5f6f7" />
 				<outline color="0000bb" />
-				<font color="000000" name="Arial" size="8" />
+				<font color="000000" name="Georgia" size="16" />
 				<position>294 24 370 60</position>
 				<barchart active="true" width="128" height="64" />
 			</node>
@@ -92,10 +92,11 @@
 			</node>
 			<node id="either">
 				<name>either</name>
-				<interior color="e5f6f7" />
-				<outline color="0000bb" />
-				<font color="000000" name="Arial" size="8" />
+				<interior color="0000ff" />
+				<outline color="000080" />
+				<font color="ffffff" name="Arial" size="8" />
 				<position>36 284 112 320</position>
+				<comment>This is a deterministic node.</comment>
 				<barchart active="true" width="128" height="64" />
 			</node>
 			<node id="xray">

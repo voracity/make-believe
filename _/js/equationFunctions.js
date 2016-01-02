@@ -63,6 +63,133 @@ function Normal(mean, sd) {
 	return (s*sd) + mean;
 }
 
+//////////////////////////
+/// Arithmetic functions
+//////////////////////////
+function Abs(v) {
+	return Math.abs(v);
+}
+
+function Exp(v) {
+	return Math.exp(v);
+}
+
+function Gammaln(v) {
+
+}
+
+function GCD(n, k) {
+
+}
+
+function LCM(n, k) {
+
+}
+
+function Ln(v) {
+	return Math.log(v);
+}
+
+function Log(v, b) {
+	return Math.log(v)/Math.log(b);
+}
+
+function Log10(v) {
+	return Math.log10(v);
+}
+
+function Pow10(v) {
+	return Math.pow(10,v);
+}
+
+function Round(v) {
+	return Math.round(v);
+}
+
+function Sign(v) {
+	return Math.sign(v);
+}
+
+function Sqr(v) {
+	return v*v;
+}
+
+function Sqrt(v) {
+	return Math.sqrt(v);
+}
+
+/// Not sure why GeNIe includes this...
+function SqrtPi(v) {
+	return Math.sqrt(Math.PI*v);
+}
+
+function Sum() {
+	var s = 0;
+	for (var i=0; i<arguments.length; i++) {
+		s += arguments[i];
+	}
+	return s;
+}
+
+function SumSq() {
+	var s = 0;
+	for (var i=0; i<arguments.length; i++) {
+		s += arguments[i]*arguments[i];
+	}
+	return s;
+}
+
+function Trim(v, lo, hi) {
+	return Math.min(Math.max(v, lo), hi);
+}
+
+function Truncate(v) {
+	return v < 0 ? Math.ceil(v) : Math.floor(v);
+}
+
+///////////////////////
+/// Logical operators
+///////////////////////
+function And() {
+	var res = true;
+	for (var i=0; i<arguments.length; i++) {
+		res = res && arguments[i];
+	}
+	return res ? 1 : 0;
+}
+
+function Or() {
+	var res = false;
+	for (var i=0; i<arguments.length; i++) {
+		res = res || arguments[i];
+	}
+	return res ? 1 : 0;
+}
+
+function Xor() {
+	var res = 0;
+	for (var i=0; i<arguments.length; i++) {
+		res = res ^ (arguments[i] ? 1 : 0);
+	}
+	return res;
+}
+
+function Max() {
+	return Math.max.apply(null, arguments);
+}
+
+function Min() {
+	return Math.min.apply(null, arguments);
+}
+
+function If(cond, then, els) {
+	return cond ? then : els;
+}
+
+function Switch(index) {
+	return arguments[index+1];
+}
+
 /// Simple bin discretizer
 function generateMultinomialFromSamples(samples, numBins) {
 	var min = Math.min.apply(null, samples);

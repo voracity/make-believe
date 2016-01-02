@@ -1,93 +1,133 @@
 // ~->[DNET-1]->~
 
+// File created by someone at MonashU using Netica 4.16 on Dec 22, 2015 at 23:42:35.
+
 bnet Sub0 {
-    title = "Sub0";
-    comment = "";
-    visual V1 {
-    };
+autoupdate = TRUE;
+title = "Sub0";
+whenchanged = 1450788154;
+
+visual V1 {
+	defdispform = BELIEFBARS;
+	nodelabeling = TITLE;
+	NodeMaxNumEntries = 50;
+	nodefont = font {shape= "Arial"; size= 9;};
+	linkfont = font {shape= "Arial"; size= 9;};
+	windowposn = (26, 26, 901, 332);
+	scrollposn = (0, 210);
+	resolution = 72;
+	drawingbounds = (1046, 769);
+	showpagebreaks = FALSE;
+	usegrid = TRUE;
+	gridspace = (6, 6);
+	NodeSet Node {BuiltIn = 1; Color = 0xc0c0c0;};
+	NodeSet Nature {BuiltIn = 1; Color = 0xf8eed2;};
+	NodeSet Deterministic {BuiltIn = 1; Color = 0xd3caa6;};
+	NodeSet Finding {BuiltIn = 1; Color = 0xc8c8c8;};
+	NodeSet Constant {BuiltIn = 1; Color = 0xffffff;};
+	NodeSet ConstantValue {BuiltIn = 1; Color = 0xffffb4;};
+	NodeSet Utility {BuiltIn = 1; Color = 0xffbdbd;};
+	NodeSet Decision {BuiltIn = 1; Color = 0xdee8ff;};
+	NodeSet Documentation {BuiltIn = 1; Color = 0xf0fafa;};
+	NodeSet Title {BuiltIn = 1; Color = 0xffffff;};
+	PrinterSetting A {
+		margins = (1270, 1270, 1270, 1270);
+		landscape = FALSE;
+		magnify = 1;
+		};
+	};
 
 node Pollution {
-    kind = NATURE;
-    discrete = TRUE;
-    chance = CHANCE;
-    title = "Pollution";
-    parents = ();
-    states = (low, high);
-    probs = 
-        (0.90000000, 0.10000000);
-    user U1 {
-    };
-visual V1 {
-    center = (227, 100);
-};
-};
+	kind = NATURE;
+	discrete = TRUE;
+	chance = CHANCE;
+	states = (low, high);
+	parents = ();
+	probs = 
+		// low          high         
+		  (0.9,         0.1);
+	title = "Pollution";
+	whenchanged = 0;
+	visual V1 {
+		center = (227, 100);
+		height = 1;
+		};
+	};
 
 node Smoker {
-    kind = NATURE;
-    discrete = TRUE;
-    chance = CHANCE;
-    title = "Smoker";
-    parents = ();
-    states = (True, False);
-    probs = 
-        (0.30000000, 0.70000000);
-    user U1 {
-    };
-visual V1 {
-    center = (509, 100);
-};
-};
+	kind = NATURE;
+	discrete = TRUE;
+	chance = CHANCE;
+	states = (True, False);
+	parents = ();
+	probs = 
+		// True         False        
+		  (0.3,         0.7);
+	title = "Smoker";
+	comment = "This is a description.";
+	whenchanged = 1450787078;
+	visual V1 {
+		center = (509, 100);
+		height = 2;
+		};
+	};
 
 node Cancer {
-    kind = NATURE;
-    discrete = TRUE;
-    chance = CHANCE;
-    title = "Cancer";
-    parents = (Pollution, Smoker);
-    states = (True, False);
-    probs = 
-        (((0.03000000, 0.97000000),
-        (0.00100000, 0.99900000)),
-        ((0.05000000, 0.95000000),
-        (0.02000000, 0.98000000)));
-    user U1 {
-    };
-visual V1 {
-    center = (370, 224);
-};
-};
+	kind = NATURE;
+	discrete = TRUE;
+	chance = CHANCE;
+	states = (True, False);
+	parents = (Pollution, Smoker);
+	probs = 
+		// True         False         // Pollution Smoker 
+		  (0.03,        0.97,         // low       True   
+		   0.001,       0.999,        // low       False  
+		   0.05,        0.95,         // high      True   
+		   0.02,        0.98);        // high      False  ;
+	title = "Cancer";
+	whenchanged = 0;
+	visual V1 {
+		center = (370, 224);
+		height = 3;
+		link 1 {
+			path = ((257, 126), (341, 198));
+			};
+		};
+	};
 
 node Xray {
-    kind = NATURE;
-    discrete = TRUE;
-    chance = CHANCE;
-    title = "Xray";
-    parents = (Cancer);
-    states = (positive, negative);
-    probs = 
-        ((0.90000000, 0.10000000),
-        (0.20000000, 0.80000000));
-    user U1 {
-    };
-visual V1 {
-    center = (509, 343);
-};
-};
+	kind = NATURE;
+	discrete = TRUE;
+	chance = CHANCE;
+	states = (positive, negative);
+	parents = (Cancer);
+	probs = 
+		// positive     negative      // Cancer 
+		  (0.9,         0.1,          // True   
+		   0.2,         0.8);         // False  ;
+	title = "XRay?";
+	whenchanged = 1450788154;
+	visual V1 {
+		center = (509, 343);
+		height = 4;
+		};
+	};
 
 node Dyspnoea {
-    kind = NATURE;
-    discrete = TRUE;
-    chance = CHANCE;
-    title = "Dyspnoea";
-    parents = (Cancer);
-    states = (True, False);
-    probs = 
-        ((0.65000000, 0.35000000),
-        (0.30000000, 0.70000000));
-    user U1 {
-    };
-visual V1 {
-    center = (227, 343);
-};
-};
+	kind = NATURE;
+	discrete = TRUE;
+	chance = CHANCE;
+	states = (True, False);
+	parents = (Cancer);
+	probs = 
+		// True         False         // Cancer 
+		  (0.65,        0.35,         // True   
+		   0.3,         0.7);         // False  ;
+	title = "Dyspnoea";
+	whenchanged = 0;
+	visual V1 {
+		center = (227, 343);
+		height = 5;
+		};
+	};
 };

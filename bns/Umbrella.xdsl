@@ -36,7 +36,7 @@
 				<barchart active="true" width="128" height="64" />
 			</node>
 			<node id="Forecast">
-				<name>Weather Forecast</name>
+				<name>Weather Forecast for the day of the week</name>
 				<interior color="e5f6f7" />
 				<outline color="0000bb" />
 				<font color="000000" name="Arial" size="8" />

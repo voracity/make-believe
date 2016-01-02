@@ -6,7 +6,7 @@ if (typeof(importScripts)!="undefined") {
 
 /// Add in topo order
 function addNode(bn, id, parents, states, cpt, funcTable, funcDef) {
-	var node = {id: id, seen: 0, counts: newArray(states.length, 0), beliefs: newArray(states.length, 0), states: [], parents: []};
+	var node = {id: id, seen: 0, counts: new Float32Array(new ArrayBuffer(states.length*4)), beliefs: new Float32Array(new ArrayBuffer(states.length*4)), states: [], parents: []};
 	for (var i=0; i<parents.length; i++) {
 		node.parents.push(bn.nodesById[parents[i]]);
 	}
@@ -39,6 +39,7 @@ function addNode(bn, id, parents, states, cpt, funcTable, funcDef) {
 	if (funcTable) {
 		node.funcTable = funcTable;
 	}
+	console.log(node);
 	//node.intId = bn.nodes.length;
 	//bn.nodes.push(node);
 	bn.nodesById[node.id] = node;
@@ -66,6 +67,7 @@ function makeBnForUpdates(bn) {
 	for (var i=0; i<bn.nodes.length; i++) {
 		var node = bn.nodes[i];
 		var newNode = newBn.nodesById[node.id];
+		console.log('newNode', newNode, newBn.nodesById, node.id);
 		newNode.intId = newBn.nodes.length;
 		newBn.nodes.push(newNode);
 	}
@@ -76,7 +78,9 @@ function makeBnForUpdates(bn) {
 
 onmessage = function(e) {
 	if (e.data[0]==0) { // Worker has been sent the BN
+		console.log("This is BN received", e.data[1]);
 		bn = makeBnForUpdates(e.data[1]);
+		console.log("This is BN received 2", e.data[1]);
 		//bn = e.data[1];
 		//postMessage([1,bn]);
 	}

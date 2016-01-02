@@ -8,6 +8,47 @@ R6
 - Extremely experimental .xdsl saving (basic networks only)
 R7
 - Added experimental worker threads (currently worse perf)
-*R8
 R16
 - Right click/context menu triggers CPT dialog
+R17
+- Fixed entering evidence in first state (should have been 'if undefined' not 'if 0')
+- TESTING: Created testing file (makeBelieveTests.js), and added an initial test
+- TESTING: Added click-to-update test. Accuracy may be an issue for reproducibility
+- TESTING: Added running tests to debug menu
+- For very small iterations, worker threads > iterations. Fixed to handle this properly
+- Auto-layout is now animated. (Using a slow method --- can be much faster.)
+- Auto-layout animation with faster method. :)
+- Added a label-only view
+- Fixed: [bug] auto-layout, switching between distro/label view sometimes causes arrows to disappear
+- Prompt for node delete (in future, undo/redo makes this redundant/undesirable)
+- Allowed viewing of equation node definitions
+- Allowed setting the equation node definitions (with no validation)
+- Added comment reading/viewing from .xdsl file
+- Allow changing text in comments
+- Save comment to .xdsl file
+- Fixed decision network evaluation bustage (broken since had switched to worker threads as default)
+- TESTING: Added a simple regression test for decision networks
+- Very preliminary add node capability (backend only)
+- Arc weights based on % mutual info for children
+R18
+- Fixed worker-based inference, when changes have been made to network
+- Support for .dne comments
+- Fixed menu markers
+- Added support for node colours and formats
+	- Read in from .xdsl files
+	- Fix editing of formatting controls
+	- Save format changes to .xdsl file
+	- Added a simple regression test (requires visual verification)
+- Probability of Evidence (simple, slow version)
+- Added support for the same function-form logical operators as GeNIe (And, Or, etc.). No "Not", because there's none in GeNIe.
+- Support for further functions (arithmetic)
+R19**
+
+Bugs
+- Add node: cpt verification, node types
+- Create proper compile function (start with loadPostprocess). Should probably 'fix' representational errors.
+- Style comment in node context dialog
+- Read comment on nodes from .dne files
+
+Features
+- Continuous evidence...

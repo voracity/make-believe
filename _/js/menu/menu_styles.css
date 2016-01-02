@@ -1,9 +1,13 @@
 .menu { z-index: 10; font-size: 10pt; }
 .menu > .itemList { display: none; border: solid 1px black;  background: white; }
 .menu > .header:hover { color: #999; }
-.menu.active > .header,
+.menu:not(.bar) .menu > .header { background-image: url(menu-right.svg);
+	background-repeat: no-repeat;
+	background-size: auto 30%; background-position: right 7px top 55%; }
+.menu:not(.bar) .menu.active > .header { background-image: url(menu-right-active.svg); }
+.menu .menu.active > .header,
 	.menuAction.active
-	{ background: blue; color: white; }
+	{ background-color: blue; color: white; }
 .menu.active > .itemList { display: block; }
 .menu > .itemList { box-shadow: 2px 2px 2px rgba(0,0,0,0.3); }
 
