@@ -36,6 +36,24 @@ var testing = {
 				});
 			});
 		},
+		/// Decision Nets - Umbrella
+		function(callback) {
+			loadFromServer('bns/Bunce\'s Farm.xdsl', function() {
+				var savedIterations = currentBn.iterations;
+				currentBn.iterations = 1000000;
+				updateBN(function() {
+					var ev = Number($('.status .expectedValue .val').eq(0).text());
+					var areEqual1 = testing.testNumbersEqual('EV=48?', ev, -48, 1);
+					/*$('#display_Weather .stateName').eq(1).trigger('click');
+					updateBN(function() {
+						var ev = Number($('.status .expectedValue .val').eq(0).text());
+						var areEqual2 = testing.testNumbersEqual('EV=95?', ev, 95, 1);
+						currentBn.iterations = savedIterations;
+						callback('Decision Nets - Umbrella', areEqual1 && areEqual2);
+					});*/
+				});
+			});
+		},
 		/// Formatting
 		function(callback) {
 			loadFromServer('bns/Asia.xdsl', function() {

@@ -1,4 +1,4 @@
-var titlePostfix = "Make-Believe (R18)";
+var titlePostfix = "Make-Believe (R19**)";
 var openBns = [];
 var openData = [];
 var currentBn = null;
@@ -399,6 +399,9 @@ function Node(o) {
 	this.dynamicParents = [];
 	/// Whether this node should be visible to the engine only, and not the user
 	this.engineOnly = false;
+	/// The path (left-to-right array) through the submodels to this node. An empty array means the node
+	/// is in the root model.
+	this.submodelPath = [];
 
 	/// Does the display need updating?
 	this._updateDisplay = false;
@@ -490,7 +493,12 @@ Node.makeNodeFromXdslEl = function (el, $xdsl, opts) {
 			funcTable[i] = i;
 		}
 	}
-	var $extInfo = $xdsl.find("> extensions > genie > node#"+$el.attr("id"));
+	var $extInfo = $xdsl.find("> extensions > genie node#"+$el.attr("id"));
+	/// Determine the submodel to which this node belongs
+	var submodelPath = [];
+	$extInfo.parents('submodel').each(function() {
+		submodelPath.unshift($(this).attr("id"));
+	});
 	var posInfo = $extInfo.find("position").text().split(/\s+/);
 	var comment = null;
 	if ($extInfo.find("> comment")) {
@@ -548,6 +556,7 @@ Node.makeNodeFromXdslEl = function (el, $xdsl, opts) {
 		size: {width: Number(posInfo[2])-Number(posInfo[0]), height: Number(posInfo[3])-Number(posInfo[1])},
 		comment: comment,
 		format: format,
+		submodelPath: submodelPath,
 	});
 	console.log(node, $extInfo);
 	node.beliefs = new Float32Array(new ArrayBuffer(node.states.length*4));
@@ -607,6 +616,22 @@ Node.prototype = {
 		this.func = null;
 		this.net.needsCompile = true;
 	},
+	/// Move this node to the given submodel. |path| is a left-to-right array
+	/// representing the path.
+	moveToSubmodel: function(path) {
+		/// Remove from old submodel (if there)
+		var oldSubmodel = this.net.getSubmodel(this.submodelPath);
+		var oldIndex = oldSubmodel.subNodes.findIndex(function(v) { return v==this });
+		if (oldIndex >= 0) {
+			oldSubmodel.subNodes.splice(oldIndex,1);
+		}
+
+		/// Save new path
+		this.submodelPath = path.slice();
+
+		/// Move node to new submodel
+		this.net.getSubmodel(this.submodelPath).subNodes.push(this);
+	},
 	/// Create a duplicate node in the same network
 	duplicateNode: function(id, extraProps) {
 		var nodeProps = {};
@@ -634,12 +659,26 @@ Node.prototype = {
 		}
 		delete this.net.nodesById[this.id];
 
+		/// Remove from the submodel's references
+		var submodel = this.net.getSubmodel(node.submodelPath);
+		var index = submodel.subNodes.findIndex(function (n) { return n.id == node.id; });
+		submodel.subNodes.splice(index, 1);
+
 		/// Remove from other node's references (in parents)
 		for (var otherNode of this.net.nodes) {
 			/// Can't be in/out multiple times.
 			for (var nodeListType of ['pathsIn','pathsOut']) {
-				var index = otherNode[nodeListType].findIndex(function(p) { return p[1].id == node.id; });
+				var otherItem = nodeListType == 'pathsIn' ? 'parentItem' : 'childItem';
+				var index = otherNode[nodeListType].findIndex(function(p) { return p[otherItem].id == node.id; });
 				if (index !== -1)  otherNode[nodeListType].splice(index, 1);
+			}
+
+			/// Inefficient
+			var otherSubmodel = this.net.getSubmodel(otherNode.submodelPath);
+			for (var nodeListType of ['pathsIn','pathsOut']) {
+				var otherItem = nodeListType == 'pathsIn' ? 'parentItem' : 'childItem';
+				var index = otherSubmodel[nodeListType].findIndex(function(p) { return p[otherItem].id == node.id; });
+				if (index !== -1)  otherSubmodel[nodeListType].splice(index, 1);
 			}
 
 			var asChildIndex = otherNode.children.findIndex(function(n){return n.id == node.id});
@@ -746,8 +785,49 @@ Node.prototype = {
 	},
 };
 
+function Submodel(o) {
+	o = o || {};
+
+	/// Defaults
+	this.id = null;
+	this.path = [];
+	this.subNodes = [];
+	this.submodelsById = {};
+
+	/// Visual properties
+	this.pos = {x: 0, y: 0};
+	this.size = {width: 0, height: 0};
+	/// For arc drawing/updating
+	this.pathsIn = [];
+	this.pathsOut = [];
+
+	/// Set options based on constructor args
+	for (var i in o) {
+		this[i] = o[i];
+	}
+}
+Submodel.prototype = {
+	getAllNodes: function() {
+		/// For every node that's in subm, add its parents as parents to subm
+		var submodelsToVisit = [this];
+		var nodes = [];
+		while (submodelsToVisit.length) {
+			nodes = nodes.concat(submodelsToVisit[0].subNodes);
+			for (var i in submodelsToVisit[0].submodelsById) {
+				submodelsToVisit.push(submodelsToVisit[0].submodelsById[i]);
+			}
+			submodelsToVisit.shift();
+		}
+		return nodes;
+	},
+};
+
+/// A BN is also a submodel (of course...)
 function BN(o) {
 	o = o || {};
+	/// This implements the 'submodel' interface ({id/node/submodels/pos/size})
+	Submodel.apply(this);
+
 	o.format = o.format || "xdsl";
 
 	this.source = o.source;
@@ -763,14 +843,18 @@ function BN(o) {
 
 	/// Does the cache information need updating?
 	this.needsCompile = false;
-	/// (No longer true: These are intended to be cache-only. To update the net, call the modification functions
-	/// (once they''re written!) or change this.objs and then set this.needsCompile.)
+	/// (To update the net, call the modification functions
+	/// (once they're all written!) or change this.objs and then set this.needsCompile.)
 	this.nodes = [];
+	this.nodesById = {};
+
+	/// Various cached information
 	this._utilityNodes = [];
 	this._decisionNodes = [];
-	this.nodesById = {};
 	this._rootNodes = [];
 	this._nodeOrdering = [];
+
+	this.currentSubmodel = []; //["Orchard","Tree"];
 
 	this.getRowIInts = new Int32Array(new ArrayBuffer(2*4));
 
@@ -796,8 +880,30 @@ BN.prototype = {
 		this._decisionNodes = [];
 		this.nodesById = {};
 		this._rootNodes = [];
+		/// Store the submodels information. (These aren't being treated as
+		/// truly self-contained models. It would be interesting to do so.)
+		this.objs.find("> extensions submodel").each(function() {
+			var submodelPars = $(this).parents('submodel').map(function(){ return $(this).attr("id") }).toArray().reverse();
+
+			/// Navigate to the parent submodel
+			var parSubmodel = bn.getSubmodel(submodelPars);
+
+			var posInfo = $(this).find("position").text().split(/\s+/);
+			parSubmodel.submodelsById[$(this).attr("id")] = new Submodel({
+				id: $(this).attr("id"),
+				path: submodelPars.concat($(this).attr("id")),
+				net: bn,
+				subNodes: [],
+				submodelsById: {},
+				pos: {x: Number(posInfo[0]), y: Number(posInfo[1])},
+				size: {width: Number(posInfo[2])-Number(posInfo[0]), height: Number(posInfo[3])-Number(posInfo[1])},
+			});
+		});
+
+		/// Handle all the nodes
 		this.objs.find("> nodes cpt, > nodes deterministic, > nodes decision, > nodes utility, > nodes equation").each(function() {
 			var node = Node.makeNodeFromXdslEl(this, bn.objs, {net: bn});
+			node.moveToSubmodel(node.submodelPath);
 			bn.nodes.push(node);
 			bn.nodesById[node.id] = node;
 			if ($(this).is("utility")) {
@@ -1016,8 +1122,10 @@ BN.prototype = {
 
 		if (this.useWorkers) {
 			console.log('Using workers');
+			/// XXX Redo the compile so that the worker-ready BN is built from scratch (to avoid
+			/// hassles passing in data to the workers)
 			/// Extract the key parts of the BN needed to do the inference
-			var bnToPass = {nodes: []};
+			var bnToPass = {};
 			for (var k in bn) {
 				if (typeof(bn[k])!="function") {
 					bnToPass[k] = bn[k];
@@ -1027,10 +1135,34 @@ BN.prototype = {
 			for (var i=0; i<bnToPass.nodes.length; i++) {
 				bnToPass.nodes[i].net = null;
 				bnToPass.nodes[i].func = null;
+				this.getSubmodel(bnToPass.nodes[i].submodelPath).net = null;
 			}
 			bnToPass.objs = null;
 			bnToPass.outputEl = null;
 			bnToPass._workers = null;
+			bnToPass.submodelsById = null;
+			bnToPass.subNodes = null;
+			/// Ack! This caused me much pain
+			bnToPass.net = null;
+			/// NOTE: If receive DataCloneError, use following to work out
+			/// where the invalid object is lurking...
+			/*var objsSeen = [];
+			(function checkBn(obj, path){
+				for (var k in obj) {
+					path.push(k);
+					//console.log(path);
+					if (typeof(obj[k]) == "object" && objsSeen.findIndex(function(v) { return v==obj[k]})==-1) {
+						objsSeen.push(obj[k]);
+						checkBn(obj[k], path);
+					}
+					else {
+						if (obj[k] instanceof jQuery || obj[k] instanceof HTMLElement) {
+							console.log("Error: ", path);
+						}
+					}
+					path.pop();
+				}
+			})(bnToPass, ["bnToPass"]);*/
 
 			var numWorkers = this.numWorkers;
 
@@ -1040,12 +1172,13 @@ BN.prototype = {
 			}
 			for (var wi=0; wi<numWorkers; wi++) {
 				if (!this._workers[wi])  this._workers[wi] = new Worker("_/js/beliefUpdate_worker.js");
-				//onsole.log("BNTOPASS:", bnToPass);
+				console.log("BNTOPASS:", bnToPass);
 				this._workers[wi].postMessage([0, bnToPass]);
 			}
 
 			for (var i=0; i<bnToPass.nodes.length; i++) {
 				bnToPass.nodes[i].net = this;
+				this.getSubmodel(bnToPass.nodes[i].submodelPath).net = this;
 			}
 		}
 
@@ -1057,6 +1190,7 @@ BN.prototype = {
 		bn._rootNodes = [];
 		for (var i in bn.nodes) {
 			var node = bn.nodes[i];
+			//onsole.log(node.parents.length, node);
 			if (node.parents.length == 0) {
 				bn._rootNodes.push(node);
 			}
@@ -1064,6 +1198,8 @@ BN.prototype = {
 	},
 	updateNodeOrdering: function() {
 		var bn = this;
+
+		console.log(bn.nodes.length, bn._rootNodes);
 
 		/// Create copies of all the arcs to work with
 		function arcCopies(node) {
@@ -1261,6 +1397,13 @@ BN.prototype = {
 
 		return newNode;
 	},
+	getSubmodel: function(submodelPath) {
+		var s = this;
+		for (var i=0; i<submodelPath.length; i++) {
+			s = s.submodelsById[submodelPath[i]];
+		}
+		return s;
+	},
 	/// Lot's of limitations: discrete, no auto-discretize, etc.
 	/// XXX: I've just written this without testing it yet!
 	learnParametersCounting: function(data) {
@@ -1373,7 +1516,7 @@ BN.prototype = {
 					var workerBeliefs = e.data[1];
 					var workerSamples = e.data[2];
 					for (var i=0; i<workerBeliefs.length; i++) {
-						/*console.log(workerBn.nodes[i].id, workerBn.nodes[i].beliefs);*/
+						//console.log(workerBeliefs, workerSamples);
 						if (numComplete==1) {
 							bn.nodes[i].beliefs = workerBeliefs[i];
 							bn.nodes[i].samples = workerSamples[i];

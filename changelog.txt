@@ -43,8 +43,19 @@ R18
 - Added support for the same function-form logical operators as GeNIe (And, Or, etc.). No "Not", because there's none in GeNIe.
 - Support for further functions (arithmetic)
 R19**
+- Initial group support
+	- Show only nodes from currently focused group
+	- Show node for submodel, with arcs
+	- Allow submodel navigation
+	- Allow moving with submodel
+	- |display()| function clean up
+	- Fixed up pathsIn/pathsOut to store information as objects rather than arrays
+	- Delete now working again
+- Context menus supported (minimally) on utility and decision nodes now
 
 Bugs
+- Move the visible graph creation logic out of the display() function
+- Allow switch to flat view and back (how to handle layouts for both group and flat view?)
 - Add node: cpt verification, node types
 - Create proper compile function (start with loadPostprocess). Should probably 'fix' representational errors.
 - Style comment in node context dialog

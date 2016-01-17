@@ -1,5 +1,5 @@
 <!--
-Copyright (c) 2014-2015 Steven Mascaro
+Copyright (c) 2014-2016 Steven Mascaro
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal
@@ -22,7 +22,7 @@ SOFTWARE.
 <!doctype html>
 <html>
 <head>
-	<title>Make-Believe (R18)</title>
+	<title>Make-Believe (R19**)</title>
 	<script src="_/js/jquery.min.js"></script>
 	<script src="_/js/defiant.min.js"></script>
 	<script src="_/js/vkbeautify.0.99.00.beta.js"></script>
@@ -69,6 +69,13 @@ SOFTWARE.
 	.node.decision.hasEvidence .state .beliefBar { visibility: visible; }
 	.node.utility { background: #F3A5CD; }
 	.node.utility h6 { border-bottom: none; }
+
+	/** Submodel view **/
+	.submodel { position: absolute; padding: 0 0; border-radius: 0; border: solid 3px #444;
+		background: #F9DAB9; z-index: 1; font-family: arial; display: flex;
+		 min-width: 70px; min-height: 50px; justify-content: center; align-items: center; }
+	.submodel h6 { font-size: 1em; margin: 0; font-weight: bold; }
+	.submodel.parent { min-width: 20px; min-height: 15px; }
 
 	/* Can also style svg arrows if needed */
 	/*path { stroke: red; }

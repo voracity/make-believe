@@ -1,0 +1,445 @@
+<?xml version="1.0" encoding="ISO-8859-1"?>
+<smile version="1.0" id="Network1" numsamples="1000" discsamples="10000">
+	<nodes>
+		<decision id="Irrigate">
+			<state id="Yes" />
+			<state id="No" />
+		</decision>
+		<decision id="Spray">
+			<state id="Yes" />
+			<state id="No" />
+			<parents>Irrigate</parents>
+		</decision>
+		<cpt id="Drought_2">
+			<state id="Yes" />
+			<state id="No" />
+			<probabilities>0.4 0.6</probabilities>
+		</cpt>
+		<utility id="Irrigation_Cost">
+			<parents>Irrigate Drought_2</parents>
+			<utilities>-120 -80 0 0</utilities>
+		</utility>
+		<utility id="Spray_Cost">
+			<parents>Spray</parents>
+			<utilities>-100 0</utilities>
+		</utility>
+		<deterministic id="Drought">
+			<state id="Yes" />
+			<state id="No" />
+			<parents>Drought_2</parents>
+			<resultingstates>Yes No</resultingstates>
+		</deterministic>
+		<deterministic id="Irrigate_2">
+			<state id="Yes" />
+			<state id="No" />
+			<parents>Irrigate</parents>
+			<resultingstates>Yes No</resultingstates>
+		</deterministic>
+		<deterministic id="Spray_2">
+			<state id="Yes" />
+			<state id="No" />
+			<parents>Spray</parents>
+			<resultingstates>Yes No</resultingstates>
+		</deterministic>
+		<deterministic id="Drought_3">
+			<state id="Yes" />
+			<state id="No" />
+			<parents>Drought</parents>
+			<resultingstates>Yes No</resultingstates>
+		</deterministic>
+		<deterministic id="Irrigate_3">
+			<state id="Yes" />
+			<state id="No" />
+			<parents>Irrigate_2</parents>
+			<resultingstates>Yes No</resultingstates>
+		</deterministic>
+		<cpt id="Dry">
+			<state id="Yes" />
+			<state id="No" />
+			<parents>Drought_3 Irrigate_3</parents>
+			<probabilities>0.1 0.9 0.9 0.1 0.05 0.95 0.3 0.7</probabilities>
+		</cpt>
+		<deterministic id="Spray_3">
+			<state id="Yes" />
+			<state id="No" />
+			<parents>Spray_2</parents>
+			<resultingstates>Yes No</resultingstates>
+		</deterministic>
+		<cpt id="Sick">
+			<state id="Yes" />
+			<state id="No" />
+			<parents>Spray_3</parents>
+			<probabilities>0.05 0.95 0.5 0.5</probabilities>
+		</cpt>
+		<cpt id="Condition">
+			<state id="Good" />
+			<state id="Average" />
+			<state id="Bad" />
+			<parents>Dry Sick</parents>
+			<probabilities>0.02 0.08 0.9 0.2 0.4 0.4 0.1 0.2 0.7 0.5 0.3 0.2</probabilities>
+		</cpt>
+		<deterministic id="Copy_of_Drought_3">
+			<state id="Yes" />
+			<state id="No" />
+			<parents>Drought</parents>
+			<resultingstates>Yes No</resultingstates>
+		</deterministic>
+		<deterministic id="Copy_of_Irrigate_3">
+			<state id="Yes" />
+			<state id="No" />
+			<parents>Irrigate_2</parents>
+			<resultingstates>Yes No</resultingstates>
+		</deterministic>
+		<cpt id="Dry_2">
+			<state id="Yes" />
+			<state id="No" />
+			<parents>Copy_of_Drought_3 Copy_of_Irrigate_3</parents>
+			<probabilities>0.1 0.9 0.9 0.1 0.05 0.95 0.3 0.7</probabilities>
+		</cpt>
+		<deterministic id="Copy_of_Spray_3">
+			<state id="Yes" />
+			<state id="No" />
+			<parents>Spray_2</parents>
+			<resultingstates>Yes No</resultingstates>
+		</deterministic>
+		<cpt id="Sick_2">
+			<state id="Yes" />
+			<state id="No" />
+			<parents>Copy_of_Spray_3</parents>
+			<probabilities>0.05 0.95 0.5 0.5</probabilities>
+		</cpt>
+		<cpt id="Condition_2">
+			<state id="Good" />
+			<state id="Average" />
+			<state id="Bad" />
+			<parents>Dry_2 Sick_2</parents>
+			<probabilities>0.02 0.08 0.9 0.2 0.4 0.4 0.1 0.2 0.7 0.5 0.3 0.2</probabilities>
+		</cpt>
+		<deterministic id="Copy_2_of_Drought_3">
+			<state id="Yes" />
+			<state id="No" />
+			<parents>Drought</parents>
+			<resultingstates>Yes No</resultingstates>
+		</deterministic>
+		<deterministic id="Copy_2_of_Irrigate_3">
+			<state id="Yes" />
+			<state id="No" />
+			<parents>Irrigate_2</parents>
+			<resultingstates>Yes No</resultingstates>
+		</deterministic>
+		<cpt id="Copy_2_of_Dry">
+			<state id="Yes" />
+			<state id="No" />
+			<parents>Copy_2_of_Drought_3 Copy_2_of_Irrigate_3</parents>
+			<probabilities>0.1 0.9 0.9 0.1 0.05 0.95 0.3 0.7</probabilities>
+		</cpt>
+		<deterministic id="Copy_2_of_Spray_3">
+			<state id="Yes" />
+			<state id="No" />
+			<parents>Spray_2</parents>
+			<resultingstates>Yes No</resultingstates>
+		</deterministic>
+		<cpt id="Copy_2_of_Sick">
+			<state id="Yes" />
+			<state id="No" />
+			<parents>Copy_2_of_Spray_3</parents>
+			<probabilities>0.05 0.95 0.5 0.5</probabilities>
+		</cpt>
+		<cpt id="Copy_2_of_Condition">
+			<state id="Good" />
+			<state id="Average" />
+			<state id="Bad" />
+			<parents>Copy_2_of_Dry Copy_2_of_Sick</parents>
+			<probabilities>0.02 0.08 0.9 0.2 0.4 0.4 0.1 0.2 0.7 0.5 0.3 0.2</probabilities>
+		</cpt>
+		<cpt id="Crop_Condition">
+			<state id="Good" />
+			<state id="Average" />
+			<state id="Bad" />
+			<parents>Condition Condition_2 Copy_2_of_Condition</parents>
+			<probabilities>1 0 0 1 0 0 1 0 0 1 0 0 0 1 0 0 1 0 1 0 0 0 1 0 0 0 1 1 0 0 0 1 0 0 1 0 0 1 0 0 1 0 0 1 0 0 1 0 0 1 0 0 0 1 1 0 0 0 1 0 0 0 1 0 1 0 0 1 0 0 0 1 0 0 1 0 0 1 0 0 1</probabilities>
+		</cpt>
+		<utility id="Return">
+			<parents>Crop_Condition</parents>
+			<utilities>700 400 150</utilities>
+		</utility>
+		<cpt id="Lose_Leaves">
+			<state id="Yes" />
+			<state id="No" />
+			<parents>Condition</parents>
+			<probabilities>0.1 0.9 0.3 0.7 0.6 0.4</probabilities>
+		</cpt>
+		<cpt id="Lose_Leaves_2">
+			<state id="Yes" />
+			<state id="No" />
+			<parents>Condition_2</parents>
+			<probabilities>0.1 0.9 0.3 0.7 0.6 0.4</probabilities>
+		</cpt>
+		<cpt id="Copy_2_of_Lose_Leaves">
+			<state id="Yes" />
+			<state id="No" />
+			<parents>Copy_2_of_Condition</parents>
+			<probabilities>0.1 0.9 0.3 0.7 0.6 0.4</probabilities>
+		</cpt>
+	</nodes>
+	<extensions>
+		<genie version="1.0" app="GeNIe 2.0.5219.0" name="Network1" faultnameformat="nodestate">
+			<submodel id="Climate">
+				<name>Climate</name>
+				<interior color="ffff99" />
+				<outline color="000080" width="2" />
+				<font color="000000" name="Arial" size="8" />
+				<position>23 18 111 87</position>
+				<window>486 289 947 456</window>
+				<node id="Drought_2">
+					<name>Drought</name>
+					<interior color="e5f6f7" />
+					<outline color="000080" />
+					<font color="000000" name="Arial" size="8" />
+					<position>131 47 185 80</position>
+				</node>
+			</submodel>
+			<node id="Irrigate">
+				<name>Irrigate</name>
+				<interior color="e5f6f7" />
+				<outline color="000080" />
+				<font color="000000" name="Arial" size="8" />
+				<position>178 94 272 138</position>
+			</node>
+			<node id="Spray">
+				<name>Spray</name>
+				<interior color="e5f6f7" />
+				<outline color="000080" />
+				<font color="000000" name="Arial" size="8" />
+				<position>336 94 449 138</position>
+			</node>
+			<node id="Irrigation_Cost">
+				<name>Irrigation Cost</name>
+				<interior color="ff99cc" />
+				<outline color="000080" />
+				<font color="000000" name="Arial" size="8" />
+				<position>182 16 268 48</position>
+			</node>
+			<node id="Spray_Cost">
+				<name>Spray Cost</name>
+				<interior color="ff99cc" />
+				<outline color="000080" />
+				<font color="000000" name="Arial" size="8" />
+				<position>356 22 430 54</position>
+			</node>
+			<submodel id="Orchard">
+				<name>Orchard</name>
+				<interior color="ffff99" />
+				<outline color="000080" width="2" />
+				<font color="000000" name="Arial" size="8" />
+				<position>101 164 360 226</position>
+				<window>492 -11 953 289</window>
+				<node id="Drought">
+					<name>Drought</name>
+					<interior color="e5f6f7" />
+					<outline color="000080" />
+					<font color="000000" name="Arial" size="8" />
+					<position>42 15 113 54</position>
+				</node>
+				<node id="Irrigate_2">
+					<name>Irrigate</name>
+					<interior color="e5f6f7" />
+					<outline color="000080" />
+					<font color="000000" name="Arial" size="8" />
+					<position>184 14 252 49</position>
+				</node>
+				<node id="Spray_2">
+					<name>Spray</name>
+					<interior color="e5f6f7" />
+					<outline color="000080" />
+					<font color="000000" name="Arial" size="8" />
+					<position>331 16 399 52</position>
+				</node>
+				<submodel id="Tree">
+					<name>Tree</name>
+					<interior color="ffff99" />
+					<outline color="000080" width="2" />
+					<font color="000000" name="Arial" size="8" />
+					<position>12 98 129 163</position>
+					<window>7 285 489 524</window>
+					<node id="Drought_3">
+						<name>Drought</name>
+						<interior color="e5f6f7" />
+						<outline color="000080" />
+						<font color="000000" name="Arial" size="8" />
+						<position>17 12 96 57</position>
+					</node>
+					<node id="Irrigate_3">
+						<name>Irrigate</name>
+						<interior color="e5f6f7" />
+						<outline color="000080" />
+						<font color="000000" name="Arial" size="8" />
+						<position>197 14 271 60</position>
+					</node>
+					<node id="Spray_3">
+						<name>Spray</name>
+						<interior color="e5f6f7" />
+						<outline color="000080" />
+						<font color="000000" name="Arial" size="8" />
+						<position>327 11 390 53</position>
+					</node>
+					<node id="Dry">
+						<name>Dry</name>
+						<interior color="e5f6f7" />
+						<outline color="000080" />
+						<font color="000000" name="Arial" size="8" />
+						<position>136 66 174 89</position>
+					</node>
+					<node id="Sick">
+						<name>Sick</name>
+						<interior color="e5f6f7" />
+						<outline color="000080" />
+						<font color="000000" name="Arial" size="8" />
+						<position>273 69 314 94</position>
+					</node>
+					<node id="Condition">
+						<name>Condition</name>
+						<interior color="e5f6f7" />
+						<outline color="000080" />
+						<font color="000000" name="Arial" size="8" />
+						<position>189 129 248 165</position>
+						<barchart active="true" width="128" height="72" />
+					</node>
+					<node id="Lose_Leaves">
+						<name>Lose Leaves</name>
+						<interior color="e5f6f7" />
+						<outline color="000080" />
+						<font color="000000" name="Arial" size="8" />
+						<position>305 123 380 169</position>
+					</node>
+				</submodel>
+				<node id="Crop_Condition">
+					<name>Crop Condition</name>
+					<interior color="e5f6f7" />
+					<outline color="000080" />
+					<font color="000000" name="Arial" size="8" />
+					<position>180 191 262 242</position>
+				</node>
+				<submodel id="Tree2">
+					<name>Tree2</name>
+					<interior color="ffff99" />
+					<outline color="000080" width="2" />
+					<font color="000000" name="Arial" size="8" />
+					<position>161 101 278 166</position>
+					<node id="Copy_of_Drought_3">
+						<name>Drought</name>
+						<interior color="e5f6f7" />
+						<outline color="000080" />
+						<font color="000000" name="Arial" size="8" />
+						<position>237 151 291 184</position>
+					</node>
+					<node id="Copy_of_Irrigate_3">
+						<name>Irrigate</name>
+						<interior color="e5f6f7" />
+						<outline color="000080" />
+						<font color="000000" name="Arial" size="8" />
+						<position>428 169 473 195</position>
+					</node>
+					<node id="Copy_of_Spray_3">
+						<name>Spray</name>
+						<interior color="e5f6f7" />
+						<outline color="000080" />
+						<font color="000000" name="Arial" size="8" />
+						<position>567 170 608 196</position>
+					</node>
+					<node id="Dry_2">
+						<name>Dry</name>
+						<interior color="e5f6f7" />
+						<outline color="000080" />
+						<font color="000000" name="Arial" size="8" />
+						<position>304 281 342 304</position>
+					</node>
+					<node id="Sick_2">
+						<name>Sick</name>
+						<interior color="e5f6f7" />
+						<outline color="000080" />
+						<font color="000000" name="Arial" size="8" />
+						<position>488 287 529 312</position>
+					</node>
+					<node id="Condition_2">
+						<name>Condition</name>
+						<interior color="e5f6f7" />
+						<outline color="000080" />
+						<font color="000000" name="Arial" size="8" />
+						<position>381 381 440 417</position>
+					</node>
+					<node id="Lose_Leaves_2">
+						<name>Lose Leaves</name>
+						<interior color="e5f6f7" />
+						<outline color="000080" />
+						<font color="000000" name="Arial" size="8" />
+						<position>552 451 627 497</position>
+					</node>
+				</submodel>
+				<submodel id="Copy_2_of_Tree">
+					<name>Tree3</name>
+					<interior color="ffff99" />
+					<outline color="000080" width="2" />
+					<font color="000000" name="Arial" size="8" />
+					<position>320 100 437 165</position>
+					<node id="Copy_2_of_Drought_3">
+						<name>Drought</name>
+						<interior color="e5f6f7" />
+						<outline color="000080" />
+						<font color="000000" name="Arial" size="8" />
+						<position>237 151 291 184</position>
+					</node>
+					<node id="Copy_2_of_Irrigate_3">
+						<name>Irrigate</name>
+						<interior color="e5f6f7" />
+						<outline color="000080" />
+						<font color="000000" name="Arial" size="8" />
+						<position>428 169 473 195</position>
+					</node>
+					<node id="Copy_2_of_Spray_3">
+						<name>Spray</name>
+						<interior color="e5f6f7" />
+						<outline color="000080" />
+						<font color="000000" name="Arial" size="8" />
+						<position>567 170 608 196</position>
+					</node>
+					<node id="Copy_2_of_Dry">
+						<name>Dry</name>
+						<interior color="e5f6f7" />
+						<outline color="000080" />
+						<font color="000000" name="Arial" size="8" />
+						<position>304 281 342 304</position>
+					</node>
+					<node id="Copy_2_of_Sick">
+						<name>Sick</name>
+						<interior color="e5f6f7" />
+						<outline color="000080" />
+						<font color="000000" name="Arial" size="8" />
+						<position>488 287 529 312</position>
+					</node>
+					<node id="Copy_2_of_Condition">
+						<name>Condition</name>
+						<interior color="e5f6f7" />
+						<outline color="000080" />
+						<font color="000000" name="Arial" size="8" />
+						<position>381 381 440 417</position>
+					</node>
+					<node id="Copy_2_of_Lose_Leaves">
+						<name>Lose Leaves</name>
+						<interior color="e5f6f7" />
+						<outline color="000080" />
+						<font color="000000" name="Arial" size="8" />
+						<position>552 451 627 497</position>
+					</node>
+				</submodel>
+			</submodel>
+			<node id="Return">
+				<name>Return</name>
+				<interior color="ff99cc" />
+				<outline color="000080" />
+				<font color="000000" name="Arial" size="8" />
+				<position>385 172 437 204</position>
+			</node>
+		</genie>
+	</extensions>
+</smile>

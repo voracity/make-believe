@@ -221,7 +221,242 @@ BN.prototype = $.extend(BN.prototype, {
 			this.displayArcsWithInfluences();
 		}
 	},
-	displayNode: function(outputEl, node, $displayNode) {
+	display: function(outputEl) {
+		outputEl = outputEl || this.outputEl;
+		outputEl.empty();
+		var bn = this;
+		var displayItems = {};
+		var nodeBeliefs = this.getAllBeliefs();
+		/// Setup an SVG canvas on which to draw things. At this stage,
+		/// this will just be arrows.
+		/// Need to wait for nodes to be drawn before we know size
+		draw.createSvg(outputEl, 0, 0, 10, 10, "netSvgCanvas");
+
+		/// Prep the submodels by adding a parents attribute. This
+		/// will be removed later.
+		var submodel = bn.getSubmodel(bn.currentSubmodel);
+		for (var sub in submodel.submodelsById) {
+			var subm = submodel.submodelsById[sub];
+			subm.parents = [];
+			/// XXX Need to get rid of this at some point
+			subm.dynamicParents = [];
+			/// Need to reset pathsIn/pathsOut
+			//subm.pathsIn = [];
+			//subm.pathsOut = [];
+			var submNodes = subm.getAllNodes();
+			for (var i=0; i<submNodes.length; i++) {
+				subm.parents = subm.parents.concat(submNodes[i].parents);
+			}
+		}
+
+		/// Draw all the graphItems visible in the current submodel
+		var graphItems = bn.getGraphItems();
+
+		/// Need to reset pathsIn/pathsOut first
+		for (var i=0; i<graphItems.length; i++) {
+			var graphItem = graphItems[i];
+			graphItem.pathsIn = [];
+			graphItem.pathsOut = [];
+		}
+
+		/// Before doing anything else, work out what the pathsIn/pathsOut are (with blank elements for the actual arcs)
+		for (var ni=0; ni<graphItems.length; ni++) {
+			var graphItem = graphItems[ni];
+			if (graphItem.isHidden())  continue;
+
+			var parents = graphItem.parents.concat(graphItem.dynamicParents);
+			if (parents.length) {
+				for (var i=0; i<parents.length; i++) {
+					/// Clarify: Parents will be an array if from dynamicParents, maybe?
+					var parent = Array.isArray(parents[i]) ? parents[i][0] : parents[i];
+					if (parent.isAlwaysHidden())  continue;
+
+					/// If parent belongs to a descendant submodel, need to deal with it differently
+					var j=0;
+					for (; j<parent.submodelPath.length; j++) {
+						if (parent.submodelPath[j] != bn.currentSubmodel[j])  break;
+					}
+					/// This means parent is in current submodel, or a descendent.
+					/// Only draw arcs for these cases.
+					if (j == bn.currentSubmodel.length) {
+						/// This means parent is strictly in a descendent submodel
+						if (parent.submodelPath.length > j) {
+							/// Sub in the submodel as the parent!
+							parent = bn.getSubmodel(parent.submodelPath.slice(0,j+1));
+						}
+						if (parent.id != graphItem.id) {
+							/// XXX Update these if nodes can be deleted
+							graphItem.pathsIn.push({pathId: null, parentItem: parent, _unused: null, pathOutIndex: parent.pathsOut.length});
+							parent.pathsOut.push({pathId: null, childItem: graphItem, _unused: null, pathInIndex:graphItem.pathsIn.length-1});
+						}
+					}
+				}
+			}
+		}
+
+		var maxX = 0;
+		var maxY = 0;
+		for (var i=0; i<graphItems.length; i++) {
+			var graphItem = graphItems[i];
+			if (graphItem.isHidden())  continue;
+
+			var $displayItem = graphItem.displayItem(outputEl);
+			displayItems[graphItem.id] = $displayItem;
+
+			/// Get max x/y as extents for canvas
+			var b = draw.getBox($displayItem);
+			maxX = Math.max(maxX, b.x+b.width);
+			maxY = Math.max(maxY, b.y+b.height);
+		}
+
+		/// If in submodel, add way to get back up!
+		if (bn.currentSubmodel.length) {
+			outputEl.append(
+				$("<div class='submodel parent'>..</div>")
+					.data("submodel", bn.getSubmodel(bn.currentSubmodel.slice(0,-1)) )
+			);
+		}
+
+		/// Draw the text objects
+		/// XXX todo
+
+		/// Draw all the arcs
+		for (var i=0; i<graphItems.length; i++) {
+			var graphItem = graphItems[i];
+			if (graphItem.isHidden())  continue;
+
+			/// Draw arcs that go into this item
+			for (var j=0; j<graphItem.pathsIn.length; j++) {
+				var parentItem = graphItem.pathsIn[j].parentItem;
+				var path = draw.drawArrowBetweenBoxes($(".netSvgCanvas"), draw.getBox($('#display_'+parentItem.id)), draw.getBox($('#display_'+graphItem.id)));
+
+				/// Now we need to populate the pathsIn/pathsOut references
+				var pathId = (""+Math.random()).replace(/\./, '_');
+				$(path).attr("id", pathId);
+				graphItem.pathsIn[j].pathId = pathId;
+				parentItem.pathsOut[graphItem.pathsIn[j].pathOutIndex].pathId = pathId;
+			}
+		}
+
+		/// Resize the SVG
+		//console.log(maxX, maxY);
+		$(".netSvgCanvas").attr("width", maxX).attr("height", maxY);
+
+		/// Remove parents from submodels
+		var submodel = bn.getSubmodel(bn.currentSubmodel);
+		for (var sub in submodel.submodelsById) {
+			var subm = submodel.submodelsById[sub];
+			delete subm.parents;
+			/// XXX Need to get rid of this at some point
+			delete subm.dynamicParents;
+		}
+	},
+	redrawArcs: function(graphItem, width, height) {
+		var $graphItem = this.outputEl.find("#display_"+graphItem.id);
+
+		/// Update max x/y as extents for canvas if necessary
+		var b = draw.getBox($graphItem);
+		var maxX = Math.max(width, b.x+b.width);
+		var maxY = Math.max(height, b.y+b.height);
+		if (maxX != width || maxY != height) {
+			$(".netSvgCanvas").attr("width", maxX).attr("height", maxY);
+		}
+
+		for (var i=0; i<graphItem.pathsIn.length; i++) {
+			var $parent = $('#display_'+graphItem.pathsIn[i].parentItem.id);
+			draw.drawArrowBetweenBoxes($("#"+graphItem.pathsIn[i].pathId), draw.getBox($parent), draw.getBox($graphItem));
+		}
+		for (var i=0; i<graphItem.pathsOut.length; i++) {
+			var $child = $('#display_'+graphItem.pathsOut[i].childItem.id);
+			draw.drawArrowBetweenBoxes($("#"+graphItem.pathsOut[i].pathId), draw.getBox($graphItem), draw.getBox($child));
+		}
+	},
+	getGraphItems: function() {
+		var currentSubmodel = this.getSubmodel(this.currentSubmodel);
+		var graphItems = currentSubmodel.subNodes.slice();
+		for (var subId in currentSubmodel.submodelsById)  graphItems.push(currentSubmodel.submodelsById[subId]);
+		return graphItems;
+	},
+	getGraphItemById: function(id) {
+		if (this.nodesById[id])  return this.nodesById[id];
+		var currentSubmodel = this.getSubmodel(this.currentSubmodel);
+		if (currentSubmodel.submodelsById[id])  return currentSubmodel.submodelsById[id];
+		return null;
+	},
+	redrawAllArcs: function() {
+		var graphItems = this.getGraphItems();
+		for (var i=0; i<graphItems.length; i++) {
+			var graphItem = graphItems[i];
+			var $graphItem = this.outputEl.find("#display_"+graphItem.id);
+			for (var j=0; j<graphItem.pathsIn.length; j++) {
+				var $parent = $('#display_'+graphItem.pathsIn[j].parentItem.id);
+				draw.drawArrowBetweenBoxes($("#"+graphItem.pathsIn[j].pathId), draw.getBox($parent), draw.getBox($graphItem));
+			}
+		}
+	},
+	measureCanvasNeeds: function() {
+		var maxX = 0;
+		var maxY = 0;
+		var currentSubmodel = currentBn.getSubmodel(currentBn.currentSubmodel);
+		var graphItems = currentSubmodel.subNodes.slice();
+		for (var subId in currentSubmodel.submodelsById)  graphItems.push(currentSubmodel.submodelsById[subId]);
+		for (var i=0; i<graphItems.length; i++) {
+			var graphItem = graphItems[i];
+			if (graphItem.isHidden && graphItem.isHidden())  continue;
+			var $displayNode = $("#display_"+graphItem.id);
+			/// Get max x/y as extents for canvas
+			var b = draw.getBox($displayNode);
+			maxX = Math.max(maxX, b.x+b.width);
+			maxY = Math.max(maxY, b.y+b.height);
+		}
+		return {maxX: maxX, maxY: maxY};
+	},
+	resizeCanvasToFit: function() {
+		var m = this.measureCanvasNeeds();
+		$(".netSvgCanvas").attr("width", m.maxX).attr("height", m.maxY);
+	},
+});
+Submodel.prototype = $.extend(Submodel.prototype, {
+	displayItem: function(outputEl, $displayNode) {
+		var submodel = this;
+		if (!$displayNode) {
+			$displayNode = $("<div class=submodel id=display_"+submodel.id+" draggable=true>")
+				.css({left: submodel.pos.x+"px", top: submodel.pos.y+"px"})
+				.append(
+					$("<h6>").text(submodel.label ? submodel.label : submodel.id)
+				)
+				/// Add back a pointer to the submodel data structure
+				.data("submodel", submodel)
+				.appendTo(outputEl);
+			/*if (node.format.borderColor) {
+				$displayNode.css('border-color', node.format.borderColor);
+				$displayNode.find('h6').css('border-color', node.format.borderColor);
+			}
+			if (node.format.backgroundColor)  $displayNode.css('background', node.format.backgroundColor);
+			if (node.format.fontColor)  $displayNode.css('color', node.format.fontColor);
+			if (node.format.fontFamily)  $displayNode.css('font-family', node.format.fontFamily);
+			if (node.format.fontSize)  $displayNode.css('font-size', node.format.fontSize+'pt');*/
+		}
+
+		return $displayNode;
+	},
+	isHidden: function() {
+		var submodelHidden = true;
+		if (this.path.slice(0,-1).join("/") == this.net.currentSubmodel.join("/")) {
+			submodelHidden = false;
+		}
+		/// There are no 'engineOnly' submodels yet. But DBN reimplementation might
+		/// change that!
+		/// return this.engineOnly || submodelHidden;
+		return submodelHidden;
+	},
+	isVisible: function() {
+		return !this.isHidden();
+	},
+});
+Node.prototype = $.extend(Node.prototype, {
+	displayItem: function(outputEl, $displayNode) {
+		var node = this;
 		if (!$displayNode) {
 			$displayNode = $("<div class=node id=display_"+node.id+" draggable=true>")
 				.css({left: node.pos.x+"px", top: node.pos.y+"px"})
@@ -260,114 +495,6 @@ BN.prototype = $.extend(BN.prototype, {
 
 		return $displayNode;
 	},
-	display: function(outputEl) {
-		outputEl = outputEl || this.outputEl;
-		outputEl.empty();
-		var bn = this;
-		var displayNodes = {};
-		var nodeBeliefs = this.getAllBeliefs();
-		/// Setup an SVG canvas on which to draw things. At this stage,
-		/// this will just be arrows.
-		/// Need to wait for nodes to be drawn before we know size
-		draw.createSvg(outputEl, 0, 0, 10, 10, "netSvgCanvas");
-
-		/// Draw all the nodes
-		var maxX = 0;
-		var maxY = 0;
-		for (var i=0; i<bn.nodes.length; i++) {
-			var node = bn.nodes[i];
-			if (node.engineOnly)  continue;
-
-			var $displayNode = this.displayNode(outputEl, node);
-			displayNodes[node.id] = $displayNode;
-
-			/// Get max x/y as extents for canvas
-			var b = draw.getBox($displayNode);
-			maxX = Math.max(maxX, b.x+b.width);
-			maxY = Math.max(maxY, b.y+b.height);
-		}
-
-		/// Resize the SVG
-		//console.log(maxX, maxY);
-		$(".netSvgCanvas").attr("width", maxX).attr("height", maxY);
-
-		/// Draw all the arcs
-		var allNodes = bn.nodes;
-		for (var ni=0; ni<allNodes.length; ni++) {
-			var node = allNodes[ni];
-			if (node.engineOnly)  continue;
-
-			/// XXX Remove dependency on XDSL
-			var parents = node.parents.concat(node.dynamicParents);
-			if (parents.length) {
-				for (var i=0; i<parents.length; i++) {
-					/// Clarify: Parents will be an array if from dynamicParents, maybe?
-					var parent = Array.isArray(parents[i]) ? parents[i][0] : parents[i];
-					var n = displayNodes[parent.id];
-					var par = draw.getBox(n);
-					//onsole.log("par:", parents[i], par);
-					n = displayNodes[node.id];
-					var child = draw.getBox(n);
-					//onsole.log("child:", node.id, child);
-
-					var path = draw.drawArrowBetweenBoxes($(".netSvgCanvas"), par, child);
-					$(path).attr("id", (""+Math.random()).replace(/\./, '_'));
-					/// XXX Update these if nodes can be deleted
-					node.pathsIn.push([$(path).attr("id"),parent]);
-					parent.pathsOut.push([$(path).attr("id"),node]);
-				}
-			}
-		}
-	},
-	redrawArcs: function(node, width, height) {
-		var $node = this.outputEl.find("#display_"+node.id);
-
-		/// Update max x/y as extents for canvas if necessary
-		var b = draw.getBox($node);
-		var maxX = Math.max(width, b.x+b.width);
-		var maxY = Math.max(height, b.y+b.height);
-		if (maxX != width || maxY != height) {
-			$(".netSvgCanvas").attr("width", maxX).attr("height", maxY);
-		}
-
-		for (var i=0; i<node.pathsIn.length; i++) {
-			var $parent = this.outputEl.find("#display_"+node.pathsIn[i][1].id);
-			draw.drawArrowBetweenBoxes($("#"+node.pathsIn[i][0]), draw.getBox($parent), draw.getBox($node));
-		}
-		for (var i=0; i<node.pathsOut.length; i++) {
-			var $child = this.outputEl.find("#display_"+node.pathsOut[i][1].id);
-			draw.drawArrowBetweenBoxes($("#"+node.pathsOut[i][0]), draw.getBox($node), draw.getBox($child));
-		}
-	},
-	redrawAllArcs: function() {
-		for (var i=0; i<currentBn.nodes.length; i++) {
-			var node = currentBn.nodes[i];
-			var $node = this.outputEl.find("#display_"+node.id);
-			for (var j=0; j<node.pathsIn.length; j++) {
-				var $parent = this.outputEl.find("#display_"+node.pathsIn[j][1].id);
-				draw.drawArrowBetweenBoxes($("#"+node.pathsIn[j][0]), draw.getBox($parent), draw.getBox($node));
-			}
-		}
-	},
-	measureCanvasNeeds: function() {
-		var maxX = 0;
-		var maxY = 0;
-		for (var i=0; i<currentBn.nodes.length; i++) {
-			var node = currentBn.nodes[i];
-			var $displayNode = $("#display_"+node.id);
-			/// Get max x/y as extents for canvas
-			var b = draw.getBox($displayNode);
-			maxX = Math.max(maxX, b.x+b.width);
-			maxY = Math.max(maxY, b.y+b.height);
-		}
-		return {maxX: maxX, maxY: maxY};
-	},
-	resizeCanvasToFit: function() {
-		var m = this.measureCanvasNeeds();
-		$(".netSvgCanvas").attr("width", m.maxX).attr("height", m.maxY);
-	},
-});
-Node.prototype = $.extend(Node.prototype, {
 	contextMenu: function() {
 		var node = this;
 
@@ -425,6 +552,9 @@ Node.prototype = $.extend(Node.prototype, {
 				$('<textarea>').val(node.funcText)
 			);
 			defTab = {id: 'func', label: 'Function', content: $funcDialog};
+		}
+		if (node.type == "decision") {
+			defTab = null;
 		}
 
 		/** Format **/
@@ -534,14 +664,27 @@ Node.prototype = $.extend(Node.prototype, {
 
 				/// Remove objects for node and arcs (and probably more in future)
 				node.net.outputEl.find('#display_'+node.id).remove();
-				for (var p of node.pathsIn)  node.net.outputEl.find('#'+p[0]).remove();
-				for (var p of node.pathsOut)  node.net.outputEl.find('#'+p[0]).remove();
+				for (var p of node.pathsIn)  node.net.outputEl.find('#'+p.pathId).remove();
+				for (var p of node.pathsOut)  node.net.outputEl.find('#'+p.pathId).remove();
 
 				 app.updateBN();
 				 dismissDialogs();
 			}),
 			$('<button type=button>').html('Cancel').on('click', dismissDialogs),
 		]});
+	},
+	isHidden: function() {
+		var submodelHidden = true;
+		if (this.submodelPath.join("/") == this.net.currentSubmodel.join("/")) {
+			submodelHidden = false;
+		}
+		return this.engineOnly || submodelHidden;
+	},
+	isAlwaysHidden: function() {
+		return this.engineOnly;
+	},
+	isVisible: function() {
+		return !this.isHidden();
 	},
 });
 
@@ -588,9 +731,13 @@ var app = {
 		popupDialog(str+"<div class=controls><button type=button class=okButton>OK</button></div>");
 		$(".dialog .okButton").one("click", dismissDialogs);
 	},
+	/** Calculate the probability of evidence, and then
+	    display it to the user, as a probability and in the form
+	    of self-information.
+	**/
 	showProbabilityOfEvidence: function() {
-		currentBn.calcProbabilityOfEvidence(function(prob, info) {
-			popupDialog('<div>The probability of evidence is <strong>'+prob+'</strong></div><button type=button class=okButton>OK</button></div>');
+		currentBn.calcProbabilityOfEvidence(function(prob, selfInfo) {
+			popupDialog('<div>The probability of the evidence is <strong>'+sigFig(prob,4)+'</strong>. The self-information (-log(P)) in nits is <strong>'+sigFig(selfInfo,3)+'</strong>.</div><button type=button class=okButton>OK</button></div>');
 			$(".dialog .okButton").one("click", dismissDialogs);
 		});
 	},
@@ -599,18 +746,23 @@ var app = {
 		g.setGraph({});
 		g.setDefaultEdgeLabel(function(){ return {}; });
 
-		for (var i=0; i < currentBn.nodes.length; i++) {
-			var node = currentBn.nodes[i];
+		var graphItems = currentBn.getGraphItems();
+
+		for (var i=0; i < graphItems.length; i++) {
+			var node = graphItems[i];
+			if (node.isHidden && node.isHidden())  continue;
 			var $node = $("#display_"+node.id);
 			var width = $node.outerWidth();
 			var height = $node.outerHeight();
 			g.setNode(node.id, { label: (node.label || node.id), width: width, height: height} );
 		}
 
-		for (var i=0; i < currentBn.nodes.length; i++) {
-			var node = currentBn.nodes[i];
-			for (var j=0; j < node.children.length; j++) {
-				g.setEdge(node.id, node.children[j].id);
+		for (var i=0; i < graphItems.length; i++) {
+			var node = graphItems[i];
+			if (node.isHidden && node.isHidden())  continue;
+			for (var j=0; j < node.pathsOut.length; j++) {
+				//if (node.pathsOut[j].isHidden())  continue;
+				g.setEdge(node.id, node.pathsOut[j].childItem.id);
 			}
 		}
 
@@ -633,19 +785,20 @@ var app = {
 		/// all changes within one javascript block)
 		g.nodes().forEach(function(nodeId) {
 			var x = Math.round(g.node(nodeId).x), y = Math.round(g.node(nodeId).y);
-			var pos = currentBn.nodesById[nodeId].pos;
-			currentBn.nodesById[nodeId]._prevPos = {x: pos.x, y: pos.y};
+			var pos = currentBn.getGraphItemById(nodeId).pos;
+			currentBn.getGraphItemById(nodeId)._prevPos = {x: pos.x, y: pos.y};
 			pos.x = x;
 			pos.y = y;
 			$("#display_"+nodeId).css({top: y, left: x});
 		});
 		/// Layout the arcs and save their positions
-		for (var i=0; i<currentBn.nodes.length; i++) {
-			var node = currentBn.nodes[i];
+		for (var i=0; i<graphItems.length; i++) {
+			var node = graphItems[i];
+			if (node.isHidden && node.isHidden())  continue;
 			var $child = $("#display_"+node.id);
 			for (var j=0; j<node.pathsIn.length; j++) {
-				$parent = $("#display_"+node.pathsIn[j][1].id);
-				draw.drawArrowBetweenBoxes($("#"+node.pathsIn[j][0]), draw.getBox($parent), draw.getBox($child));
+				$parent = $("#display_"+node.pathsIn[j].parentItem.id);
+				draw.drawArrowBetweenBoxes($("#"+node.pathsIn[j].pathId), draw.getBox($parent), draw.getBox($child));
 			}
 		}
 		var m = currentBn.measureCanvasNeeds();
@@ -667,28 +820,29 @@ var app = {
 
 		/// Restore positions
 		g.nodes().forEach(function(nodeId) {
-			var x = currentBn.nodesById[nodeId]._prevPos.x, y = currentBn.nodesById[nodeId]._prevPos.y;
-			delete currentBn.nodesById[nodeId]._prevPos;
-			currentBn.nodesById[nodeId].pos.x = x;
-			currentBn.nodesById[nodeId].pos.y = y;
+			var x = currentBn.getGraphItemById(nodeId)._prevPos.x, y = currentBn.getGraphItemById(nodeId)._prevPos.y;
+			delete currentBn.getGraphItemById(nodeId)._prevPos;
+			currentBn.getGraphItemById(nodeId).pos.x = x;
+			currentBn.getGraphItemById(nodeId).pos.y = y;
 			$("#display_"+nodeId).css({top: y, left: x});
 		});
 		/// and arcs
-		for (var i=0; i<currentBn.nodes.length; i++) {
-			var node = currentBn.nodes[i];
+		for (var i=0; i<graphItems.length; i++) {
+			var node = graphItems[i];
+			if (node.isHidden && node.isHidden())  continue;
 			var $child = $("#display_"+node.id);
 			for (var j=0; j<node.pathsIn.length; j++) {
-				$parent = $("#display_"+node.pathsIn[j][1].id);
-				draw.drawArrowBetweenBoxes($("#"+node.pathsIn[j][0]), draw.getBox($parent), draw.getBox($child));
+				$parent = $("#display_"+node.pathsIn[j].parentItem.id);
+				draw.drawArrowBetweenBoxes($("#"+node.pathsIn[j].pathId), draw.getBox($parent), draw.getBox($child));
 			}
 		}
 
 		/// Now, animate the nodes...
 		g.nodes().forEach(function(nodeId) {
-			//console.log(currentBn.nodesById[nodeId]);
+			//console.log(currentBn.getGraphItemById(nodeId));
 			var x = Math.round(g.node(nodeId).x), y = Math.round(g.node(nodeId).y);
-			currentBn.nodesById[nodeId].pos.x = x;
-			currentBn.nodesById[nodeId].pos.y = y;
+			currentBn.getGraphItemById(nodeId).pos.x = x;
+			currentBn.getGraphItemById(nodeId).pos.y = y;
 			$("#display_"+nodeId).animate({top: y, left: x}, 400);
 		});
 
@@ -710,14 +864,6 @@ var app = {
 				}
 				$('#'+i).attr('d', 'M '+mixPosition[0]+' '+mixPosition[1]+' L '+mixPosition[2]+' '+mixPosition[3]);
 			}
-			/*for (var i=0; i<currentBn.nodes.length; i++) {
-				var node = currentBn.nodes[i];
-				var $child = $("#display_"+node.id);
-				for (var j=0; j<node.pathsIn.length; j++) {
-					$parent = $("#display_"+node.pathsIn[j][1].id);
-					draw.drawArrowBetweenBoxes($("#"+node.pathsIn[j][0]), draw.getBox($parent), draw.getBox($child));
-				}
-			}*/
 			if (progress < duration) {
 				requestAnimationFrame(step);
 			}
@@ -755,7 +901,7 @@ var app = {
 };
 
 $(document).ready(function() {
-	var exampleBns = "Asia.xdsl|Cancer.dne|Continuous Test.xdsl|RS Latch.xdsl|Umbrella.xdsl|Water.xdsl".split(/\|/);
+	var exampleBns = "Asia.xdsl|Bunce's Farm.xdsl|Cancer.dne|Continuous Test.xdsl|RS Latch.xdsl|Umbrella.xdsl|Water.xdsl".split(/\|/);
 	var exampleBnActions = [];
 	for (var i in exampleBns) {
 		/// Need html escape function
@@ -878,21 +1024,23 @@ $(document).ready(function() {
 	});
 
 	var mx = 0, my = 0;
-	$(".bnview").on("mousedown", ".node h6", function(event) {
+	$(".bnview").on("mousedown", ".node h6, .submodel:not(.parent)", function(event) {
 		if (event.which > 1)  return;
 		event.preventDefault();
 		mx = event.originalEvent.pageX;
 		my = event.originalEvent.pageY;
 		//onsole.log("mousedown:", mx, my);
-		var $node = $(this).closest(".node");
+		var $node = $(this).closest(".node, .submodel");
 		var o = $node.offset();
 
 		/// Get the width/height if the mousedown node was not part of the network
 		var maxX = 0, maxY = 0;
-		for (var i=0; i<currentBn.nodes.length; i++) {
-			if (currentBn.nodes[i].engineOnly)  continue;
-			if (("display_"+currentBn.nodes[i].id)==$node.attr("id"))  continue;
-			var n = draw.getBox($("#display_"+currentBn.nodes[i].id));
+		var graphItems = currentBn.getGraphItems();
+		for (var i=0; i<graphItems.length; i++) {
+			var graphItem = graphItems[i];
+			if (graphItem.isHidden && graphItem.isHidden())  continue;
+			if (("display_"+graphItem.id)==$node.attr("id"))  continue;
+			var n = draw.getBox($("#display_"+graphItem.id));
 			maxX = Math.max(maxX, n.x+n.width);
 			maxY = Math.max(maxY, n.y+n.height);
 		}
@@ -903,7 +1051,7 @@ $(document).ready(function() {
 			//onsole.log("mousemove:", nmx, nmy, {left: o.left + (nmx - mx), top: o.top + (nmy - my)});
 			/// Move the DOM object, but not the net object yet
 			$node.offset({left: o.left + (nmx - mx), top: o.top + (nmy - my)});
-			var n = currentBn.nodesById[$node.attr("id").replace(/^display_/,"")];
+			var n = currentBn.getGraphItemById($node.attr("id").replace(/^display_/,""));
 			currentBn.redrawArcs(n, maxX, maxY);
 		});
 		$(".bnouterview").on("mouseup", function(event) {
@@ -915,13 +1063,20 @@ $(document).ready(function() {
 			$(".bnouterview").unbind("mousemove").unbind("mouseup");
 
 			/// Now it's final, update the net object
-			var n = currentBn.nodesById[$node.attr("id").replace(/^display_/,"")];
+			var n = currentBn.getGraphItemById($node.attr("id").replace(/^display_/,""));
 			n.pos.x += (nmx - mx);
 			n.pos.y += (nmy - my);
 
 			/// Update the arcs going into/out of this node
 			currentBn.redrawArcs(n, maxX, maxY);
 		});
+	});
+
+	/// Submodel navigation
+	$(".bnview").on("dblclick", ".submodel", function() {
+		currentBn.currentSubmodel = $(this).data("submodel").path;
+		currentBn.display();
+		currentBn.displayBeliefs();
 	});
 
 	$(document).on("dblclick contextmenu", ".node", function(evt) {

@@ -39,11 +39,12 @@ function addNode(bn, id, parents, states, cpt, funcTable, funcDef) {
 	if (funcTable) {
 		node.funcTable = funcTable;
 	}
-	console.log(node);
+	//onsole.log(node);
 	//node.intId = bn.nodes.length;
 	//bn.nodes.push(node);
 	bn.nodesById[node.id] = node;
 	bn._nodeOrdering.push(node);
+	//onsole.log(bn._nodeOrdering.length, node.id);
 }
 
 function makeBnForUpdates(bn) {
@@ -67,7 +68,7 @@ function makeBnForUpdates(bn) {
 	for (var i=0; i<bn.nodes.length; i++) {
 		var node = bn.nodes[i];
 		var newNode = newBn.nodesById[node.id];
-		console.log('newNode', newNode, newBn.nodesById, node.id);
+		//onsole.log('newNode', newNode, newBn.nodesById, node.id);
 		newNode.intId = newBn.nodes.length;
 		newBn.nodes.push(newNode);
 	}
@@ -78,9 +79,9 @@ function makeBnForUpdates(bn) {
 
 onmessage = function(e) {
 	if (e.data[0]==0) { // Worker has been sent the BN
-		console.log("This is BN received", e.data[1]);
+		//onsole.log("This is BN received", e.data[1]);
 		bn = makeBnForUpdates(e.data[1]);
-		console.log("This is BN received 2", e.data[1]);
+		//onsole.log("This is BN received 2", e.data[1]);
 		//bn = e.data[1];
 		//postMessage([1,bn]);
 	}
@@ -128,7 +129,7 @@ function updateBeliefs_local(bn, evidenceArr, iterations) {
 		renewArray(node.counts, 0);
 		node.seen = 0;
 		if (node.funcDef) {
-			//console.log(node.funcDef);
+			//onsole.log(node.funcDef);
 			node.func = new Function(node.funcDef[0], node.funcDef[1]);
 			/// XXX Just to test it out. This is way slower than an Int32Array (about 3 times slower)
 			if (i==0)  cas = new Float32Array(new ArrayBuffer(bn.nodes.length*4));
@@ -144,6 +145,7 @@ function updateBeliefs_local(bn, evidenceArr, iterations) {
 	/// Generate cases
 	for (var i=0; i<iterations; i++) {
 		var weight = generateCase(bn, evidenceArr, cas);
+		//onsole.log('generated:', cas);
 
 		/// For each state of a non-E node, count occurrence given E
 		//onsole.log(evidenceArr, Array.apply([], cas), weight);
@@ -158,6 +160,7 @@ function updateBeliefs_local(bn, evidenceArr, iterations) {
 				// Do likelihood weighting instead
 				node.counts[cas[intId]] += weight;
 				node.seen += weight;
+				//onsole.log(node.counts, node.seen, weight);
 			}
 		}
 	}
@@ -212,7 +215,7 @@ function generateCase(bn, evidence, cas) {
 					_node.parentStates[pi] = cas[parents[pi].intId];
 				}
 				cas[_node.intId] = _node.func(_node.parentStates);
-				//console.log(_node.parentStates, cas);
+				//onsole.log(_node.parentStates, cas);
 			}
 		}
 		else if (_node.cpt) {

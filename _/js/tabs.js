@@ -13,6 +13,9 @@ function TabSet(tabs) {
 	var $tabStrip = $('<div class=tabStrip>');
 	$tabs.append($tabStrip);
 	for (var i=0; i<tabs.length; i++) {
+		/// Skip blanks
+		if (!tabs[i])  continue;
+
 		$tabStrip.append($('<button type=button data-for="'+tabs[i].id+'">').text(tabs[i].label).addClass(tabs[i].active ? 'active' : null));
 		$tabs.append($('<div class="tab '+tabs[i].id+'">').append(tabs[i].content).addClass(tabs[i].active ? 'active' : null));
 	}
