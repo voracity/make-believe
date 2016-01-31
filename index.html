@@ -22,7 +22,7 @@ SOFTWARE.
 <!doctype html>
 <html>
 <head>
-	<title>Make-Believe (R19**)</title>
+	<title>Make-Believe (R20)</title>
 	<script src="_/js/jquery.min.js"></script>
 	<script src="_/js/defiant.min.js"></script>
 	<script src="_/js/vkbeautify.0.99.00.beta.js"></script>
@@ -96,7 +96,7 @@ SOFTWARE.
 	.decisionNet { display: none; }
 
 	/** Menus **/
-	.menu.bar { border-bottom: 1px solid #aaa; }
+	.menu.bar { border-bottom: 1px solid #aaa; white-space: nowrap; }
 
 	/** Dialogs **/
 	.dialog { display: none; position: absolute; z-index: 10000; background: rgb(255,255,255); background: rgba(255,255,255,0.95);
@@ -118,6 +118,7 @@ SOFTWARE.
 	/** Context menu **/
 	.dialog.contextMenu { border: none; box-shadow:none; background: none; }
 	.dialog.contextMenu .controls { margin-top: 0px; border: solid 1px black; border-top: solid 1px #ccc; background: white; }
+	.dialog.contextMenu label { display: inline-block; width: 90px; }
 
 	.dialog.node .controls { box-shadow: 2px 2px 2px rgba(0, 0, 0, 0.3); position: relative; z-index: 10; }
 	.dialog.node .tab.active { box-shadow: 2px 2px 2px rgba(0, 0, 0, 0.3); }

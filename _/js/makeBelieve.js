@@ -1,4 +1,4 @@
-var titlePostfix = "Make-Believe (R19**)";
+var titlePostfix = "Make-Believe (R20)";
 var openBns = [];
 var openData = [];
 var currentBn = null;
@@ -332,6 +332,43 @@ function nyi() {
 		$('<button type=button>OK</button>').click(dismissDialogs),
 	]});
 }
+
+function popupEditDialog($content, opts) {
+	var whatsDirty = {};
+	popupDialog($content, {
+		className: 'contextMenu '+opts.className,
+		buttons: [
+			$('<button type=button class=saveButton disabled>').html('Save').on('click', function() {
+				$(".dialog .saveButton")[0].disabled = true;
+				console.log(whatsDirty);
+				var controls = opts.controls;
+				for (var control in controls) {
+					if (whatsDirty[control]) {
+						whatsDirty[control] = false;
+						if ($('.dialog *[data-control='+control+']').is('input, select, textarea')) {
+							if ($('.dialog *[data-control='+control+']').is(':valid')) {
+								var val = $('.dialog *[data-control='+control+']').val();
+								controls[control].change(val);
+							}
+						}
+						else {
+							/// Non-standard control, just call change with no arguments
+							controls[control].change();
+						}
+					}
+				}
+			}),
+			$('<button type=button class=closeButton>').html('Close').on('click', dismissDialogs),
+		],
+	});
+	$(".dialog").on("change keyup", function(event) {
+		if ($(event.target).closest('*[data-control]').length) {
+			var name = $(event.target).closest('*[data-control]').data('control');
+			whatsDirty[name] = true;
+		}
+		$(".dialog .saveButton")[0].disabled = false;
+	});
+}
 /** End Dialogs **/
 
 function State(o) {
@@ -409,6 +446,14 @@ function Node(o) {
 	/// Visual properties
 	this.pos = {x: 0, y: 0};
 	this.size = {width: 0, height: 0};
+	/// Formatting (all at their defaults)
+	this.format = {
+		backgroundColor: null,
+		borderColor: null,
+		fontColor: null,
+		fontFamily: null,
+		fontSize: null,
+	};
 	/// For arc drawing/updating
 	this.pathsIn = [];
 	this.pathsOut = [];
@@ -417,6 +462,8 @@ function Node(o) {
 	for (var i in o) {
 		this[i] = o[i];
 	}
+
+	this.initInference();
 }
 /// Use this if the node hasn't been set up yet. Otherwise,
 /// just this.parseEquation with equationText.
@@ -559,12 +606,19 @@ Node.makeNodeFromXdslEl = function (el, $xdsl, opts) {
 		submodelPath: submodelPath,
 	});
 	console.log(node, $extInfo);
-	node.beliefs = new Float32Array(new ArrayBuffer(node.states.length*4));
+	/*node.beliefs = new Float32Array(new ArrayBuffer(node.states.length*4));
 	node.counts = new Float32Array(new ArrayBuffer(node.states.length*4));
-	node.parentStates = new Float32Array(new ArrayBuffer(node.parents.length*4));
+	node.parentStates = new Float32Array(new ArrayBuffer(node.parents.length*4));*/
 	return node;
 }
 Node.prototype = {
+	initInference: function() {
+		var node = this;
+		/// Setup the vectors needed for the inference (needed even if using workers)
+		node.beliefs = new Float32Array(new ArrayBuffer(node.states.length*4));
+		node.counts = new Float32Array(new ArrayBuffer(node.states.length*4));
+		node.parentStates = new Float32Array(new ArrayBuffer(node.parents.length*4));
+	},
 	numParentCombinations: function() {
 		var numParentStates = 1;
 		for (var j=0; j<this.parents.length; j++) {
@@ -616,12 +670,26 @@ Node.prototype = {
 		this.func = null;
 		this.net.needsCompile = true;
 	},
+	path: function(path) {
+		if (path === undefined) {
+			return ("/" + this.submodelPath.join("/") + "/").replace(/\/\//, '/');
+		}
+
+		/// XXX Improve validation of the path
+		if (path.search(/^\//)!==-1) {
+			this.moveToSubmodel(path.replace(/\/$/,'').split(/\//).slice(1));
+		}
+
+		return this;
+	},
 	/// Move this node to the given submodel. |path| is a left-to-right array
 	/// representing the path.
 	moveToSubmodel: function(path) {
 		/// Remove from old submodel (if there)
 		var oldSubmodel = this.net.getSubmodel(this.submodelPath);
-		var oldIndex = oldSubmodel.subNodes.findIndex(function(v) { return v==this });
+		var node = this;
+		var oldIndex = oldSubmodel.subNodes.findIndex(function(v) { return v==node; });
+		console.log(oldIndex);
 		if (oldIndex >= 0) {
 			oldSubmodel.subNodes.splice(oldIndex,1);
 		}
@@ -748,7 +816,7 @@ Node.prototype = {
 			var labels = [];
 			var beliefs = [];
 			for (var j=0; j<states.length; j++) {
-				labels.push(states[j][0]);
+				labels.push(sigFig(states[j][0],3));
 				beliefs.push(states[j][1]/node.samples.length);
 			}
 			node.removeStates();
@@ -790,7 +858,7 @@ function Submodel(o) {
 
 	/// Defaults
 	this.id = null;
-	this.path = [];
+	this.submodelPath = [];
 	this.subNodes = [];
 	this.submodelsById = {};
 
@@ -807,8 +875,18 @@ function Submodel(o) {
 	}
 }
 Submodel.prototype = {
+	rename: function(newId) {
+		var parent = this.net.getSubmodel(this.submodelPath);
+		delete parent.submodelsById[this.id];
+		this.id = newId;
+		parent.submodelsById[newId] = this;
+		/// Unfortunately, need to update all items referring to this one
+		var allItems = this.getAllItems();
+		for (var i=0; i<allItems.length; i++) {
+			allItems[i].submodelPath[this.submodelPath.length] = newId;
+		}
+	},
 	getAllNodes: function() {
-		/// For every node that's in subm, add its parents as parents to subm
 		var submodelsToVisit = [this];
 		var nodes = [];
 		while (submodelsToVisit.length) {
@@ -819,6 +897,45 @@ Submodel.prototype = {
 			submodelsToVisit.shift();
 		}
 		return nodes;
+	},
+	getAllItems: function() {
+		var submodelsToVisit = [this];
+		var items = [];
+		while (submodelsToVisit.length) {
+			items = items.concat(submodelsToVisit[0].subNodes);
+			for (var i in submodelsToVisit[0].submodelsById) {
+				items.push(submodelsToVisit[0].submodelsById[i]);
+				submodelsToVisit.push(submodelsToVisit[0].submodelsById[i]);
+			}
+			submodelsToVisit.shift();
+		}
+		return items;
+	},
+	path: Node.prototype.path,
+	/// Move this node to the given submodel. |path| is a left-to-right array
+	/// representing the path.
+	moveToSubmodel: function(path) {
+		console.log("path:", path);
+		/// Remove from old submodel (if there)
+		var oldSubmodel = this.net.getSubmodel(this.submodelPath);
+		var submodel = this;
+		delete oldSubmodel.submodelsById[submodel.id];
+
+		/// Save old path
+		var oldPath = this.submodelPath.slice();
+
+		/// Save new path
+		this.submodelPath = path.slice();
+
+		/// Move node to new submodel
+		this.net.getSubmodel(this.submodelPath).submodelsById[submodel.id] = submodel;
+
+		/// Move all subitems
+		var items = this.getAllItems();
+		for (var i=0; i<items.length; i++) {
+			var item = items[i];
+			item.submodelPath = this.submodelPath.concat(item.submodelPath.slice(oldPath.length));
+		}
 	},
 };
 
@@ -891,7 +1008,7 @@ BN.prototype = {
 			var posInfo = $(this).find("position").text().split(/\s+/);
 			parSubmodel.submodelsById[$(this).attr("id")] = new Submodel({
 				id: $(this).attr("id"),
-				path: submodelPars.concat($(this).attr("id")),
+				submodelPath: submodelPars,
 				net: bn,
 				subNodes: [],
 				submodelsById: {},
@@ -1015,7 +1132,14 @@ BN.prototype = {
 			states = states.map(function(x,i){ return new State({id: x, index: i}) });
 			var cpt = null;
 			try {
-				cpt = JSON.search(omNode, '//*[children[1]="probs"]/children[3]/children')[0].replace(/[\(\)\s\n\r]|&[^&;]+;/g, '')._splitNotEmpty(/,/);
+				var cptStr = JSON.search(omNode, '//*[children[1]="probs"]/children[3]/children')[0];
+				/// defiantjs converts all new lines to &#13;, presumably for xpath compatibility
+				cptStr = cptStr.replace(/&#13;/g, '\n');
+				/// Remove all comments
+				cptStr = cptStr.replace(/\/\/.*/g, '');
+				/// XXX Need to do more to support the various types of .dne 'probs' formats
+				//onsole.log( cptStr );
+				cpt = cptStr.replace(/[\(\)\s\n\r]|&[^&;]+;/g, '')._splitNotEmpty(/,/);
 			}
 			catch (e) {}
 			var comment = null;
@@ -1028,7 +1152,7 @@ BN.prototype = {
 				label = JSON.search(omNode, '//*[children[1]="title"]/children[3]/children')[0];
 			}
 			catch (e) {}
-			//onsole.log("CPT:", cpt);
+			console.log("CPT:", cpt);
 			var node = new Node({
 				net: this,
 				id: omNode.children[1],
@@ -1040,6 +1164,7 @@ BN.prototype = {
 				size: {width: 80, height: 30},
 				comment: comment,
 			});
+			node.moveToSubmodel([]);
 			bn.nodes.push(node);
 			bn.nodesById[node.id] = node;
 			//onsole.log(node);
@@ -1362,7 +1487,7 @@ BN.prototype = {
 			id: id,
 			states: stateObjects,
 			statesById: statesById,
-			_updateDisplay: true,
+			_updateDisplay: !opts.engineOnly,
 		}, opts));
 
 		/// Add to children in parents
@@ -1396,6 +1521,20 @@ BN.prototype = {
 		this.needsCompile = true;
 
 		return newNode;
+	},
+	/// I now have this slight problem that Item -> {Node, Submodel},
+	/// when previously I just had Node
+	getItemById: function(id) {
+		if (id in this.nodesById)  return this.nodesById[id];
+
+		var toVisit = [this];
+		while (toVisit.length) {
+			var submodel = toVisit.shift();
+
+			if (id in submodel.submodelsById)  return submodel.submodelsById[id];
+
+			for (var submodelId in submodel.submodelsById)  toVisit.push(submodel.submodelsById[submodelId]);
+		}
 	},
 	getSubmodel: function(submodelPath) {
 		var s = this;
@@ -1832,6 +1971,8 @@ BN.prototype = {
 		this._trackingArcInfluences = false;
 	},
 	displayArcsWithInfluences: function() {
+		var sumMis = {};
+		var sumChildEntropies = {};
 		for (var i=0; i<this.nodes.length; i++) {
 			var node = this.nodes[i];
 			if (node.engineOnly)  continue;
@@ -1861,17 +2002,41 @@ BN.prototype = {
 				}
 				console.log("MI:", mi, "Entropy of child:", childEntropy);
 
+				/// Find the item (either node or submodel) that is visible in
+				/// the current submodel and corresponds to the current child --- if there is one
+				var item = child;
+				do {
+					if (item.isVisible())  break;
+
+					item = this.net.getSubmodel(item.submodelPath);
+				} while (item.submodelPath.length > 0);
+
 				/// Update the arc with representation of the MI influence
 				/// Find the right arc
-				var arcInfo = node.pathsOut[node.pathsOut.findIndex(function(p) { return p[1].id == child.id })];
-				var arc = $("#"+arcInfo[0]);
-				/// Update arc width based on MI influence
-				var minVal = 0.01;
-				if (childEntropy > 0 && mi/childEntropy > minVal) {
-					arc.css('stroke-width', ((mi/childEntropy)*10)+"px");
-				}
-				else {
-					arc.css('stroke-width', minVal+"px");
+				var arcInfo = node.pathsOut[node.pathsOut.findIndex(function(p) { return p.childItem.id == item.id })];
+				/// If we can't find arcInfo, it's
+				if (arcInfo) {
+					var arc = $("#"+arcInfo.pathId);
+					if (!(arcInfo.pathId in sumMis)) {
+						sumMis[arcInfo.pathId] = 0;
+						sumChildEntropies[arcInfo.pathId] = 0;
+					}
+					/// Update arc width based on MI influence
+					var entropyProportion = 0;
+					sumMis[arcInfo.pathId] += mi;
+					sumChildEntropies[arcInfo.pathId] += childEntropy;
+					if (sumChildEntropies[arcInfo.pathId] > 0) {
+						entropyProportion = sumMis[arcInfo.pathId]/sumChildEntropies[arcInfo.pathId];
+					}
+					var minVal = 0.01;
+					if (entropyProportion > minVal) {
+						//console.log("stroke", (entropyProportion*10)+"px");
+						arc.css('stroke-width', (entropyProportion*10)+"px");
+					}
+					else {
+						//console.log("minStroke", (entropyProportion*10)+"px");
+						arc.css('stroke-width', minVal+"px");
+					}
 				}
 			}
 		}

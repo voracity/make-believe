@@ -1,4 +1,5 @@
 var draw = {
+	/// Create the SVG canvas for all arrows
 	createSvg: function(outputEl, x, y, width, height, cls) {
 		return $("<svg width="+(width)+" height="+(height)+"><defs>\
 				<marker id='arrowhead' viewBox='0 0 10 10' refX='10' refY='5' \
@@ -189,8 +190,9 @@ BN.prototype = $.extend(BN.prototype, {
 			if (node.slice != 0)  break;
 
 			var $displayNode = outputEl.find("#display_"+node.id);
+			//console.log(node);
 			if (node._updateDisplay) {
-				this.displayNode(outputEl, node, $displayNode);
+				node.displayItem(outputEl, $displayNode);
 				node._updateDisplay = false;
 			}
 			var stateI = 0;
@@ -220,6 +222,9 @@ BN.prototype = $.extend(BN.prototype, {
 		if (this._trackingArcInfluences) {
 			this.displayArcsWithInfluences();
 		}
+	},
+	headerFormat: function(id, label) {
+		return label ? label : id;
 	},
 	display: function(outputEl) {
 		outputEl = outputEl || this.outputEl;
@@ -423,7 +428,7 @@ Submodel.prototype = $.extend(Submodel.prototype, {
 			$displayNode = $("<div class=submodel id=display_"+submodel.id+" draggable=true>")
 				.css({left: submodel.pos.x+"px", top: submodel.pos.y+"px"})
 				.append(
-					$("<h6>").text(submodel.label ? submodel.label : submodel.id)
+					$("<h6>").text(submodel.net.headerFormat(submodel.id, submodel.label))
 				)
 				/// Add back a pointer to the submodel data structure
 				.data("submodel", submodel)
@@ -442,7 +447,7 @@ Submodel.prototype = $.extend(Submodel.prototype, {
 	},
 	isHidden: function() {
 		var submodelHidden = true;
-		if (this.path.slice(0,-1).join("/") == this.net.currentSubmodel.join("/")) {
+		if (this.submodelPath.join("/") == this.net.currentSubmodel.join("/")) {
 			submodelHidden = false;
 		}
 		/// There are no 'engineOnly' submodels yet. But DBN reimplementation might
@@ -453,6 +458,84 @@ Submodel.prototype = $.extend(Submodel.prototype, {
 	isVisible: function() {
 		return !this.isHidden();
 	},
+	contextMenu: function() {
+		var node = this;
+
+		var whatsDirty = {};
+
+		/** Options **/
+		var $options = $('<div class=options>');
+		var menu = Menu({type: "embedded", items: [
+			MenuAction("<label>Node ID:</label> <input type=text data-control=nodeId class=nodeId value='"+toHtml(node.id)+"' pattern='[a-zA-Z_][a-zA-Z_0-9]*'>", function() { }),
+			MenuAction("<label>Label:</label> <input type=text data-control=nodeLabel class=nodeLabel value='"+toHtml(node.label)+"'>", function() { }),
+			MenuAction("<label>Submodel:</label> <input type=text data-control=submodelPath class=submodelPath value='"+toHtml(node.path())+"'>", function() { }),
+		]});
+		$options.append(menu.make());
+		/** End options **/
+
+		/** Format **/
+		/*var $format = $('<div class=format>');
+		var formatMenu = Menu({type: "embedded", items: [
+			MenuAction("<label>Background Color:</label> <input type=text data-control=backgroundColor class=backgroundColor value='"+toHtml(node.format.backgroundColor)+"' pattern='#[a-fA-F_0-9]*' placeholder='[default]'>", function() { }),
+			MenuAction("<label>Border Color:</label> <input type=text data-control=borderColor class=borderColor value='"+toHtml(node.format.borderColor)+"' pattern='#[a-fA-F_0-9]*' placeholder='[default]'>", function() { }),
+			MenuAction("<label>Text Color:</label> <input type=text data-control=textColor class=textColor value='"+toHtml(node.format.fontColor)+"' pattern='#[a-fA-F_0-9]*' placeholder='[default]'>", function() { }),
+			MenuAction("<label>Font Family:</label> <input type=text data-control=fontFamily class=fontFamily value='"+toHtml(node.format.fontFamily)+"' placeholder='[default]'>", function() { }),
+			MenuAction("<label>Font Size:</label> <input type=text data-control=fontSize class=fontSize value='"+toHtml(node.format.fontSize)+"' pattern='[0-9]*' placeholder='[default]'>", function() { }),
+		]});
+		$format.append(formatMenu.make());*/
+		/** End Format **/
+
+		var tabs = new TabSet([
+			{id: 'main', label: 'Options', content: $options, active: true},
+			//{id: 'format', label: 'Format', content: $format},
+		]);
+
+		popupEditDialog(tabs.$tabs, {className: 'node', controls: {
+			backgroundColor: {change: function(val) {
+				var $displayNode = $('#display_'+node.id);
+				$displayNode.css('background-color', val);
+				node.format.backgroundColor = val;
+			}},
+			borderColor: {change: function(val) {
+				var $displayNode = $('#display_'+node.id);
+				$displayNode.css('border-color', val);
+				$displayNode.find('h6').css('border-color', val);
+				node.format.borderColor = val;
+			}},
+			textColor: {change: function(val) {
+				var $displayNode = $('#display_'+node.id);
+				$displayNode.css('color', val);
+				node.format.fontColor = val;
+			}},
+			fontFamily: {change: function(val) {
+				var $displayNode = $('#display_'+node.id);
+				$displayNode.css('font-family', val);
+				node.format.fontFamily = val;
+			}},
+			fontSize: {change: function(val) {
+				var $displayNode = $('#display_'+node.id);
+				$displayNode.css('font-size', val+'pt');
+				node.format.fontSize = val;
+			}},
+			submodelPath: {change: function(val) {
+				node.path(val);
+				currentBn.display();
+				currentBn.displayBeliefs();
+			}},
+			nodeId: {change: function(val) {
+				var $displayNode = $('#display_'+node.id);
+				$displayNode.attr("id", 'display_'+val);
+				node.rename(val);
+				$displayNode.find('h6').html(currentBn.headerFormat(node.id,node.label));
+			}},
+			nodeLabel: {change: function(val) {
+				var $displayNode = $('#display_'+node.id);
+				node.label = val;
+				$displayNode.find('h6').html(currentBn.headerFormat(node.id,node.label));
+			}},
+		}});
+
+	},
 });
 Node.prototype = $.extend(Node.prototype, {
 	displayItem: function(outputEl, $displayNode) {
@@ -461,7 +544,7 @@ Node.prototype = $.extend(Node.prototype, {
 			$displayNode = $("<div class=node id=display_"+node.id+" draggable=true>")
 				.css({left: node.pos.x+"px", top: node.pos.y+"px"})
 				.append(
-					$("<h6>").text(node.label ? node.label : node.id)
+					$("<h6>").text(node.net.headerFormat(node.id, node.label))
 				)
 				.appendTo(outputEl);
 			if (node.format.borderColor) {
@@ -500,12 +583,25 @@ Node.prototype = $.extend(Node.prototype, {
 
 		var whatsDirty = {cpt: false, funcText: false, nodeId: false, comment: false};
 
+		var options = [];
+		var possTypes = ['Nature','Decision','Utility'];
+		for (var i=0; i<possTypes.length; i++) {
+			options.push($("<option>").text(possTypes[i]));
+			if (node.type == possTypes[i].toLowerCase()) {
+				options[options.length-1].attr("selected","selected");
+			}
+		}
+		var $nodeType = $("<select>").append(options);
+
 		/** Options **/
 		var $options = $('<div class=options>');
 		var menu = Menu({type: "embedded", items: [
-			MenuAction("Node ID: <input type=text data-control=nodeId class=nodeId value='"+toHtml(node.id)+"' pattern='[a-zA-Z_][a-zA-Z_0-9]*'>", function() { }),
+			MenuAction("<label>Node ID:</label> <input type=text data-control=nodeId class=nodeId value='"+toHtml(node.id)+"' pattern='[a-zA-Z_][a-zA-Z_0-9]*'>", function() { }),
+			MenuAction("<label>Label:</label> <input type=text data-control=nodeLabel class=nodeLabel value='"+toHtml(node.label)+"'>", function() { }),
+			MenuAction("<label>Type:</label> "+$nodeType[0].outerHTML, function() { }),
+			MenuAction("<label>Submodel:</label> <input type=text data-control=submodelPath class=submodelPath value='"+toHtml(node.path())+"' pattern='[/a-zA-Z_0-9]*'>", function() { }),
 			MenuAction("Delete...", function() { node.guiDelete(); }),
-			MenuAction("<div class=commentSec><label>Comment:</label><textarea class=comment>"+toHtml(node.comment)+"</textarea></div>", function(){}),
+			MenuAction("<div class=commentSec><label>Comment:</label><textarea class=comment data-control=comment>"+toHtml(node.comment)+"</textarea></div>", function(){}),
 		]});
 		$options.append(menu.make());
 		/** End options **/
@@ -538,7 +634,7 @@ Node.prototype = $.extend(Node.prototype, {
 				currentBn.nextCombination(node.parents, parentIndexes);
 				/// Now list the distro for each row
 				for (var j=0; j<row.length; j++) {
-					$tr.append("<td><span class=prob contenteditable>"+sigFig(row[j],3)+"</span></td>");
+					$tr.append("<td><span class=prob contenteditable data-control=cpt>"+sigFig(row[j],3)+"</span></td>");
 				}
 				$table.append($tr);
 			}
@@ -549,7 +645,7 @@ Node.prototype = $.extend(Node.prototype, {
 		else if (node.funcDef) {
 			/// XXX: Finish adding the tab set to the context menu popup
 			var $funcDialog = $('<div class=funcDialog>').append(
-				$('<textarea>').val(node.funcText)
+				$('<textarea data-control=funcText>').val(node.funcText)
 			);
 			defTab = {id: 'func', label: 'Function', content: $funcDialog};
 		}
@@ -560,11 +656,11 @@ Node.prototype = $.extend(Node.prototype, {
 		/** Format **/
 		var $format = $('<div class=format>');
 		var formatMenu = Menu({type: "embedded", items: [
-			MenuAction("Background Color: <input type=text data-control=backgroundColor class=backgroundColor value='"+toHtml(node.format.backgroundColor)+"' pattern='#[a-fA-F_0-9]*' placeholder='[default]'>", function() { }),
-			MenuAction("Border Color: <input type=text data-control=borderColor class=borderColor value='"+toHtml(node.format.borderColor)+"' pattern='#[a-fA-F_0-9]*' placeholder='[default]'>", function() { }),
-			MenuAction("Text Color: <input type=text data-control=textColor class=textColor value='"+toHtml(node.format.fontColor)+"' pattern='#[a-fA-F_0-9]*' placeholder='[default]'>", function() { }),
-			MenuAction("Font Family: <input type=text data-control=fontFamily class=fontFamily value='"+toHtml(node.format.fontFamily)+"' placeholder='[default]'>", function() { }),
-			MenuAction("Font Size: <input type=text data-control=fontSize class=fontSize value='"+toHtml(node.format.fontSize)+"' pattern='[0-9]*' placeholder='[default]'>", function() { }),
+			MenuAction("<label>Background Color:</label> <input type=text data-control=backgroundColor class=backgroundColor value='"+toHtml(node.format.backgroundColor)+"' pattern='#[a-fA-F_0-9]*' placeholder='[default]'>", function() { }),
+			MenuAction("<label>Border Color:</label> <input type=text data-control=borderColor class=borderColor value='"+toHtml(node.format.borderColor)+"' pattern='#[a-fA-F_0-9]*' placeholder='[default]'>", function() { }),
+			MenuAction("<label>Text Color:</label> <input type=text data-control=textColor class=textColor value='"+toHtml(node.format.fontColor)+"' pattern='#[a-fA-F_0-9]*' placeholder='[default]'>", function() { }),
+			MenuAction("<label>Font Family:</label> <input type=text data-control=fontFamily class=fontFamily value='"+toHtml(node.format.fontFamily)+"' placeholder='[default]'>", function() { }),
+			MenuAction("<label>Font Size:</label> <input type=text data-control=fontSize class=fontSize value='"+toHtml(node.format.fontSize)+"' pattern='[0-9]*' placeholder='[default]'>", function() { }),
 		]});
 		$format.append(formatMenu.make());
 
@@ -573,8 +669,68 @@ Node.prototype = $.extend(Node.prototype, {
 			defTab,
 			{id: 'format', label: 'Format', content: $format},
 		]);
+
+		popupEditDialog(tabs.$tabs, {className: 'node', controls: {
+			backgroundColor: {change: function(val) {
+				var $displayNode = $('#display_'+node.id);
+				$displayNode.css('background-color', val);
+				node.format.backgroundColor = val;
+			}},
+			borderColor: {change: function(val) {
+				var $displayNode = $('#display_'+node.id);
+				$displayNode.css('border-color', val);
+				$displayNode.find('h6').css('border-color', val);
+				node.format.borderColor = val;
+			}},
+			textColor: {change: function(val) {
+				var $displayNode = $('#display_'+node.id);
+				$displayNode.css('color', val);
+				node.format.fontColor = val;
+			}},
+			fontFamily: {change: function(val) {
+				var $displayNode = $('#display_'+node.id);
+				$displayNode.css('font-family', val);
+				node.format.fontFamily = val;
+			}},
+			fontSize: {change: function(val) {
+				var $displayNode = $('#display_'+node.id);
+				$displayNode.css('font-size', val+'pt');
+				node.format.fontSize = val;
+			}},
+			submodelPath: {change: function(val) {
+				node.path(val);
+				currentBn.display();
+				currentBn.displayBeliefs();
+			}},
+			nodeId: {change: function(val) {
+				var $displayNode = $('#display_'+node.id);
+				$displayNode.attr("id", 'display_'+val);
+				node.rename(val);
+				$displayNode.find('h6').html(currentBn.headerFormat(node.id,node.label));
+			}},
+			nodeLabel: {change: function(val) {
+				var $displayNode = $('#display_'+node.id);
+				node.label = val;
+				$displayNode.find('h6').html(currentBn.headerFormat(node.id,node.label));
+			}},
+			funcText: {change: function(val) {
+				node.equation($(".func textarea").val());
+				currentBn.updateAndDisplayBeliefs();
+			}},
+			comment: {change: function(val) {
+				console.log('xx');
+				node.comment = $(".dialog textarea.comment").val();
+			}},
+			cpt: {change: function(val) {
+				var newCpt = $(".dialog .prob").map(function() { return $(this).text(); }).toArray();
+				node.cpt1d(newCpt);
+				$(".dialog .saveButton")[0].disabled = true;
+				currentBn.updateAndDisplayBeliefs();
+			}},
+		}});
+
 		/** All this needs to be re-written to remove the repetition into a loop. **/
-		popupDialog(tabs.$tabs, {className: 'node contextMenu', buttons: [
+		/*popupDialog(tabs.$tabs, {className: 'node contextMenu', buttons: [
 			$('<button type=button class=saveButton disabled>').html('Save').on('click', function() {
 				$(".dialog .saveButton")[0].disabled = true;
 				console.log(whatsDirty);
@@ -584,16 +740,6 @@ Node.prototype = $.extend(Node.prototype, {
 					node.cpt1d(newCpt);
 					$(".dialog .saveButton")[0].disabled = true;
 					currentBn.updateAndDisplayBeliefs();
-				}
-				if (whatsDirty.nodeId) {
-					whatsDirty.nodeId = false;
-					if ($('.dialog input.nodeId').is(':valid')) {
-						var newId = $('.dialog input.nodeId').val();
-						var $displayNode = $('#display_'+node.id);
-						$displayNode.attr("id", 'display_'+newId);
-						$displayNode.find('h6').text(newId);
-						node.rename(newId);
-					}
 				}
 				if (whatsDirty.funcText) {
 					whatsDirty.funcText = false;
@@ -631,6 +777,22 @@ Node.prototype = $.extend(Node.prototype, {
 						$displayNode.css('font-size', val+'pt');
 						node.format.fontSize = val;
 					}},
+					submodelPath: {change: function(val) {
+						node.path(val);
+						currentBn.display();
+						currentBn.displayBeliefs();
+					}},
+					nodeId: {change: function(val) {
+						var $displayNode = $('#display_'+node.id);
+						$displayNode.attr("id", 'display_'+val);
+						node.rename(val);
+						$displayNode.find('h6').html(currentBn.headerFormat(node.id,node.label));
+					}},
+					nodeLabel: {change: function(val) {
+						var $displayNode = $('#display_'+node.id);
+						node.label = val;
+						$displayNode.find('h6').html(currentBn.headerFormat(node.id,node.label));
+					}},
 				};
 				for (var control in controls) {
 					if (whatsDirty[control]) {
@@ -653,7 +815,7 @@ Node.prototype = $.extend(Node.prototype, {
 			if ($(event.target).closest('.func').length)  whatsDirty.funcText = true;
 			if ($(event.target).closest('textarea.comment').length)  whatsDirty.comment = true;
 			$(".dialog .saveButton")[0].disabled = false;
-		});
+		});*/
 	},
 	guiDelete: function() {
 		var node = this;
@@ -889,6 +1051,22 @@ var app = {
 		currentBn.redrawAllArcs();
 		currentBn.resizeCanvasToFit()
 	},
+	changeNodeHeader: function(type) {
+		if (type=='id') {
+			currentBn.headerFormat = function(id,label) { return toHtml(id); }
+		}
+		else if (type=='label') {
+			currentBn.headerFormat = function(id,label) { return toHtml(label ? label : id); }
+		}
+		else if (type=='idLabel') {
+			currentBn.headerFormat = function(id,label) { return toHtml((label ? label+": " : "")+id); }
+		}
+		var graphItems = currentBn.getGraphItems();
+		for (var i=0; i<graphItems.length; i++) {
+			var graphItem = graphItems[i];
+			$("#display_"+graphItem.id+" h6").html(currentBn.headerFormat(graphItem.id,graphItem.label));
+		}
+	},
 	learnParametersCounting: function() {
 		$('#openDataFile').on('change', function() {
 			readChosenFile(this, function(fileData) {
@@ -898,6 +1076,21 @@ var app = {
 			});
 		}).click();
 	},
+	/** This will remove all submodel information from a network,
+	    and then relay it out, since otherwise everything will be on top of each other.
+	    XXX Add a method to 'expand inside' so as to preserve the original layout as much as possible. **/
+	flattenNetwork: function() {
+		var bn = currentBn;
+		for (var i=0; i<bn.nodes.length; i++) {
+			bn.nodes[i].submodelPath = [];
+		}
+		bn.currentSubmodel = [];
+		bn.submodelsById = {};
+		bn.subNodes = bn.nodes.slice();
+		bn.display();
+		bn.displayBeliefs();
+		app.autoLayout();
+	},
 };
 
 $(document).ready(function() {
@@ -905,7 +1098,7 @@ $(document).ready(function() {
 	var exampleBnActions = [];
 	for (var i in exampleBns) {
 		/// Need html escape function
-		exampleBnActions[i] = MenuAction('<span data-name="'+exampleBns[i]+'" style="white-space: nowrap;">'+exampleBns[i]+'</span>', function() {
+		exampleBnActions[i] = MenuAction('<span data-name="'+exampleBns[i]+'">'+exampleBns[i]+'</span>', function() {
 			window.location.href = "?file=bns/"+$(this).find('span').data("name");
 		});
 	}
@@ -922,6 +1115,10 @@ $(document).ready(function() {
 			Menu({label: "Nodes", items: [
 				MenuAction('Labels Only', function() { app.changeNodeView('label'); dismissActiveMenus(); }),
 				MenuAction('Detailed Nodes', function() { app.changeNodeView('distro'); dismissActiveMenus(); }),
+				MenuAction('<hr>'),
+				MenuAction('Header: ID', function() { app.changeNodeHeader('id'); dismissActiveMenus(); }),
+				MenuAction('Header: Label', function() { app.changeNodeHeader('label'); dismissActiveMenus(); }),
+				MenuAction('Header: Label + ID', function() { app.changeNodeHeader('idLabel'); dismissActiveMenus(); }),
 			]}),
 			MenuAction('<input type="checkbox" class=showArcStrengths> Show Arc Strengths', function() {
 				if ( !$('.showArcStrengths').prop('checked') ) {
@@ -941,6 +1138,7 @@ $(document).ready(function() {
 			MenuAction('Calculate Probability of Evidence', function() { app.showProbabilityOfEvidence(); dismissActiveMenus(); } ),
 			MenuAction('# Samples: <input type="text" name="iterations" value="1000">', function() { }),
 			MenuAction('Learn Parameters (Counting) ...', function() { app.learnParametersCounting(); dismissActiveMenus(); } ),
+			MenuAction('Flatten Network', function() { app.flattenNetwork(); dismissActiveMenus(); } ),
 		]}),
 		Menu({label:"(Debug)", items: [
 			MenuAction('# Workers: <input type="text" name="numWorkers" value="2">', function() { }),
@@ -1074,15 +1272,16 @@ $(document).ready(function() {
 
 	/// Submodel navigation
 	$(".bnview").on("dblclick", ".submodel", function() {
-		currentBn.currentSubmodel = $(this).data("submodel").path;
+		currentBn.currentSubmodel = $(this).data("submodel").submodelPath.concat($(this).data("submodel").id ? [$(this).data("submodel").id] : []);
 		currentBn.display();
 		currentBn.displayBeliefs();
 	});
 
-	$(document).on("dblclick contextmenu", ".node", function(evt) {
+	$(document).on("contextmenu", ".node, .submodel", function(evt) {
 		if (evt.shiftKey)  return false;
-		var node = currentBn.nodesById[$(this).attr("id").replace(/^display_/, '')];
-		node.contextMenu();
+		var $displayItem = $(this);
+		var item = currentBn.getItemById($displayItem.attr("id").replace(/^display_/, ''));
+		item.contextMenu();
 		return false;
 	});
 

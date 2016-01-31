@@ -36,7 +36,7 @@ var testing = {
 				});
 			});
 		},
-		/// Decision Nets - Umbrella
+		/// Submodels - Bunce's Farm
 		function(callback) {
 			loadFromServer('bns/Bunce\'s Farm.xdsl', function() {
 				var savedIterations = currentBn.iterations;
@@ -44,6 +44,7 @@ var testing = {
 				updateBN(function() {
 					var ev = Number($('.status .expectedValue .val').eq(0).text());
 					var areEqual1 = testing.testNumbersEqual('EV=48?', ev, -48, 1);
+					callback('Submodels - Bunce\'s Farm', areEqual1);
 					/*$('#display_Weather .stateName').eq(1).trigger('click');
 					updateBN(function() {
 						var ev = Number($('.status .expectedValue .val').eq(0).text());
@@ -61,6 +62,7 @@ var testing = {
 				$('button[data-for=format]').trigger('click');
 				$('[data-control=backgroundColor]').val('#ff0000').keyup();
 				$('.saveButton').trigger('click');
+				callback('Formatting test', true);
 			});
 		},
 	],
