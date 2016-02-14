@@ -1,4 +1,4 @@
-var titlePostfix = "Make-Believe (R20)";
+var titlePostfix = "Make-Believe (R21)";
 var openBns = [];
 var openData = [];
 var currentBn = null;
@@ -42,7 +42,32 @@ function sigFig(num, digits) {
 		var d = Math.round(mul/sigPow);
 		v = v*d;
 	}
+
 	return v;
+}
+
+function toChance(v) {
+	if (v>0 && v<1) {
+		return String(v).substr(1);
+	}
+	if (v == 0 || v == 1) {
+		return String(v);
+	}
+	return "x";
+}
+
+function toPercent(num, dp, fromPercentNum) {
+	if (!dp) { dp = 0; }
+	var mul = Math.pow(10, dp);
+	if (isNaN(num) && num.search(/%/)!=-1) {
+		return num;
+	}
+	else if (!fromPercentNum) {
+		return Math.round(num*100*mul)/mul + "%";
+	}
+	else {
+		return Math.round(num*mul)/mul + "%";
+	}
 }
 
 function toHtml(str) {
@@ -347,13 +372,23 @@ function popupEditDialog($content, opts) {
 						whatsDirty[control] = false;
 						if ($('.dialog *[data-control='+control+']').is('input, select, textarea')) {
 							if ($('.dialog *[data-control='+control+']').is(':valid')) {
-								var val = $('.dialog *[data-control='+control+']').val();
-								controls[control].change(val);
+								var $control = $('.dialog *[data-control='+control+']');
+								var val = $control.val();
+								/// false means change didn't save
+								if (!controls[control].change(val, $control)) {
+									$(".dialog .saveButton")[0].disabled = false;
+									whatsDirty[control] = true;
+								}
 							}
 						}
 						else {
-							/// Non-standard control, just call change with no arguments
-							controls[control].change();
+							/// Non-standard control, just call with no arguments
+
+							/// false means change didn't save
+							if (!controls[control].change($('.dialog *[data-control='+control+']'))) {
+								$(".dialog .saveButton")[0].disabled = false;
+								whatsDirty[control] = true;
+							}
 						}
 					}
 				}
@@ -463,7 +498,7 @@ function Node(o) {
 		this[i] = o[i];
 	}
 
-	this.initInference();
+	this.init({addToCanvas: o.addToCanvas});
 }
 /// Use this if the node hasn't been set up yet. Otherwise,
 /// just this.parseEquation with equationText.
@@ -605,19 +640,74 @@ Node.makeNodeFromXdslEl = function (el, $xdsl, opts) {
 		format: format,
 		submodelPath: submodelPath,
 	});
-	console.log(node, $extInfo);
-	/*node.beliefs = new Float32Array(new ArrayBuffer(node.states.length*4));
-	node.counts = new Float32Array(new ArrayBuffer(node.states.length*4));
-	node.parentStates = new Float32Array(new ArrayBuffer(node.parents.length*4));*/
+
 	return node;
 }
 Node.prototype = {
-	initInference: function() {
+	/// Most of this function involves introducing the new Node to the rest
+	/// of the world
+	init: function(o) {
+		o = o || {};
 		var node = this;
+
+		node._updateDisplay = !node.engineOnly;
+
+		/// Convert states, if needed
+		if (node.states.length && typeof(node.states[0])=="string") {
+			var statesById = {};
+			var stateObjects = [];
+			for (var i=0; i<node.states.length; i++) {
+				stateObjects.push({id: node.states[i], index: i});
+				statesById[node.states[i]] = i;
+			}
+			node.states = stateObjects;
+			node.statesById = statesById;
+		}
+
+		/// Make the CPTs and function tables typed
+		if (node.cpt) {
+			node.cpt = new Float32Array(node.cpt);
+		}
+		else if (node.funcTable) {
+			node.funcTable = new Int32Array(node.funcTable);
+		}
+
 		/// Setup the vectors needed for the inference (needed even if using workers)
 		node.beliefs = new Float32Array(new ArrayBuffer(node.states.length*4));
 		node.counts = new Float32Array(new ArrayBuffer(node.states.length*4));
 		node.parentStates = new Float32Array(new ArrayBuffer(node.parents.length*4));
+
+		/// Notify submodel
+		this.moveToSubmodel(this.submodelPath);
+
+		var bn = this.net;
+
+		/// Add to children in parents
+		for (var i=0; i<node.parents.length; i++) {
+			var parent = node.parents[i];
+			/// If we're in the middle of loading from a file, parent may
+			/// just be a string still. It will get compiled properly later.
+			if (typeof(parent)=="object") {
+				parent.children.push(node);
+			}
+		}
+
+		/// Notify the network
+		bn.nodes.push(node);
+		bn.nodesById[node.id] = node;
+		if (node.type == "utility") {
+			bn._utilityNodes.push(node);
+		}
+		else if (node.type == "decision") {
+			bn._decisionNodes.push(node);
+		}
+
+		bn.needsCompile = true;
+
+		if (o.addToCanvas) {
+			bn.display();
+			bn.updateAndDisplayBeliefs();
+		}
 	},
 	numParentCombinations: function() {
 		var numParentStates = 1;
@@ -641,22 +731,106 @@ Node.prototype = {
 		}
 		return rowI;
 	},
-	removeStates: function() {
-		/// XXX This will leave CPTs, etc. in an inconsistent state at this point
-		this.states = [];
-		this.statesById = {};
+	addStates: function(newStates, opts) {
+		opts = opts || {};
+		var insertPoint = opts.at != undefined ? opts.at : this.states.length;
+
+		var numStates = this.states.length;
+		var numNewStates = numStates + newStates.length;
+
+		for (var i=0; i<newStates.length; i++) {
+			var stateName = newStates[i];
+			this.states.splice(insertPoint, 0, new State({id: stateName, index: i}));
+			this.statesById[stateName] = this.states[insertPoint];
+		}
+		/// And now let's update all the indices...
+		for (var i=0; i<this.states.length; i++)  this.states[i].index = i;
+
+		/// Update the CPT
+		var rows = this.cpt.length/numStates;
+		var newCpt = new Float32Array(new ArrayBuffer(rows*numNewStates*4));
+		for (var r=0; r<rows; r++) {
+			for (var i=0; i<insertPoint; i++) {
+				newCpt[r*numNewStates + i] = this.cpt[r*numStates + i];
+			}
+			/*
+			Float arrays are 0 initialised by default
+			for (var i=numStates; i<numNewStates; i++) {
+				newCpt[r*numNewStates + i] = 0;
+			}*/
+			for (var i=insertPoint+newStates.length; i<numNewStates; i++) {
+				newCpt[r*numNewStates + i] = this.cpt[r*numStates + (i-newStates.length)];
+			}
+		}
+		this.cpt = newCpt;
+
+		/// Update the state-dependent inf states
+		//this.beliefs = new Float32Array(new ArrayBuffer(this.states.length*4));
+		//this.counts = new Float32Array(new ArrayBuffer(this.states.length*4));
+
+		this.net.needsCompile = true;
+	},
+	/// statesToRemove=* -> remove all, statesToRemove = [1,2,"gary"] -> remove states
+	/// with the given name or index
+	removeStates: function(statesToRemove, opts) {
+		opts = opts || {};
+
+		if (statesToRemove === "*") {
+			this.states = [];
+			this.statesById = {};
+			this.cpt = new Float32Array([]);
+		}
+		else {
+			var numStates = this.states.length;
+			var numNewStates = this.states.length - statesToRemove.length;
+
+			/// Convert all state refs to indexes (and delete states from list
+			/// while we're at it)
+			for (var i=statesToRemove.length-1; i>=0; i--) {
+				if (typeof(statesToRemove[i])=="string") {
+					statesToRemove[i] = this.statesById[statesToRemove[i]].index;
+				}
+				var delState = this.states.splice(statesToRemove[i], 1)[0];
+				delete this.statesById[delState.id];
+			}
+
+			statesToRemove.sort(function(a,b){ return a-b; });
+
+			var rows = this.cpt.length/numStates;
+			var newCpt = new Float32Array(new ArrayBuffer(rows*numNewStates*4));
+			var adjust = 0;
+			for (var r=0; r<rows; r++) {
+				for (var i=0; i<numNewStates; i++) {
+					while ((i+adjust)===statesToRemove[adjust]) {
+						adjust++;
+					}
+					newCpt[r*numNewStates + i] = this.cpt[r*numStates + (i + adjust)];
+				}
+			}
+			this.cpt = newCpt;
+		}
+
+		this.net.needsCompile = true;
+	},
+	/// |renames| is an object that can take either state indexes or
+	/// (previous) IDs as keys, and the new IDs as values
+	renameStates: function(renames) {
+		for (var oldId in renames) {
+			var newId = renames[oldId];
+			if (!isNaN(oldId)) {
+				oldId = this.states[oldId].id;
+			}
+			if (oldId != newId) {
+				this.statesById[newId] = this.statesById[oldId];
+				this.statesById[newId].id = newId;
+				delete this.statesById[oldId];
+			}
+		}
 	},
 	rename: function(newId) {
 		delete this.net.nodesById[this.id];
 		this.id = newId;
 		this.net.nodesById[newId] = this;
-	},
-	addStates: function(newStates) {
-		for (var i=0; i<newStates.length; i++) {
-			var stateName = newStates[i];
-			this.states.push(new State({id: stateName, index: i}));
-			this.statesById[stateName] = this.states[this.states.length-1];
-		}
 	},
 	parseEquation: function(equationText) {
 		return Node.parseEquation(this.id, this.parents.map(function(p) { return p.id }), equationText);
@@ -1020,15 +1194,15 @@ BN.prototype = {
 		/// Handle all the nodes
 		this.objs.find("> nodes cpt, > nodes deterministic, > nodes decision, > nodes utility, > nodes equation").each(function() {
 			var node = Node.makeNodeFromXdslEl(this, bn.objs, {net: bn});
-			node.moveToSubmodel(node.submodelPath);
-			bn.nodes.push(node);
-			bn.nodesById[node.id] = node;
-			if ($(this).is("utility")) {
-				bn._utilityNodes.push(node);
-			}
-			else if ($(this).is("decision")) {
-				bn._decisionNodes.push(node);
-			}
+			//node.moveToSubmodel(node.submodelPath);
+			//bn.nodes.push(node);
+			//bn.nodesById[node.id] = node;
+			//if ($(this).is("utility")) {
+			//	bn._utilityNodes.push(node);
+			//}
+			//else if ($(this).is("decision")) {
+			//	bn._decisionNodes.push(node);
+			//}
 			//onsole.debug(bn.nodes);
 		});
 
@@ -1071,8 +1245,8 @@ BN.prototype = {
 					var node = Node.makeNodeFromXdslEl(this, bn.objs, {engineOnly:true, net: bn});
 					node.id = node.id +"_"+ sliceNum;
 					node.slice = sliceNum;
-					bn.nodes.push(node);
-					bn.nodesById[node.id] = node;
+					//bn.nodes.push(node);
+					//bn.nodesById[node.id] = node;
 					updateParentNames(node);
 					//onsole.debug(bn.nodes);
 				});
@@ -1164,9 +1338,9 @@ BN.prototype = {
 				size: {width: 80, height: 30},
 				comment: comment,
 			});
-			node.moveToSubmodel([]);
-			bn.nodes.push(node);
-			bn.nodesById[node.id] = node;
+			//node.moveToSubmodel([]);
+			//bn.nodes.push(node);
+			//bn.nodesById[node.id] = node;
 			//onsole.log(node);
 		}
 		this.compile(true);
@@ -1474,51 +1648,11 @@ BN.prototype = {
 	addNode: function(id, states, opts) {
 		opts = opts || {};
 
-		/// Convert states to state objects
-		var statesById = {};
-		var stateObjects = [];
-		for (var i=0; i<states.length; i++) {
-			stateObjects.push({id: states[i], index: i});
-			statesById[states[i]] = i;
-		}
-
 		var newNode = new Node($.extend({
 			net: this,
 			id: id,
-			states: stateObjects,
-			statesById: statesById,
-			_updateDisplay: !opts.engineOnly,
+			states: states,
 		}, opts));
-
-		/// Add to children in parents
-		for (var i=0; i<newNode.parents.length; i++) {
-			var parent = newNode.parents[i];
-			parent.children.push(newNode);
-		}
-
-		this.nodes.push(newNode);
-		this.nodesById[newNode.id] = newNode;
-		if (newNode.type == "utility") {
-			this._utilityNodes.push(newNode);
-		}
-		else if (newNode.type == "decision") {
-			this._decisionNodes.push(newNode);
-		}
-
-		if (newNode.cpt) {
-			newNode.cpt = new Float32Array(newNode.cpt);
-		}
-		else if (newNode.funcTable) {
-			newNode.funcTable = new Int32Array(newNode.funcTable);
-		}
-		newNode.beliefs = new Float32Array(new ArrayBuffer(newNode.states.length*4));
-		newNode.counts = new Float32Array(new ArrayBuffer(newNode.states.length*4));
-		newNode.parentStates = new Float32Array(new ArrayBuffer(newNode.parents.length*4));
-
-		/*this.updateRootNodes();
-		this.updateNodeOrdering();*/
-
-		this.needsCompile = true;
 
 		return newNode;
 	},

@@ -160,6 +160,20 @@ var draw = {
 			return draw.drawArrow(outputEl, {x: parIntersect.e(1), y: parIntersect.e(2)}, {x: childIntersect.e(1), y: childIntersect.e(2)});
 		}
 	},
+	/// This is not very generalised...
+	setProbBackground: function($td) {
+		var probColor = "rgb(255, 198, 35)";
+		var bottomBar = "#888";
+		var valStr = $td.find(".prob").text();
+
+		if (valStr.search(/^\s*(0|1|0?\.\d+)\s*/)!=-1) {
+			var v = parseFloat(valStr);
+			if (v >= 0 && v <= 1) {
+				$td.css("background-image",
+					"linear-gradient(to top,"+bottomBar+",1px,"+bottomBar+",1px,transparent),linear-gradient(to top,"+probColor+","+toPercent(v)+","+probColor+","+toPercent(v)+",transparent)");
+			}
+		}
+	}
 };
 
 
@@ -619,7 +633,7 @@ Node.prototype = $.extend(Node.prototype, {
 				$tr.append('<th>'+toHtml(node.parents[i].id)+'</th>');
 			}
 			for (var i=0; i<node.states.length; i++) {
-				$tr.append('<th>'+toHtml(node.states[i].id)+'</th>');
+				$tr.append('<th class=stateLabel contenteditable data-control=state>'+toHtml(node.states[i].id)+'</th>');
 			}
 			$table.append($tr);
 			/// Write out each row
@@ -634,7 +648,15 @@ Node.prototype = $.extend(Node.prototype, {
 				currentBn.nextCombination(node.parents, parentIndexes);
 				/// Now list the distro for each row
 				for (var j=0; j<row.length; j++) {
-					$tr.append("<td><span class=prob contenteditable data-control=cpt>"+sigFig(row[j],3)+"</span></td>");
+					var $td = $("<td>")
+						.append("<span class=prob contenteditable data-control=cpt>"+toChance(sigFig(row[j],3))+"</span>");
+					draw.setProbBackground($td);
+					$td.find(".prob").on("keyup", function() {
+						draw.setProbBackground($(this).closest("td"));
+						/// This row was possibly set to invalid. Clear, if any change made
+						$(this).closest("tr").removeClass("invalid");
+					});
+					$tr.append($td);
 				}
 				$table.append($tr);
 			}
@@ -723,99 +745,40 @@ Node.prototype = $.extend(Node.prototype, {
 			}},
 			cpt: {change: function(val) {
 				var newCpt = $(".dialog .prob").map(function() { return $(this).text(); }).toArray();
-				node.cpt1d(newCpt);
-				$(".dialog .saveButton")[0].disabled = true;
-				currentBn.updateAndDisplayBeliefs();
-			}},
-		}});
-
-		/** All this needs to be re-written to remove the repetition into a loop. **/
-		/*popupDialog(tabs.$tabs, {className: 'node contextMenu', buttons: [
-			$('<button type=button class=saveButton disabled>').html('Save').on('click', function() {
-				$(".dialog .saveButton")[0].disabled = true;
-				console.log(whatsDirty);
-				if (whatsDirty.cpt) {
-					whatsDirty.cpt = false;
-					var newCpt = $(".dialog .prob").map(function() { return $(this).text(); }).toArray();
-					node.cpt1d(newCpt);
-					$(".dialog .saveButton")[0].disabled = true;
-					currentBn.updateAndDisplayBeliefs();
-				}
-				if (whatsDirty.funcText) {
-					whatsDirty.funcText = false;
-					node.equation($(".func textarea").val());
-					currentBn.updateAndDisplayBeliefs();
-				}
-				if (whatsDirty.comment) {
-					whatsDirty.comment = false;
-					node.comment = $(".dialog textarea.comment").val();
-				}
-				var controls = {
-					backgroundColor: {change: function(val) {
-						var $displayNode = $('#display_'+node.id);
-						$displayNode.css('background-color', val);
-						node.format.backgroundColor = val;
-					}},
-					borderColor: {change: function(val) {
-						var $displayNode = $('#display_'+node.id);
-						$displayNode.css('border-color', val);
-						$displayNode.find('h6').css('border-color', val);
-						node.format.borderColor = val;
-					}},
-					textColor: {change: function(val) {
-						var $displayNode = $('#display_'+node.id);
-						$displayNode.css('color', val);
-						node.format.fontColor = val;
-					}},
-					fontFamily: {change: function(val) {
-						var $displayNode = $('#display_'+node.id);
-						$displayNode.css('font-family', val);
-						node.format.fontFamily = val;
-					}},
-					fontSize: {change: function(val) {
-						var $displayNode = $('#display_'+node.id);
-						$displayNode.css('font-size', val+'pt');
-						node.format.fontSize = val;
-					}},
-					submodelPath: {change: function(val) {
-						node.path(val);
-						currentBn.display();
-						currentBn.displayBeliefs();
-					}},
-					nodeId: {change: function(val) {
-						var $displayNode = $('#display_'+node.id);
-						$displayNode.attr("id", 'display_'+val);
-						node.rename(val);
-						$displayNode.find('h6').html(currentBn.headerFormat(node.id,node.label));
-					}},
-					nodeLabel: {change: function(val) {
-						var $displayNode = $('#display_'+node.id);
-						node.label = val;
-						$displayNode.find('h6').html(currentBn.headerFormat(node.id,node.label));
-					}},
-				};
-				for (var control in controls) {
-					if (whatsDirty[control]) {
-						whatsDirty[control] = false;
-						if ($('.dialog input.'+control).is(':valid')) {
-							var val = $('.dialog input.'+control).val();
-							controls[control].change(val);
-						}
+				/// XXX Lots to clean up and fix
+				var numRows = node.cpt.length/node.states.length;
+				var invalid = false;
+				for (var r=0; r<numRows; r++) {
+					var sum = 0;
+					for (var c=0; c<node.states.length; c++) {
+						sum += parseFloat(newCpt[r*node.states.length + c]);
+					}
+					//console.log(r, sum);
+					if (Math.round(sum*1000) != 1000) {
+						invalid = true;
+						$(".dialog .cpt tr:nth("+(r+1)+")").addClass("invalid");
 					}
 				}
-			}),
-			$('<button type=button class=closeButton>').html('Close').on('click', dismissDialogs),
-		]});
-		$(".dialog").on("change keyup", function(event) {
-			if ($(event.target).closest('input[data-control]').length) {
-				var name = $(event.target).closest('input').data('control');
-				whatsDirty[name] = true;
-			}
-			if ($(event.target).closest('.cpt').length)  whatsDirty.cpt = true;
-			if ($(event.target).closest('.func').length)  whatsDirty.funcText = true;
-			if ($(event.target).closest('textarea.comment').length)  whatsDirty.comment = true;
-			$(".dialog .saveButton")[0].disabled = false;
-		});*/
+				if (invalid) {
+					alert('One or more rows do not sum to 1.');
+					return false;
+				}
+				else {
+					node.cpt1d(newCpt);
+					currentBn.updateAndDisplayBeliefs();
+				}
+			}},
+			state: {change: function() {
+				var states = $(".dialog .stateLabel").map(function() { return $(this).text(); }).toArray();
+				/// XXX Validate the rename
+				var o = {};
+				for (var i=0; i<states.length; i++)  o[i] = states[i].trim();
+				console.log(o);
+				node.renameStates(o);
+				currentBn.display();
+				currentBn.displayBeliefs();
+			}},
+		}});
 	},
 	guiDelete: function() {
 		var node = this;
@@ -1275,6 +1238,16 @@ $(document).ready(function() {
 		currentBn.currentSubmodel = $(this).data("submodel").submodelPath.concat($(this).data("submodel").id ? [$(this).data("submodel").id] : []);
 		currentBn.display();
 		currentBn.displayBeliefs();
+	});
+
+	$(".bnview").on("dblclick", function(event) {
+		var i = 0;
+		while (currentBn.nodesById["node"+i]) i++;
+		if ($(event.target).is(".bnview") || $(event.target).is(".netSvgCanvas")) {
+			currentBn.addNode("node"+i, ["state0","state1"], {cpt:[.5,.5], pos: {x: event.offsetX, y: event.offsetY}, addToCanvas: true});
+		}
+		event.preventDefault();
+		return false;
 	});
 
 	$(document).on("contextmenu", ".node, .submodel", function(evt) {

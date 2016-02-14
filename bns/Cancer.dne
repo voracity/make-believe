@@ -1,11 +1,12 @@
 // ~->[DNET-1]->~
 
-// File created by someone at MonashU using Netica 4.16 on Dec 22, 2015 at 23:42:35.
+// File created by someone at MonashU using Netica 4.16 on Feb 02, 2016 at 23:16:06.
 
 bnet Sub0 {
+AutoCompile = TRUE;
 autoupdate = TRUE;
 title = "Sub0";
-whenchanged = 1450788154;
+whenchanged = 1454415359;
 
 visual V1 {
 	defdispform = BELIEFBARS;
@@ -14,7 +15,6 @@ visual V1 {
 	nodefont = font {shape= "Arial"; size= 9;};
 	linkfont = font {shape= "Arial"; size= 9;};
 	windowposn = (26, 26, 901, 332);
-	scrollposn = (0, 210);
 	resolution = 72;
 	drawingbounds = (1046, 769);
 	showpagebreaks = FALSE;
@@ -48,6 +48,7 @@ node Pollution {
 		  (0.9,         0.1);
 	title = "Pollution";
 	whenchanged = 0;
+	belief = (0.9, 0.1);
 	visual V1 {
 		center = (227, 100);
 		height = 1;
@@ -66,6 +67,7 @@ node Smoker {
 	title = "Smoker";
 	comment = "This is a description.";
 	whenchanged = 1450787078;
+	belief = (0.3, 0.7);
 	visual V1 {
 		center = (509, 100);
 		height = 2;
@@ -86,6 +88,7 @@ node Cancer {
 		   0.02,        0.98);        // high      False  ;
 	title = "Cancer";
 	whenchanged = 0;
+	belief = (0.01163, 0.98837);
 	visual V1 {
 		center = (370, 224);
 		height = 3;
@@ -107,6 +110,7 @@ node Xray {
 		   0.2,         0.8);         // False  ;
 	title = "XRay?";
 	whenchanged = 1450788154;
+	belief = (0.208141, 0.791859);
 	visual V1 {
 		center = (509, 343);
 		height = 4;
@@ -124,10 +128,13 @@ node Dyspnoea {
 		  (0.65,        0.35,         // True   
 		   0.3,         0.7);         // False  ;
 	title = "Dyspnoea";
-	whenchanged = 0;
+	comment = "Shortness of breath";
+	whenchanged = 1454415359;
+	belief = (0.3040705, 0.6959295);
 	visual V1 {
 		center = (227, 343);
 		height = 5;
 		};
 	};
+ElimOrder = (Xray, Dyspnoea, Pollution, Smoker, Cancer);
 };

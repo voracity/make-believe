@@ -52,7 +52,7 @@ R19
 	- Fixed up pathsIn/pathsOut to store information as objects rather than arrays
 	- Delete now working again
 - Context menus supported (minimally) on utility and decision nodes now
-R20**
+R20
 - Can (properly) flatten a network with submodels (but this is a non-reversible change, rather than a different view)
 - Can move nodes from one submodel to another, by changing it's 'path'
 - Made 'type' visible on context menu (need to make changeable ... somehow)
@@ -65,16 +65,29 @@ R20**
 - FIXED: Significant contextmenu dialog duplication. PART FIXED: Now fix node context menu
 - FIXED: Continuous nodes/networks seem to have broken.
 - FIXED: .dne support broken
+R21
+- Added bars (bar graphs) to CPT cell background
+- Changed CPTs to display 'chances'
+- Check for valid CPT on change
+- API: Allow adding states
+- API: Allow deleting states
+- API: Allow renaming states
+- API: Centralise new Node/addNode code
+- Can rename states from CPT context menu
 
 Bugs
 - Submodel issues:
 	- 'item' refers to node and submodel items. Should I move to more generic 'node' for both? Without affecting inference...
+Creating nodes
+	- Double click to add node to canvas (done)
+	- Rename node and state names (content editable?)
+	- Add and delete states
+- addStates/deleteStates: Update child CPTs (if they have CPTs)
 - Move the visible graph creation logic out of the display() function
 - Allow switch to flat view and back (how to handle layouts for both group and flat view?)
-- Add node: cpt verification, node types
+- Handle node type changes**
 - Create proper compile function (start with loadPostprocess). Should probably 'fix' representational errors.
 - Style comment in node context dialog
-- Read comment on nodes from .dne files
 
 Features
 - Continuous evidence...

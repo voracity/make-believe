@@ -22,7 +22,7 @@ SOFTWARE.
 <!doctype html>
 <html>
 <head>
-	<title>Make-Believe (R20)</title>
+	<title>Make-Believe (R21)</title>
 	<script src="_/js/jquery.min.js"></script>
 	<script src="_/js/defiant.min.js"></script>
 	<script src="_/js/vkbeautify.0.99.00.beta.js"></script>
@@ -81,7 +81,10 @@ SOFTWARE.
 	/*path { stroke: red; }
 	polyline { fill: red; }*/
 
-	.cpt { }
+	.cpt { border-collapse: collapse; }
+	.cpt td, .cpt th { padding: 3px; }
+	.cpt td { border-top: solid 3px transparent; background-repeat: no-repeat; text-align: center;  }
+	.cpt tr.invalid td { background: red !important; }
 	/** I'm not sure why these require an explicit height. **/
 	.funcDialog { min-height: 15em; }
 	.funcDialog textarea { width: 100%; height: 14em; }
