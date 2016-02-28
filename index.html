@@ -22,8 +22,10 @@ SOFTWARE.
 <!doctype html>
 <html>
 <head>
-	<title>Make-Believe (R21)</title>
+	<title>Make-Believe (R22)</title>
+	<link rel="icon" type="image/png" href="_/images/makeBelieve.png">
 	<script src="_/js/jquery.min.js"></script>
+	<script>if (typeof($)=="undefined") { window.$ = window.jQuery = require('./_/js/jquery.min.js'); }</script>
 	<script src="_/js/defiant.min.js"></script>
 	<script src="_/js/vkbeautify.0.99.00.beta.js"></script>
 	<script src="_/js/beliefUpdate_worker.js"></script>
@@ -44,6 +46,9 @@ SOFTWARE.
 
 	body { font-size: 8pt; font-family: arial; }
 	.bnview { width: 100%; height: 100%; position: relative; }
+
+	/* Give h6 a normal size by default */
+	h6 { font-size: 1em; }
 
 	/* Node formatting */
 	.node { position: absolute; padding: 0 0; border-radius: 0; border: solid 1px #444;
@@ -77,12 +82,18 @@ SOFTWARE.
 	.submodel h6 { font-size: 1em; margin: 0; font-weight: bold; }
 	.submodel.parent { min-width: 20px; min-height: 15px; }
 
+	/** Text boxes **/
+	.textBox { position: absolute; padding: 0 0; }
+	.textBox h6 { font-weight: inherit; }
+
 	/* Can also style svg arrows if needed */
 	/*path { stroke: red; }
 	polyline { fill: red; }*/
 
 	.cpt { border-collapse: collapse; }
-	.cpt td, .cpt th { padding: 3px; }
+	.cpt td, .cpt th { padding: 3px; text-align: center; }
+	.cpt th.stateLabel { width: 30px; max-width: 30px; }
+	.cpt th.stateLabel span { width: 100%; overflow: hidden; display: inline-block; }
 	.cpt td { border-top: solid 3px transparent; background-repeat: no-repeat; text-align: center;  }
 	.cpt tr.invalid td { background: red !important; }
 	/** I'm not sure why these require an explicit height. **/

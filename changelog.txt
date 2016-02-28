@@ -74,14 +74,23 @@ R21
 - API: Allow renaming states
 - API: Centralise new Node/addNode code
 - Can rename states from CPT context menu
+R22
+- Small improvement to CPTs (state name overflow, fixed width columns)
+- Add support for textboxes
+- Allow textboxes to be moved (initial)
+- API: Fair bit of work to get something working in node.js. Requires 'npm install cheerio'.
+- API: Created apiTest.js for API examples/testing. Run as 'node apiTest.js'.
+
 
 Bugs
+- CREATE A PRE-RELEASE CHECKLIST
+- Develop an approach to selecting/editing...
 - Submodel issues:
 	- 'item' refers to node and submodel items. Should I move to more generic 'node' for both? Without affecting inference...
-Creating nodes
+- Creating nodes
 	- Double click to add node to canvas (done)
-	- Rename node and state names (content editable?)
-	- Add and delete states
+	- Rename node and state names (content editable? done in context menu)
+	- Add and delete states (API only atm)
 - addStates/deleteStates: Update child CPTs (if they have CPTs)
 - Move the visible graph creation logic out of the display() function
 - Allow switch to flat view and back (how to handle layouts for both group and flat view?)

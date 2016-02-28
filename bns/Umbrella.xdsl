@@ -24,7 +24,7 @@
 		</utility>
 	</nodes>
 	<extensions>
-		<genie version="1.0" app="GeNIe 2.0.5219.0" name="Deciding wether to take or not to take the umbrella" faultnameformat="nodestate">
+		<genie version="1.0" app="GeNIe 2.1.380.0" name="Deciding wether to take or not to take the umbrella" faultnameformat="nodestate">
 			<comment>A simple Influence Diagram</comment>
 			<node id="Weather">
 				<name>State of the Weather</name>
@@ -62,9 +62,9 @@
 				<barchart active="true" width="128" height="64" />
 			</node>
 			<textbox>
-				<caption>A run of the mill umbrella problem with a weather forecast.\nThe probabilities and utilities are invented for the purpose of demonstration.</caption>
-				<font color="3366ff" name="Arial" size="10" bold="true" />
-				<position>433 73 578 185</position>
+				<caption>A run of the mill umbrella problem with a weather forecast.\n\nThe probabilities and utilities are invented for the purpose of demonstration.</caption>
+				<font color="3366ff" name="Arial" size="10" bold="true" align="right" />
+				<position>407 138 603 250</position>
 			</textbox>
 		</genie>
 	</extensions>

@@ -1,4 +1,37 @@
-var titlePostfix = "Make-Believe (R21)";
+/** This whole section needs to change **/
+var useWorkers = true;
+if (typeof($)=="undefined") {
+	/// XXX Quick hack to suppress ordinary console.logs in the API
+	/// XXX Fix by actually removing unnecessary console.log statements!
+	console.apilog = console.log;
+	console.log = function(){}
+
+	$ = require('cheerio');
+	/// I use jQuery's extend, add something like it
+	$.extend = function() {
+		var newObj = {};
+		for (var i=0; i<arguments.length; i++) {
+			var nextObj = arguments[i];
+			for (var k in nextObj) {
+				newObj[k] = nextObj[k];
+			}
+		}
+		return newObj;
+	}
+	bu = require('./beliefUpdate_worker.js');
+
+	function genPass(length) {
+		var pwd;
+		pwd = "";
+		for (i=0;i<length;i++) {
+			pwd += String.fromCharCode(Math.floor((Math.random()*25+65)));
+		}
+		return pwd.toLowerCase();
+	}
+	useWorkers = false;
+}
+
+var titlePostfix = typeof(document)!="undefined" ? document.title : ""; /// Valid on load, but not any other time of course
 var openBns = [];
 var openData = [];
 var currentBn = null;
@@ -134,7 +167,7 @@ function getQs() {
 	return params;
 }
 
-window.qs = getQs();
+if (typeof(window)!="undefined")  window.qs = getQs();
 
 function loadFile() {
 	$("#openFile").click();
@@ -1027,6 +1060,43 @@ Node.prototype = {
 	},
 };
 
+function TextBox(o) {
+	o = o || {};
+
+	/// Defaults
+	this.id = genPass(8);
+	this.submodelPath = [];
+
+	/// Visual properties
+	this.pos = {x: 0, y: 0};
+	this.size = {width: 0, height: 0};
+	/// Formatting (all at their defaults)
+	this.format = {
+		backgroundColor: null,
+		borderColor: null,
+		fontColor: null,
+		fontFamily: null,
+		fontSize: null,
+		align: null,
+	};
+
+	this.text = '';
+
+	/// Set options based on constructor args
+	for (var i in o) {
+		this[i] = o[i];
+	}
+
+	this.init(o);
+}
+TextBox.prototype = {
+	init: function(o) {
+		o = o || {};
+
+		this.net.displayItems.push(this);
+	}
+};
+
 function Submodel(o) {
 	o = o || {};
 
@@ -1123,10 +1193,10 @@ function BN(o) {
 
 	this.source = o.source;
 	this.sourceFormat = o.format;
-	this.outputEl = $(o.outputEl);
+	this.outputEl = null;
 
 	/// Use worker threads to do belief updating?
-	this.useWorkers = true;
+	this.useWorkers = useWorkers;
 	this._workers = [];
 	this.numWorkers = 2;
 
@@ -1138,6 +1208,7 @@ function BN(o) {
 	/// (once they're all written!) or change this.objs and then set this.needsCompile.)
 	this.nodes = [];
 	this.nodesById = {};
+	this.displayItems = [];
 
 	/// Various cached information
 	this._utilityNodes = [];
@@ -1151,19 +1222,28 @@ function BN(o) {
 
 	this._trackingArcInfluences = false;
 
-	this.init();
+	this.init(o);
 }
 BN.prototype = {
-	init: function() {
+	init: function(o) {
+		o = o || {};
+
 		this.iterations = 1000;
 
-		this["load_"+this.sourceFormat](this.source);
-		this.display();
+		if (this.source) {
+			this["load_"+this.sourceFormat](this.source);
+		}
+
+		if (o.outputEl) {
+			this.outputEl = $(o.outputEl);
+			this.display();
+		}
 	},
 	/// All load/save functions for different formats have the format 'load_<format>' or
 	/// 'save_<format>'.
 	load_xdsl: function(xdsl) {
 		this.objs = $(xdsl);
+		//console.log(this.objs);
 
 		var bn = this;
 		this.nodes = [];
@@ -1204,6 +1284,30 @@ BN.prototype = {
 			//	bn._decisionNodes.push(node);
 			//}
 			//onsole.debug(bn.nodes);
+		});
+
+		/// Handle textboxes
+		this.objs.find("> extensions textbox").each(function() {
+			var submodelPars = $(this).parents('submodel').map(function(){ return $(this).attr("id") }).toArray().reverse();
+			var posInfo = $(this).find("position").text().split(/\s+/);
+			var textBox = new TextBox({
+				net: bn,
+				pos: {x: Number(posInfo[0]), y: Number(posInfo[1])},
+				size: {width: Number(posInfo[2])-Number(posInfo[0]), height: Number(posInfo[3])-Number(posInfo[1])},
+				submodelPath: submodelPars,
+				/// The parse interprets the <caption> element in a unique way, converting it to a text node...
+				text: this.childNodes[0].textContent,
+			});
+			var format = textBox.format;
+			var $font = $(this).find("font");
+			if ($font.length) {
+				format.fontColor = '#'+$font.attr("color");
+				format.fontFamily = $font.attr("name");
+				format.fontSize = $font.attr("size");
+				format.bold = $font.attr("bold") && $font.attr("bold").toLowerCase()=="true";
+				format.italic = $font.attr("italic") && $font.attr("italic").toLowerCase()=="true";
+				format.align = $font.attr("align");
+			}
 		});
 
 		if (this._decisionNodes.length) {
@@ -1281,6 +1385,10 @@ BN.prototype = {
 
 		this.compile(true);
 	},
+	/// There is very minimal support for loading a .dne file at this stage. It should
+	/// work with any basic network, that just has discrete variables and arcs and nothing much more.
+	/// The plan is to support some extra features (possibly DBNs and continuous variables), but these
+	/// ideas will be translated into whatever is most natural in the typical Make-Believe context.
 	load_dne: function(dneText) {
 		var bn = this;
 		var grammar = new Grammar($('.dneGrammar')[0].textContent);
@@ -1436,6 +1544,9 @@ BN.prototype = {
 				bnToPass.nodes[i].func = null;
 				this.getSubmodel(bnToPass.nodes[i].submodelPath).net = null;
 			}
+			for (var i=0; i<bnToPass.displayItems.length; i++) {
+				bnToPass.displayItems[i].net = null;
+			}
 			bnToPass.objs = null;
 			bnToPass.outputEl = null;
 			bnToPass._workers = null;
@@ -1478,6 +1589,9 @@ BN.prototype = {
 			for (var i=0; i<bnToPass.nodes.length; i++) {
 				bnToPass.nodes[i].net = this;
 				this.getSubmodel(bnToPass.nodes[i].submodelPath).net = this;
+			}
+			for (var i=0; i<bnToPass.displayItems.length; i++) {
+				bnToPass.displayItems[i].net = this;
 			}
 		}
 
@@ -1744,12 +1858,12 @@ BN.prototype = {
 				}
 				totalUtility += ev;
 			}
-			currentBn.expectedValue = totalUtility;
+			this.expectedValue = totalUtility;
 		}
 	},
 	/// FIX: I'm pretty sure this needs to be removed
 	updateBeliefs: function(callback, iterations) {
-		currentBn.expectedValue = null;
+		this.expectedValue = null;
 
 		this.updateBeliefs_local(callback, iterations);
 		this.updateExpectedValue();
@@ -2334,3 +2448,9 @@ BN.prototype = {
 		return hasMore;
 	},
 };
+
+if (typeof(exports)!="undefined") {
+	exports.BN = BN;
+	exports.Node = Node;
+	exports.Submodel = Submodel;
+}

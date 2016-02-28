@@ -1,0 +1,24 @@
+{
+  "name": "Make-Believe",
+  "version": "R22",
+  "description": "A Bayesian network viewer",
+  "main": "main.js",
+  "scripts": {
+    "start": "make-believe main.js"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/voracity/make-believe.git"
+  },
+  "keywords": [
+    "bayesian networks",
+    "belief networks",
+    "modelling"
+  ],
+  "author": "voracity",
+  "license": "MIT",
+  "homepage": "http://voracity.org/make-believe/",
+  "devDependencies": {
+    "electron-prebuilt": "^0.36.0"
+  }
+}

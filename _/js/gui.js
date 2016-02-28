@@ -338,6 +338,12 @@ BN.prototype = $.extend(BN.prototype, {
 
 		/// Draw the text objects
 		/// XXX todo
+		for (var i=0; i<bn.displayItems.length; i++) {
+			var item = bn.displayItems[i];
+			if (item.isHidden()) continue;
+
+			item.displayItem(outputEl);
+		}
 
 		/// Draw all the arcs
 		for (var i=0; i<graphItems.length; i++) {
@@ -400,6 +406,9 @@ BN.prototype = $.extend(BN.prototype, {
 		if (this.nodesById[id])  return this.nodesById[id];
 		var currentSubmodel = this.getSubmodel(this.currentSubmodel);
 		if (currentSubmodel.submodelsById[id])  return currentSubmodel.submodelsById[id];
+		for (var i=0; i<this.displayItems.length; i++) {
+			if (this.displayItems[i].id == id)  return this.displayItems[i];
+		}
 		return null;
 	},
 	redrawAllArcs: function() {
@@ -592,6 +601,9 @@ Node.prototype = $.extend(Node.prototype, {
 
 		return $displayNode;
 	},
+	/// This is the context menu for any ordinary node visible on the canvas. It has a set
+	/// of tabs that change based on the type of node. (e.g. CPT tab is displayed for
+	/// discrete chance nodes, while function text is displayed for equation/continuous nodes)
 	contextMenu: function() {
 		var node = this;
 
@@ -633,7 +645,7 @@ Node.prototype = $.extend(Node.prototype, {
 				$tr.append('<th>'+toHtml(node.parents[i].id)+'</th>');
 			}
 			for (var i=0; i<node.states.length; i++) {
-				$tr.append('<th class=stateLabel contenteditable data-control=state>'+toHtml(node.states[i].id)+'</th>');
+				$tr.append('<th class=stateLabel><span data-control=state contenteditable>'+toHtml(node.states[i].id)+'</span></th>');
 			}
 			$table.append($tr);
 			/// Write out each row
@@ -810,6 +822,43 @@ Node.prototype = $.extend(Node.prototype, {
 	},
 	isVisible: function() {
 		return !this.isHidden();
+	},
+});
+TextBox.prototype = $.extend(TextBox.prototype, {
+	displayItem: function(outputEl, $displayNode) {
+		var node = this;
+		if (!$displayNode) {
+			$displayNode = $("<div class=textBox id=display_"+node.id+" draggable=true>")
+				.css({left: node.pos.x+"px", top: node.pos.y+"px"})
+				.css({width: node.size.width+"px", height: node.size.height+"px"})
+				.append(
+					node.net.headerFormat(toHtml(node.text).replace(/\\n/g, '<br>'))
+				)
+				.appendTo(outputEl);
+			if (node.format) {
+				if (node.format.borderColor) {
+					$displayNode.css('border-color', node.format.borderColor);
+					$displayNode.find('h6').css('border-color', node.format.borderColor);
+				}
+				if (node.format.backgroundColor)  $displayNode.css('background', node.format.backgroundColor);
+				if (node.format.fontColor)  $displayNode.css('color', node.format.fontColor);
+				if (node.format.fontFamily)  $displayNode.css('font-family', node.format.fontFamily);
+				if (node.format.fontSize)  $displayNode.css('font-size', node.format.fontSize+'pt');
+				if (node.format.bold)  $displayNode.css('font-weight', 'bold');
+				if (node.format.italic)  $displayNode.css('font-style', 'italic');
+				if (node.format.align)  $displayNode.css('text-align', node.format.align);
+			}
+		}
+		if (node.type)  $displayNode.addClass(node.type);
+
+		return $displayNode;
+	},
+	isHidden: function() {
+		var submodelHidden = true;
+		if (this.submodelPath.join("/") == this.net.currentSubmodel.join("/")) {
+			submodelHidden = false;
+		}
+		return submodelHidden;
 	},
 });
 
@@ -1185,13 +1234,13 @@ $(document).ready(function() {
 	});
 
 	var mx = 0, my = 0;
-	$(".bnview").on("mousedown", ".node h6, .submodel:not(.parent)", function(event) {
+	$(".bnview").on("mousedown", ".node h6, .submodel:not(.parent), .textBox", function(event) {
 		if (event.which > 1)  return;
 		event.preventDefault();
 		mx = event.originalEvent.pageX;
 		my = event.originalEvent.pageY;
 		//onsole.log("mousedown:", mx, my);
-		var $node = $(this).closest(".node, .submodel");
+		var $node = $(this).closest(".node, .submodel, .textBox");
 		var o = $node.offset();
 
 		/// Get the width/height if the mousedown node was not part of the network
@@ -1213,7 +1262,7 @@ $(document).ready(function() {
 			/// Move the DOM object, but not the net object yet
 			$node.offset({left: o.left + (nmx - mx), top: o.top + (nmy - my)});
 			var n = currentBn.getGraphItemById($node.attr("id").replace(/^display_/,""));
-			currentBn.redrawArcs(n, maxX, maxY);
+			if (n.pathsIn)  currentBn.redrawArcs(n, maxX, maxY);
 		});
 		$(".bnouterview").on("mouseup", function(event) {
 			/// Update position of the node
@@ -1229,8 +1278,14 @@ $(document).ready(function() {
 			n.pos.y += (nmy - my);
 
 			/// Update the arcs going into/out of this node
-			currentBn.redrawArcs(n, maxX, maxY);
+			if (n.pathsIn)  currentBn.redrawArcs(n, maxX, maxY);
 		});
+	});
+
+	/** This needs to change **/
+	$(".bnview").on("dblclick", ".textBox", function() {
+		console.log('xx');
+		$(this).attr("contenteditable", "");
 	});
 
 	/// Submodel navigation

@@ -280,3 +280,7 @@ function _getRowI(parents, cas) {
 	}
 	return rowI;
 }
+
+if (typeof(exports)!="undefined") {
+	global.updateBeliefs_local = updateBeliefs_local;
+}
