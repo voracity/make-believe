@@ -617,7 +617,7 @@ Node.prototype = $.extend(Node.prototype, {
 				options[options.length-1].attr("selected","selected");
 			}
 		}
-		var $nodeType = $("<select>").append(options);
+		var $nodeType = $("<select data-control=nodeType>").append(options);
 
 		/** Options **/
 		var $options = $('<div class=options>');
@@ -634,9 +634,8 @@ Node.prototype = $.extend(Node.prototype, {
 
 		var defTab = null;
 
-		/** CPT **/
-		if (node.cpt) {
-			var $table = $("<table class=cpt>");
+		function prepTable(type) {
+			var $table = $("<table class="+type+">");
 			var npc = node.numParentCombinations();
 			var parentIndexes = currentBn.setupIndexes(node.parents);
 			/// Write out header
@@ -644,13 +643,9 @@ Node.prototype = $.extend(Node.prototype, {
 			for (var i=0; i<node.parents.length; i++) {
 				$tr.append('<th>'+toHtml(node.parents[i].id)+'</th>');
 			}
-			for (var i=0; i<node.states.length; i++) {
-				$tr.append('<th class=stateLabel><span data-control=state contenteditable>'+toHtml(node.states[i].id)+'</span></th>');
-			}
 			$table.append($tr);
 			/// Write out each row
 			for (var i=0; i<npc; i++) {
-				var row = node.getRow(i);
 				var $tr = $("<tr>");
 				/// List all parents on the side (Netica style)
 				for (var k=0; k<node.parents.length; k++) {
@@ -658,6 +653,21 @@ Node.prototype = $.extend(Node.prototype, {
 					$tr.append("<th>"+toHtml(parent.states[parentIndexes[k]].id)+"</th>");
 				}
 				currentBn.nextCombination(node.parents, parentIndexes);
+				$table.append($tr);
+			}
+			return $table;
+		}
+
+		/** CPT **/
+		if (node.cpt) {
+			var $table = prepTable("cpt");
+			var $tr = $table.find("tr:eq(0)");
+			for (var j=0; j<node.states.length; j++) {
+				$tr.append('<th class=stateLabel><span data-control=state contenteditable>'+toHtml(node.states[j].id)+'</span></th>');
+			}
+			for (var i=0; i<$table[0].rows.length-1; i++) {
+				var row = node.getRow(i);
+				var $tr = $table.find("tr:eq("+(i+1)+")");
 				/// Now list the distro for each row
 				for (var j=0; j<row.length; j++) {
 					var $td = $("<td>")
@@ -670,7 +680,6 @@ Node.prototype = $.extend(Node.prototype, {
 					});
 					$tr.append($td);
 				}
-				$table.append($tr);
 			}
 			/// XXX: Finish adding the tab set to the context menu popup
 			var $cptDialog = $('<div class=cptDialog>').append($table);
@@ -683,8 +692,53 @@ Node.prototype = $.extend(Node.prototype, {
 			);
 			defTab = {id: 'func', label: 'Function', content: $funcDialog};
 		}
+		else if (node.funcTable) {
+			var $table = prepTable("funcTable");
+			var $tr = $table.find("tr:eq(0)");
+			$tr.append('<th class=funcState>State</th>');
+			var values = node.funcTable;
+			if (node.type == "utility") {
+				values = node.utilities;
+			}
+			for (var i=0; i<$table[0].rows.length-1; i++) {
+				var $tr = $table.find("tr:eq("+(i+1)+")");
+				/// Now list the state for each row
+				if (node.type=="utility") {
+					var $td = $("<td>")
+						.append("<span class=state contenteditable data-control=funcTable>"+toHtml(values[i])+"</span>");
+				}
+				else {
+					/// At this stage, funcTable that isn't a utility is always a conditional state table.
+					/// In the future, the value could end up being the value of the node, I suppose.
+					var $select = $('<select class=state data-control=funcTable>');
+					for (var j=0; j<node.states.length; j++) {
+						var $opt = $('<option>').attr('value', j).text(node.states[j].id);
+						if (values[i]==j)  $opt.attr('selected', '');
+						$select.append($opt);
+					}
+					var $td = $("<td>")
+						.append($select);
+				}
+				$tr.append($td);
+			}
+			/// XXX: Finish adding the tab set to the context menu popup
+			var $funcTableDialog = $('<div class=funcTableDialog>').append($table);
+			defTab = {id: 'funcTable', label: (node.type=="utility" ? 'Utility Table' : 'Function Table'), content: $funcTableDialog};
+		}
 		if (node.type == "decision") {
 			defTab = null;
+		}
+
+		if (node.type == "nature") {
+			console.log(node.type);
+			defTab.content.prepend(
+				$('<div>').append(
+					$('<label>').text('Definition Type: '),
+					$('<select>').append(['Probability Table','Deterministic Table','Equation'].map(function(a){
+						return $('<option>').text(a);
+					}))
+				)
+			);
 		}
 
 		/** Format **/
@@ -747,12 +801,16 @@ Node.prototype = $.extend(Node.prototype, {
 				node.label = val;
 				$displayNode.find('h6').html(currentBn.headerFormat(node.id,node.label));
 			}},
+			nodeType: {change: function(val) {
+				node.setType(val);
+				currentBn.display();
+				currentBn.updateAndDisplayBeliefs();
+			}},
 			funcText: {change: function(val) {
 				node.equation($(".func textarea").val());
 				currentBn.updateAndDisplayBeliefs();
 			}},
 			comment: {change: function(val) {
-				console.log('xx');
 				node.comment = $(".dialog textarea.comment").val();
 			}},
 			cpt: {change: function(val) {
@@ -779,6 +837,18 @@ Node.prototype = $.extend(Node.prototype, {
 					node.cpt1d(newCpt);
 					currentBn.updateAndDisplayBeliefs();
 				}
+			}},
+			funcTable: {change: function() {
+				var newTable = $(".dialog .state").map(function() { return $(this).is('select') ? $(this).val() : $(this).text(); }).get();
+				console.log(newTable);
+				if (node.type == "utility") {
+					node.setUtilities(newTable.map(function(v) { return parseFloat(v) }));
+				}
+				else {
+					node.setFuncTable(newTable.map(function(v) { return parseInt(v) }));
+				}
+				currentBn.display();
+				currentBn.updateAndDisplayBeliefs();
 			}},
 			state: {change: function() {
 				var states = $(".dialog .stateLabel").map(function() { return $(this).text(); }).toArray();
@@ -904,6 +974,10 @@ var app = {
 		}
 		popupDialog(str+"<div class=controls><button type=button class=okButton>OK</button></div>");
 		$(".dialog .okButton").one("click", dismissDialogs);
+	},
+	clearEvidence: function() {
+		currentBn.evidence = {};
+		currentBn.updateAndDisplayBeliefs();
 	},
 	/** Calculate the probability of evidence, and then
 	    display it to the user, as a probability and in the form
@@ -1106,7 +1180,7 @@ var app = {
 };
 
 $(document).ready(function() {
-	var exampleBns = "Asia.xdsl|Bunce's Farm.xdsl|Cancer.dne|Continuous Test.xdsl|RS Latch.xdsl|Umbrella.xdsl|Water.xdsl".split(/\|/);
+	var exampleBns = "Asia.xdsl|Bunce's Farm.xdsl|Cancer.dne|Continuous Test.xdsl|Logical Gates.xdsl|RS Latch.xdsl|Umbrella.xdsl|Water.xdsl".split(/\|/);
 	var exampleBnActions = [];
 	for (var i in exampleBns) {
 		/// Need html escape function
@@ -1147,6 +1221,7 @@ $(document).ready(function() {
 		Menu({label:"Network", items: [
 			MenuAction("Update", function() { app.updateBN(); dismissActiveMenus(); }),
 			MenuAction("Find Good Decisions", function() { app.findGoodDecisions(); dismissActiveMenus(); }),
+			MenuAction('Clear Evidence', function() { app.clearEvidence(); dismissActiveMenus(); } ),
 			MenuAction('Calculate Probability of Evidence', function() { app.showProbabilityOfEvidence(); dismissActiveMenus(); } ),
 			MenuAction('# Samples: <input type="text" name="iterations" value="1000">', function() { }),
 			MenuAction('Learn Parameters (Counting) ...', function() { app.learnParametersCounting(); dismissActiveMenus(); } ),

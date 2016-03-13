@@ -1,0 +1,120 @@
+<?xml version="1.0"?>
+<smile discsamples="1000" numsamples="1000" version="1.0" id="sub0">
+    <nodes>
+        <cpt id="Input1">
+            <state id="True"></state>
+            <state id="False"></state>
+            <probabilities>0.5 0.5</probabilities>
+        </cpt>
+        <cpt id="Input2">
+            <state id="True"></state>
+            <state id="False"></state>
+            <probabilities>0.5 0.5</probabilities>
+        </cpt>
+        <deterministic id="Logical_OR">
+            <state id="True"></state>
+            <state id="False"></state>
+            <parents>Input1 Input2</parents>
+            <resultingstates>True True True False</resultingstates>
+        </deterministic>
+        <cpt id="Input3">
+            <state id="True"></state>
+            <state id="False"></state>
+            <probabilities>0.5 0.5</probabilities>
+        </cpt>
+        <cpt id="Input4">
+            <state id="True"></state>
+            <state id="False"></state>
+            <probabilities>0.5 0.5</probabilities>
+        </cpt>
+        <deterministic id="Logical_AND">
+            <state id="True"></state>
+            <state id="False"></state>
+            <parents>Input3 Input4</parents>
+            <resultingstates>True False False False</resultingstates>
+        </deterministic>
+        <cpt id="Input5">
+            <state id="True"></state>
+            <state id="False"></state>
+            <probabilities>0.5 0.5</probabilities>
+        </cpt>
+        <cpt id="Input6">
+            <state id="True"></state>
+            <state id="False"></state>
+            <probabilities>0.5 0.5</probabilities>
+        </cpt>
+        <deterministic id="Logical_XOR">
+            <state id="True"></state>
+            <state id="False"></state>
+            <parents>Input5 Input6</parents>
+            <resultingstates>False True True False</resultingstates>
+        </deterministic>
+    </nodes>
+    <extensions>
+        <genie version="1.0" app="GeNIe 2.0.5219.0" name="Sub0" faultnameformat="nodestate">
+            <node id="Input1">
+                <name>Input1</name>
+                <position>57 26 105 56</position>
+                <interior color="e5f6f7"></interior>
+                <outline color="000080"></outline>
+                <font name="Arial" color="000000" size="8"></font>
+            </node>
+            <node id="Input2">
+                <name>Input2</name>
+                <position>220 26 266 54</position>
+                <interior color="e5f6f7"></interior>
+                <outline color="000080"></outline>
+                <font name="Arial" color="000000" size="8"></font>
+            </node>
+            <node id="Logical_OR">
+                <name>Logical OR</name>
+                <position>138 127 211 175</position>
+                <interior color="e5f6f7"></interior>
+                <outline color="000080"></outline>
+                <font name="Arial" color="000000" size="8"></font>
+            </node>
+            <node id="Input3">
+                <name>Input3</name>
+                <position>383 26 431 56</position>
+                <interior color="e5f6f7"></interior>
+                <outline color="000080"></outline>
+                <font name="Arial" color="000000" size="8"></font>
+            </node>
+            <node id="Input4">
+                <name>Input4</name>
+                <position>546 26 592 54</position>
+                <interior color="e5f6f7"></interior>
+                <outline color="000080"></outline>
+                <font name="Arial" color="000000" size="8"></font>
+            </node>
+            <node id="Logical_AND">
+                <name>Logical AND</name>
+                <position>464 127 537 175</position>
+                <interior color="e5f6f7"></interior>
+                <outline color="000080"></outline>
+                <font name="Arial" color="000000" size="8"></font>
+            </node>
+            <node id="Input5">
+                <name>Input5</name>
+                <position>709 26 757 56</position>
+                <interior color="e5f6f7"></interior>
+                <outline color="000080"></outline>
+                <font name="Arial" color="000000" size="8"></font>
+            </node>
+            <node id="Input6">
+                <name>Input6</name>
+                <position>872 26 918 54</position>
+                <interior color="e5f6f7"></interior>
+                <outline color="000080"></outline>
+                <font name="Arial" color="000000" size="8"></font>
+            </node>
+            <node id="Logical_XOR">
+                <name>Logical XOR</name>
+                <position>790 127 863 175</position>
+                <interior color="e5f6f7"></interior>
+                <outline color="000080"></outline>
+                <font name="Arial" color="000000" size="8"></font>
+            </node>
+        </genie>
+    </extensions>
+</smile>

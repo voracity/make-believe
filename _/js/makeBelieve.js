@@ -404,11 +404,13 @@ function popupEditDialog($content, opts) {
 					if (whatsDirty[control]) {
 						whatsDirty[control] = false;
 						if ($('.dialog *[data-control='+control+']').is('input, select, textarea')) {
-							if ($('.dialog *[data-control='+control+']').is(':valid')) {
+							//var valid = $('.dialog *[data-control='+control+']').get().map(a=>$(a).is(':valid')).reduce((a,b)=>a && b);
+							var valid = $('.dialog *[data-control='+control+']').get().map(function(a){return $(a).is(':valid')}).reduce(function(a,b){return a && b});
+							if (valid) {
 								var $control = $('.dialog *[data-control='+control+']');
 								var val = $control.val();
-								/// false means change didn't save
-								if (!controls[control].change(val, $control)) {
+								/// 'false' specifically means change didn't save
+								if (controls[control].change(val, $control)===false) {
 									$(".dialog .saveButton")[0].disabled = false;
 									whatsDirty[control] = true;
 								}
@@ -417,8 +419,8 @@ function popupEditDialog($content, opts) {
 						else {
 							/// Non-standard control, just call with no arguments
 
-							/// false means change didn't save
-							if (!controls[control].change($('.dialog *[data-control='+control+']'))) {
+							/// 'false' specifically means change didn't save
+							if (controls[control].change($('.dialog *[data-control='+control+']'))===false) {
 								$(".dialog .saveButton")[0].disabled = false;
 								whatsDirty[control] = true;
 							}
@@ -764,6 +766,9 @@ Node.prototype = {
 		}
 		return rowI;
 	},
+	/// Add the states with the names in |newStates|.
+	/// |opts| - Options object. Properties:
+	///    |at| - The insertion point
 	addStates: function(newStates, opts) {
 		opts = opts || {};
 		var insertPoint = opts.at != undefined ? opts.at : this.states.length;
@@ -860,10 +865,168 @@ Node.prototype = {
 			}
 		}
 	},
+	/// Rename this node to |newId|. If there is already a node called newId,
+	/// the function emits a warning, but then continues.
 	rename: function(newId) {
+		if (newId in this.net.nodesById) {
+			console.log("Can't rename node because '"+newId+"' already exists.");
+			return this;
+		}
 		delete this.net.nodesById[this.id];
 		this.id = newId;
 		this.net.nodesById[newId] = this;
+
+		return this;
+	},
+	_addParent: function(parent) {
+		if (typeof(parent)=="string")  parent = this.net.nodesById[parent];
+
+		/// Check that parent is not already present
+		if (this.parents.findIndex(function(p) { return p == parent })==-1) {
+			this.parents.push(parent);
+			/// Some chance parents/children lists are out of sync, but if so we have bigger problems
+			parent.children.push(this);
+		}
+	},
+	_addChild: function(child) {
+		var prevChild = child;
+		if (typeof(child)=="string")  child = this.net.nodesById[child];
+		if (!child)  throw new Exception("No such node: "+prevChild);
+
+		child._addParent(this);
+	},
+	_removeParent: function(parent) {
+		if (typeof(parent)=="string")  parent = this.net.nodesById[parent];
+
+		var child = this;
+		var parentIndex = this.parents.findIndex(function(p) { return p == parent });
+		var childIndex = parent.children.findIndex(function(c) { return c == child });
+
+		console.log(parentIndex, childIndex);
+
+		if (parentIndex !=-1 && childIndex !=-1) {
+			/// We want to modify copies, not originals
+			/// so that things that save pointers to originals (always internal only)
+			/// are still valid
+			this.parents = this.parents.slice();
+			parent.children = parent.children.splice();
+
+			this.parents.splice(parentIndex, 1);
+			parent.children.splice(childIndex, 1);
+		}
+	},
+	_removeChild: function(child) {
+		if (typeof(child)=="string")  parent = this.net.nodesById[child];
+
+		child._removeParent(this);
+	},
+	/// XXX The list versions aren't terribly efficient, but should be OK
+	/// most of the time
+	/// Each |parent| can be a string or a node
+	addParents: function(parents) {
+		for (var i=0; i<parents.length; i++)  this._addParent(parents[i]);
+	},
+	/// Each |child| can be a string or a node
+	addChildren: function(children) {
+		for (var i=0; i<children.length; i++)  this._addChild(children[i]);
+	},
+	/// Each |parent| can be a string or a node
+	removeParents: function(parents) {
+		for (var i=0; i<parents.length; i++)  this._removeParent(parents[i]);
+	},
+	/// Each |child| can be a string or a node
+	removeChildren: function(children) {
+		for (var i=0; i<children.length; i++)  this._removeChild(children[i]);
+	},
+	/// Set the type of the node, switching it in an undo-able way
+	/// from whatever previous type the node had. To undo (straight after),
+	/// just re-set the type back to its previous value.
+	setType: function(nType) {
+		if (nType == undefined)  return this.type;
+
+		nType = nType.toLowerCase();
+
+		/// Perhaps this undo like stuff is better handled by, oh I don't know, undo?
+		if (this.type == "nature") {
+			this._savedCpt = this.cpt;
+			this._savedStates = this.states;
+			this._savedFuncTable = this.funcTable;
+			this._savedChildren = this.children;
+		}
+		else if (this.type == "utility") {
+			this._savedUtilities = this.utilities;
+			this.funcTable = null;
+		}
+		else if (this.type == "decision") {
+			this._savedStates = this.states;
+			this._savedChildren = this.children;
+		}
+
+		if (nType == "decision") {
+			this.cpt = new Float32Array(new ArrayBuffer(this.numParentCombinations()*this.states.length*4));
+			for (var i=0; i<this.cpt.length; i++) {
+				this.cpt[i] = 1/this.states.length;
+			}
+			if (this._savedStates)  this.states = this._savedStates;
+			if (this._savedChildren && this.children.length==0) {
+				this.addChildren(this._savedChildren);
+			}
+		}
+		else if (nType == "nature" && (this._savedCpt || this._savedFuncTable)) {
+			if (this._savedCpt)  this.cpt = this._savedCpt;
+			if (this._savedFuncTable)  this.funcTable = this._savedFuncTable;
+			if (this._savedStates)  this.states = this._savedStates;
+			if (this._savedChildren && this.children.length==0) {
+				this.addChildren(this._savedChildren);
+			}
+		}
+		else if (nType == "utility") {
+			var utils = [];
+			var numParentCombos = this.numParentCombinations();
+			for (var i=0; i<numParentCombos; i++)  utils.push(0);
+			if (this._savedUtilities) {
+				utils = this._savedUtilities;
+			}
+			states = utils.map(function(a,i){ return new State({id: a, index: i}) });
+			funcTable = [];
+			for (var i in utils) {
+				funcTable[i] = i;
+			}
+			this.cpt = null;
+			this.utilities = utils;
+			this.states = states;
+			this.funcTable = funcTable;
+			this.removeChildren(this.children);
+		}
+
+		this.net.needsCompile = true;
+
+		this.type = nType;
+
+		return this;
+	},
+	setUtilities: function(utilities) {
+		utils = utilities;
+		states = utils.map(function(a,i){ return new State({id: a, index: i}) });
+		funcTable = [];
+		for (var i in utils) {
+			funcTable[i] = i;
+		}
+
+		this.utilities = utilities;
+		this.states = states;
+		this.funcTable = funcTable;
+
+		this.net.needsCompile = true;
+
+		return this;
+	},
+	setFuncTable: function(funcTable) {
+		this.funcTable = funcTable;
+
+		this.net.needsCompile = true;
+
+		return this;
 	},
 	parseEquation: function(equationText) {
 		return Node.parseEquation(this.id, this.parents.map(function(p) { return p.id }), equationText);

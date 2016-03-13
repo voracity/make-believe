@@ -22,7 +22,7 @@ SOFTWARE.
 <!doctype html>
 <html>
 <head>
-	<title>Make-Believe (R22)</title>
+	<title>Make-Believe (R23)</title>
 	<link rel="icon" type="image/png" href="_/images/makeBelieve.png">
 	<script src="_/js/jquery.min.js"></script>
 	<script>if (typeof($)=="undefined") { window.$ = window.jQuery = require('./_/js/jquery.min.js'); }</script>
@@ -62,12 +62,14 @@ SOFTWARE.
 	.node .state .beliefBarView { min-width: 50px; position: relative; }
 	.node.dynamic .state .beliefBarView { min-width: 100px; height: 26px; }
 	.node .state .beliefBar { background: black; height: 10px; width: 0px; }
+	.node *[contenteditable] { display: block; }
 
 	/** Labelled view **/
 	.node.label .state { display: none; }
 	.node.label { border-radius: 5px; padding: 0.2em; }
 	.node.label h6 { border-bottom: none; overflow: visible; white-space: normal; }
 
+	/** Other node styles (e.g. Decision and utility) **/
 	.node.decision { background: #A5BEF2; }
 	.node.decision .state .prob { visibility: hidden; }
 	.node.decision .state .beliefBar { visibility: hidden; }

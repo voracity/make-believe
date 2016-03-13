@@ -76,9 +76,10 @@ var bn = new mb.BN({source: `<?xml version="1.0" encoding="ISO-8859-1"?>
 
 console.apilog("Create new network");
 var bn = new mb.BN();
+bn.iterations = 100000;
 
 console.apilog("Add a new node");
-var pollutionNode = bn.addNode("Pollution", ["High", "Medium", "Low"], {cpt: [0.1,0.4,0.5]});
+var pollutionNode = bn.addNode("Pollution", ["Low", "High"], {cpt: [.9, .1]});
 console.apilog("Network nodes:", bn.nodes.map(n => n.id));
 
 console.apilog("Add a second node");
@@ -92,3 +93,25 @@ bn.updateBeliefs();
 //function() {
 console.apilog("Cancer probs:", cancerNode.beliefs);
 //});
+
+console.apilog("Add nodes for Smoker, XRay and Dyspneoa")
+bn.addNode("Smoker", ["Yes","No"], {cpt: [.3, .7]})
+var xrayNode = bn.addNode("XRay", ["Positive", "Negative"])
+var dyspNode = bn.addNode("Dyspnoea", ["Yes", "No"])
+
+console.apilog("Add links for all the new nodes to cancer")
+cancerNode.addParents(["Smoker"])
+cancerNode.addChildren(["XRay","Dyspnoea"])
+
+console.apilog("Set all the CPTs")
+cancerNode.cpt = [.03,        0.97,         // low       True
+		   0.001,       0.999,        // low       False
+		   0.05,        0.95,         // high      True
+		   0.02,        0.98]
+xrayNode.cpt = [0.9,         0.1,          // True
+		   0.2,         0.8];
+dyspNode.cpt = [0.65,        0.35,         // True
+		   0.3,         0.7];
+
+bn.updateBeliefs();
+console.apilog("Cancer probs:", cancerNode.beliefs);
