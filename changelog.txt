@@ -90,10 +90,14 @@ R23
 	- Handle dangling utility children
 	- Test switching between all 3
 - Added deterministic example BN (Logical Gates.xdsl)
+R24**
+- Use hybrid jQuery interface object.setXXX() (returning this) and object.XXX for gets
+- Auto-generate setXXX methods for all properties, to allow/enforce jQuery-style chaining with setXXX()
+- API: D-connected methods: areNodesDConnected (tests if two nodes are d-connected) and findAllDConnectedNodes (finds all nodes that are d-connected to a given node). In addition, there is isConnectedPath (tests if a single path is connected) and findAllPathsBetweenNodes
+- GUI support for finding d-connected nodes
 
 Bugs
 - CREATE A PRE-RELEASE CHECKLIST
-- Use hybrid jQuery interface object.setXXX() (returning this) and object.XXX for gets
 - Develop an approach to selecting/editing...
 - Submodel issues:
 	- 'item' refers to node and submodel items. Should I move to more generic 'node' for both? Without affecting inference...
@@ -107,7 +111,9 @@ Bugs
 - Allow switch to flat view and back (how to handle layouts for both group and flat view?)
 - Handle node type changes
 	- Add 'Nature - Chance' and 'Nature - Deterministic' (or otherwise handle deterministic in some way)
-**		- Reorganise CPT/Func Table/etc. tabs into 'Definition', with changeable types
+		- Reorganise CPT/Func Table/etc. tabs into 'Definition', with changeable types
+			- Add a proper definitionType field to node
+**			- Changing between cpt/funcTable works (now funcText sort of, but badly). Need to avoid committing change until user clicks 'Save'
 - Create proper compile function (start with loadPostprocess). Should probably 'fix' representational errors.
 - Style comment in node context dialog
 

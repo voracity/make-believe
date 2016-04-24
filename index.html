@@ -22,7 +22,7 @@ SOFTWARE.
 <!doctype html>
 <html>
 <head>
-	<title>Make-Believe (R23)</title>
+	<title>Make-Believe (R24**)</title>
 	<link rel="icon" type="image/png" href="_/images/makeBelieve.png">
 	<script src="_/js/jquery.min.js"></script>
 	<script>if (typeof($)=="undefined") { window.$ = window.jQuery = require('./_/js/jquery.min.js'); }</script>
@@ -64,6 +64,10 @@ SOFTWARE.
 	.node .state .beliefBar { background: black; height: 10px; width: 0px; }
 	.node *[contenteditable] { display: block; }
 
+	/** Node selection **/
+	.node.selected { outline: dotted 1px rgba(0,0,255,0.8); outline-offset: 1px; }
+	.node.dconnected { box-shadow: 0 0 0 4px red; }
+
 	/** Labelled view **/
 	.node.label .state { display: none; }
 	.node.label { border-radius: 5px; padding: 0.2em; }
@@ -92,6 +96,7 @@ SOFTWARE.
 	/*path { stroke: red; }
 	polyline { fill: red; }*/
 
+	/* HTML CPT tables in the context menus */
 	.cpt { border-collapse: collapse; }
 	.cpt td, .cpt th { padding: 3px; text-align: center; }
 	.cpt th.stateLabel { width: 30px; max-width: 30px; }

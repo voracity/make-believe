@@ -601,6 +601,91 @@ Node.prototype = $.extend(Node.prototype, {
 
 		return $displayNode;
 	},
+	_prepTable: function(type) {
+		var node = this;
+		var $table = $("<table class="+type+">");
+		var npc = node.numParentCombinations();
+		var parentIndexes = currentBn.setupIndexes(node.parents);
+		/// Write out header
+		var $tr = $('<tr>');
+		for (var i=0; i<node.parents.length; i++) {
+			$tr.append('<th>'+toHtml(node.parents[i].id)+'</th>');
+		}
+		$table.append($tr);
+		/// Write out each row
+		for (var i=0; i<npc; i++) {
+			var $tr = $("<tr>");
+			/// List all parents on the side (Netica style)
+			for (var k=0; k<node.parents.length; k++) {
+				var parent = node.parents[k];
+				$tr.append("<th>"+toHtml(parent.states[parentIndexes[k]].id)+"</th>");
+			}
+			currentBn.nextCombination(node.parents, parentIndexes);
+			$table.append($tr);
+		}
+		return $table;
+	},
+	makeCptHtml: function() {
+		var node = this;
+		var $table = node._prepTable("cpt");
+		var $tr = $table.find("tr:eq(0)");
+		for (var j=0; j<node.states.length; j++) {
+			$tr.append('<th class=stateLabel><span data-control=state contenteditable>'+toHtml(node.states[j].id)+'</span></th>');
+		}
+		for (var i=0; i<$table[0].rows.length-1; i++) {
+			var row = node.getRow(i);
+			var $tr = $table.find("tr:eq("+(i+1)+")");
+			/// Now list the distro for each row
+			for (var j=0; j<row.length; j++) {
+				var $td = $("<td>")
+					.append("<span class=prob contenteditable data-control=cpt>"+toChance(sigFig(row[j],3))+"</span>");
+				draw.setProbBackground($td);
+				$td.find(".prob").on("keyup", function() {
+					draw.setProbBackground($(this).closest("td"));
+					/// This row was possibly set to invalid. Clear, if any change made
+					$(this).closest("tr").removeClass("invalid");
+				});
+				$tr.append($td);
+			}
+		}
+		return $table;
+	},
+	makeFuncTableHtml: function() {
+		var node = this;
+		var $table = node._prepTable("funcTable");
+		var $tr = $table.find("tr:eq(0)");
+		$tr.append('<th class=funcState>State</th>');
+		var values = node.funcTable;
+		if (node.type == "utility") {
+			values = node.utilities;
+		}
+		for (var i=0; i<$table[0].rows.length-1; i++) {
+			var $tr = $table.find("tr:eq("+(i+1)+")");
+			/// Now list the state for each row
+			if (node.type=="utility") {
+				var $td = $("<td>")
+					.append("<span class=state contenteditable data-control=funcTable>"+toHtml(values[i])+"</span>");
+			}
+			else {
+				/// At this stage, funcTable that isn't a utility is always a conditional state table.
+				/// In the future, the value could end up being the value of the node, I suppose.
+				var $select = $('<select class=state data-control=funcTable>');
+				for (var j=0; j<node.states.length; j++) {
+					var $opt = $('<option>').attr('value', j).text(node.states[j].id);
+					if (values[i]==j)  $opt.attr('selected', '');
+					$select.append($opt);
+				}
+				var $td = $("<td>")
+					.append($select);
+			}
+			$tr.append($td);
+		}
+		return $table;
+	},
+	makeFuncTextHtml: function() {
+		var node = this;
+		return $('<textarea data-control=funcText>').val(node.funcText);
+	},
 	/// This is the context menu for any ordinary node visible on the canvas. It has a set
 	/// of tabs that change based on the type of node. (e.g. CPT tab is displayed for
 	/// discrete chance nodes, while function text is displayed for equation/continuous nodes)
@@ -634,109 +719,45 @@ Node.prototype = $.extend(Node.prototype, {
 
 		var defTab = null;
 
-		function prepTable(type) {
-			var $table = $("<table class="+type+">");
-			var npc = node.numParentCombinations();
-			var parentIndexes = currentBn.setupIndexes(node.parents);
-			/// Write out header
-			var $tr = $('<tr>');
-			for (var i=0; i<node.parents.length; i++) {
-				$tr.append('<th>'+toHtml(node.parents[i].id)+'</th>');
-			}
-			$table.append($tr);
-			/// Write out each row
-			for (var i=0; i<npc; i++) {
-				var $tr = $("<tr>");
-				/// List all parents on the side (Netica style)
-				for (var k=0; k<node.parents.length; k++) {
-					var parent = node.parents[k];
-					$tr.append("<th>"+toHtml(parent.states[parentIndexes[k]].id)+"</th>");
-				}
-				currentBn.nextCombination(node.parents, parentIndexes);
-				$table.append($tr);
-			}
-			return $table;
-		}
-
 		/** CPT **/
-		if (node.cpt) {
-			var $table = prepTable("cpt");
-			var $tr = $table.find("tr:eq(0)");
-			for (var j=0; j<node.states.length; j++) {
-				$tr.append('<th class=stateLabel><span data-control=state contenteditable>'+toHtml(node.states[j].id)+'</span></th>');
-			}
-			for (var i=0; i<$table[0].rows.length-1; i++) {
-				var row = node.getRow(i);
-				var $tr = $table.find("tr:eq("+(i+1)+")");
-				/// Now list the distro for each row
-				for (var j=0; j<row.length; j++) {
-					var $td = $("<td>")
-						.append("<span class=prob contenteditable data-control=cpt>"+toChance(sigFig(row[j],3))+"</span>");
-					draw.setProbBackground($td);
-					$td.find(".prob").on("keyup", function() {
-						draw.setProbBackground($(this).closest("td"));
-						/// This row was possibly set to invalid. Clear, if any change made
-						$(this).closest("tr").removeClass("invalid");
-					});
-					$tr.append($td);
-				}
-			}
-			/// XXX: Finish adding the tab set to the context menu popup
-			var $cptDialog = $('<div class=cptDialog>').append($table);
-			defTab = {id: 'cpt', label: 'CPT', content: $cptDialog};
+		if (node.definitionType == 'cpt') {
+			var $defSection = this.makeCptHtml();
 		}
-		else if (node.funcDef) {
+		else if (node.definitionType == 'equation') {
 			/// XXX: Finish adding the tab set to the context menu popup
-			var $funcDialog = $('<div class=funcDialog>').append(
-				$('<textarea data-control=funcText>').val(node.funcText)
-			);
-			defTab = {id: 'func', label: 'Function', content: $funcDialog};
+			var $defSection = node.makeFuncTextHtml();
 		}
-		else if (node.funcTable) {
-			var $table = prepTable("funcTable");
-			var $tr = $table.find("tr:eq(0)");
-			$tr.append('<th class=funcState>State</th>');
-			var values = node.funcTable;
-			if (node.type == "utility") {
-				values = node.utilities;
-			}
-			for (var i=0; i<$table[0].rows.length-1; i++) {
-				var $tr = $table.find("tr:eq("+(i+1)+")");
-				/// Now list the state for each row
-				if (node.type=="utility") {
-					var $td = $("<td>")
-						.append("<span class=state contenteditable data-control=funcTable>"+toHtml(values[i])+"</span>");
-				}
-				else {
-					/// At this stage, funcTable that isn't a utility is always a conditional state table.
-					/// In the future, the value could end up being the value of the node, I suppose.
-					var $select = $('<select class=state data-control=funcTable>');
-					for (var j=0; j<node.states.length; j++) {
-						var $opt = $('<option>').attr('value', j).text(node.states[j].id);
-						if (values[i]==j)  $opt.attr('selected', '');
-						$select.append($opt);
-					}
-					var $td = $("<td>")
-						.append($select);
-				}
-				$tr.append($td);
-			}
-			/// XXX: Finish adding the tab set to the context menu popup
-			var $funcTableDialog = $('<div class=funcTableDialog>').append($table);
-			defTab = {id: 'funcTable', label: (node.type=="utility" ? 'Utility Table' : 'Function Table'), content: $funcTableDialog};
+		else if (node.definitionType == 'cdt') {
+			var $defSection = this.makeFuncTableHtml();
 		}
 		if (node.type == "decision") {
 			defTab = null;
 		}
+		defTab = {id: 'definition', label: 'Definition', content: $('<div class=defTabContent>').append($('<div class=def>').append($defSection))};
 
 		if (node.type == "nature") {
 			console.log(node.type);
 			defTab.content.prepend(
 				$('<div>').append(
 					$('<label>').text('Definition Type: '),
-					$('<select>').append(['Probability Table','Deterministic Table','Equation'].map(function(a){
-						return $('<option>').text(a);
-					}))
+					$('<select>').append([['cpt','Probability Table'],['cdt','Deterministic Table'],['equation','Equation']].map(function(a){
+						var $opt = $('<option>').text(a[1]).attr("value", a[0]);
+						if (node.definitionType == a[0])  $opt.attr('selected','');
+						return $opt;
+					})).on('change keyup', function () {
+						node.setDefinitionType($(this).val());
+						var $def = null;
+						if (node.definitionType == 'cpt') {
+							$def = node.makeCptHtml();
+						}
+						else if (node.definitionType == 'cdt') {
+							$def = node.makeFuncTableHtml();
+						}
+						else if (node.definitionType == 'equation') {
+							$def = node.makeFuncTextHtml();
+						}
+						$('.dialog .def').html($def);
+					})
 				)
 			);
 		}
@@ -807,7 +828,7 @@ Node.prototype = $.extend(Node.prototype, {
 				currentBn.updateAndDisplayBeliefs();
 			}},
 			funcText: {change: function(val) {
-				node.equation($(".func textarea").val());
+				node.equation(val);
 				currentBn.updateAndDisplayBeliefs();
 			}},
 			comment: {change: function(val) {
@@ -879,6 +900,19 @@ Node.prototype = $.extend(Node.prototype, {
 			}),
 			$('<button type=button>').html('Cancel').on('click', dismissDialogs),
 		]});
+	},
+	guiToggleSelect: function() {
+		var bn = this.net;
+		var nodeId = this.id;
+
+		if (bn.selected[nodeId]) {
+			bn.selected[nodeId] = false;
+			$("#display_"+nodeId).removeClass("selected");
+		}
+		else {
+			bn.selected[nodeId] = true;
+			$("#display_"+nodeId).addClass("selected");
+		}
 	},
 	isHidden: function() {
 		var submodelHidden = true;
@@ -1206,6 +1240,7 @@ $(document).ready(function() {
 				MenuAction('Header: Label', function() { app.changeNodeHeader('label'); dismissActiveMenus(); }),
 				MenuAction('Header: Label + ID', function() { app.changeNodeHeader('idLabel'); dismissActiveMenus(); }),
 			]}),
+			MenuAction('<hr>'),
 			MenuAction('<input type="checkbox" class=showArcStrengths> Show Arc Strengths', function() {
 				if ( !$('.showArcStrengths').prop('checked') ) {
 					currentBn.trackArcInfluences();
@@ -1215,6 +1250,25 @@ $(document).ready(function() {
 				else {
 					currentBn.removeTrackArcInfluences();
 					$('.showArcStrengths').prop('checked', false);
+				}
+			}),
+			MenuAction('Highlight D-Connected Nodes', function() {
+				if ($(".dconnected").length) {
+					$(".dconnected").removeClass("dconnected");
+				}
+				else {
+					var nodeId = null;
+					/// Find d-connected nodes for all selected nodes (I'm not sure
+					/// this makes much sense)
+					for (nodeId in currentBn.selected) {
+						console.log('sel:', nodeId);
+						var dConnectedNodes = currentBn.findAllDConnectedNodes(nodeId);
+						for (var i=0; i<dConnectedNodes.length; i++) {
+							var node = dConnectedNodes[i];
+							$("#display_"+node.id).addClass("dconnected");
+						}
+					}
+
 				}
 			}),
 		]}),
@@ -1309,6 +1363,7 @@ $(document).ready(function() {
 	});
 
 	var mx = 0, my = 0;
+	var disableSelect = 0;
 	$(".bnview").on("mousedown", ".node h6, .submodel:not(.parent), .textBox", function(event) {
 		if (event.which > 1)  return;
 		event.preventDefault();
@@ -1317,6 +1372,7 @@ $(document).ready(function() {
 		//onsole.log("mousedown:", mx, my);
 		var $node = $(this).closest(".node, .submodel, .textBox");
 		var o = $node.offset();
+		disableSelect = 2;
 
 		/// Get the width/height if the mousedown node was not part of the network
 		var maxX = 0, maxY = 0;
@@ -1338,6 +1394,7 @@ $(document).ready(function() {
 			$node.offset({left: o.left + (nmx - mx), top: o.top + (nmy - my)});
 			var n = currentBn.getGraphItemById($node.attr("id").replace(/^display_/,""));
 			if (n.pathsIn)  currentBn.redrawArcs(n, maxX, maxY);
+			disableSelect = 3;
 		});
 		$(".bnouterview").on("mouseup", function(event) {
 			/// Update position of the node
@@ -1354,7 +1411,19 @@ $(document).ready(function() {
 
 			/// Update the arcs going into/out of this node
 			if (n.pathsIn)  currentBn.redrawArcs(n, maxX, maxY);
+
+			disableSelect -= 1;
 		});
+	});
+
+	$(".bnview").on("click", ".node h6", function() {
+
+		//console.log("dis:",disableSelect);
+		disableSelect -= 1;
+		if (disableSelect) { disableSelect -= 1; return; }
+		var nodeId = $(this).closest(".node")[0].id.replace(/^display_/, '');
+
+		currentBn.nodesById[nodeId].guiToggleSelect();
 	});
 
 	/** This needs to change **/

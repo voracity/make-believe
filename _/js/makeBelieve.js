@@ -36,6 +36,35 @@ var openBns = [];
 var openData = [];
 var currentBn = null;
 
+/// Adds a default |setXXX| function for every property in the object,
+/// unless one is already specified in the chain. This should be called
+/// on the constructor (i.e. addDefaultSetters(Object)) as well as
+/// *inside* the constructor at the end of property initialisations
+/// (i.e. addDefaultSetters(this)).
+function addDefaultSetters(Obj) {
+	var o = Obj;
+	var proto = o.__proto__;
+	var assignTo = o;
+	if (typeof(Obj)=="function") {
+		o = new Obj();
+		proto = Obj.prototype;
+		assignTo = proto;
+	}
+	for (var i in o) { (function(i){
+		if (!(i in proto)) {
+			var setterName = 'set'+i[0].toUpperCase()+i.slice(1);
+			if (!(setterName in assignTo)) {
+				Object.defineProperty(assignTo, setterName, {
+					configurable:true,writable:true,enumerable:false,value: function(val) {
+					this[i] = val;
+					return this;
+				}
+				});
+			}
+		}
+	})(i); }
+}
+
 if (!Array.prototype.findIndex) {
   Object.defineProperty(Array.prototype, 'findIndex', {value: function(predicate) {
 	if (this === null) {
@@ -441,6 +470,12 @@ function popupEditDialog($content, opts) {
 }
 /** End Dialogs **/
 
+/**
+   A State is associated with discrete nodes, and defines an id for the state,
+   as well it's index in the order. The index may take on more significance in
+   future, once I add support for ordinal nodes in some way. Other elements may
+   also be added to state in future (like, for example, values and intervals).
+**/
 function State(o) {
 	/// The state's ID (as per GeNIe)
 	this.id = null;
@@ -451,10 +486,13 @@ function State(o) {
 	for (var i in o) {
 		this[i] = o[i];
 	}
+	addDefaultSetters(this);
 }
 
 /** To create a node, call new Node({opt1:...,opt2:...}) **/
 function Node(o) {
+	o = o || {};
+
 	/*
 		Member vars and their defaults
 	*/
@@ -476,6 +514,10 @@ function Node(o) {
 	this.parentStates = [];
 	/// Pointers to the children of this node
 	this.children = [];
+	/// The definition type of this node. For now, this is just 'cpt', 'cdt' or 'equation',
+	/// but I expect this to grow... I'm not sure if this is something that
+	/// will or should turn into an inheritance hierarchy.
+	this.definitionType = null;
 	/// The CPT, preferably as a typed float array (only if discrete probabilistic)
 	this.cpt = null;
 	/// The deterministic function table (only if discrete deterministic)
@@ -534,6 +576,7 @@ function Node(o) {
 	}
 
 	this.init({addToCanvas: o.addToCanvas});
+	addDefaultSetters(this);
 }
 /// Use this if the node hasn't been set up yet. Otherwise,
 /// just this.parseEquation with equationText.
@@ -565,6 +608,7 @@ Node.makeNodeFromXdslEl = function (el, $xdsl, opts) {
 	var $el = $(el);
 	var states = $el.find("state").toArray().map(function(a,i){ return new State({id:$(a).attr("id"), index: i}); });
 	var stateIndex = {}; states.forEach(function(a,i) { stateIndex[a.id] = i; });
+	var defType = null;
 	var cpt = null;
 	var funcTable = null;
 	var func = null;
@@ -574,6 +618,7 @@ Node.makeNodeFromXdslEl = function (el, $xdsl, opts) {
 
 	if ($el.is("cpt")) {
 		cpt = $el.find("probabilities").text()._splitNotEmpty(/\s+/).map(function(p){return parseFloat(p)});
+		defType = 'cpt';
 	}
 	else if ($el.is("deterministic")) {
 		var map = $el.find("resultingstates").text()._splitNotEmpty(/\s+/);
@@ -581,26 +626,19 @@ Node.makeNodeFromXdslEl = function (el, $xdsl, opts) {
 		for (var i in map) {
 			funcTable.push( stateIndex[map[i]] );
 		}
-		/*/// Go through and convert/expand each row from single-deterministic value to probabilities
-		cpt = [];
-		for (var i in map) {
-			var toState = stateIndex[map[i]];
-			console.log("toState:", toState);
-			for (var j=0; j<states.length; j++) {
-				cpt.push(toState==j ? 1 : 0);
-			}
-		}
-		console.log(cpt);*/
+		defType = 'cdt';
 	}
 	else if ($el.is("equation")) {
 		var parentIds = $el.find("parents").text().split(/\s+/);
 		funcText = $el.find("definition").text();
 		funcDef = Node.parseEquation($el.attr('id'), parentIds, funcText);
 		//func = new Function(funcDef[0], funcDef[1]);
+		defType = 'equation';
 	}
 	else if ($el.is("decision")) {
 		/// Replace with uniform CPT --- later, though, because we don't necessarily know
 		/// enough about the parents yet
+		defType = 'cpt';
 	}
 	else if ($el.is("utility")) {
 		utils = $el.find("utilities").text()._splitNotEmpty(/\s+/).map(function(p){return parseFloat(p)});
@@ -609,6 +647,7 @@ Node.makeNodeFromXdslEl = function (el, $xdsl, opts) {
 		for (var i in utils) {
 			funcTable[i] = i;
 		}
+		defType = 'cdt';
 	}
 	var $extInfo = $xdsl.find("> extensions > genie node#"+$el.attr("id"));
 	/// Determine the submodel to which this node belongs
@@ -660,6 +699,7 @@ Node.makeNodeFromXdslEl = function (el, $xdsl, opts) {
 		type: $el.is("decision") ? "decision" : $el.is("utility") ? "utility" : "nature",
 		states: states,
 		parents: $el.find("parents").text()._splitNotEmpty(/\s+/),
+		definitionType: defType,
 		cpt: cpt,
 		funcTable: funcTable,
 		func: func,
@@ -712,36 +752,40 @@ Node.prototype = {
 		node.counts = new Float32Array(new ArrayBuffer(node.states.length*4));
 		node.parentStates = new Float32Array(new ArrayBuffer(node.parents.length*4));
 
-		/// Notify submodel
-		this.moveToSubmodel(this.submodelPath);
+		/// We can only do the following if we've been assigned a net
+		if (this.net !== null) {
 
-		var bn = this.net;
+			/// Notify submodel
+			this.moveToSubmodel(this.submodelPath);
 
-		/// Add to children in parents
-		for (var i=0; i<node.parents.length; i++) {
-			var parent = node.parents[i];
-			/// If we're in the middle of loading from a file, parent may
-			/// just be a string still. It will get compiled properly later.
-			if (typeof(parent)=="object") {
-				parent.children.push(node);
+			var bn = this.net;
+
+			/// Add to children in parents
+			for (var i=0; i<node.parents.length; i++) {
+				var parent = node.parents[i];
+				/// If we're in the middle of loading from a file, parent may
+				/// just be a string still. It will get compiled properly later.
+				if (typeof(parent)=="object") {
+					parent.children.push(node);
+				}
 			}
-		}
 
-		/// Notify the network
-		bn.nodes.push(node);
-		bn.nodesById[node.id] = node;
-		if (node.type == "utility") {
-			bn._utilityNodes.push(node);
-		}
-		else if (node.type == "decision") {
-			bn._decisionNodes.push(node);
-		}
+			/// Notify the network
+			bn.nodes.push(node);
+			bn.nodesById[node.id] = node;
+			if (node.type == "utility") {
+				bn._utilityNodes.push(node);
+			}
+			else if (node.type == "decision") {
+				bn._decisionNodes.push(node);
+			}
 
-		bn.needsCompile = true;
+			bn.needsCompile = true;
 
-		if (o.addToCanvas) {
-			bn.display();
-			bn.updateAndDisplayBeliefs();
+			if (o.addToCanvas) {
+				bn.display();
+				bn.updateAndDisplayBeliefs();
+			}
 		}
 	},
 	numParentCombinations: function() {
@@ -925,18 +969,22 @@ Node.prototype = {
 	/// Each |parent| can be a string or a node
 	addParents: function(parents) {
 		for (var i=0; i<parents.length; i++)  this._addParent(parents[i]);
+		return this;
 	},
 	/// Each |child| can be a string or a node
 	addChildren: function(children) {
 		for (var i=0; i<children.length; i++)  this._addChild(children[i]);
+		return this;
 	},
 	/// Each |parent| can be a string or a node
 	removeParents: function(parents) {
 		for (var i=0; i<parents.length; i++)  this._removeParent(parents[i]);
+		return this;
 	},
 	/// Each |child| can be a string or a node
 	removeChildren: function(children) {
 		for (var i=0; i<children.length; i++)  this._removeChild(children[i]);
+		return this;
 	},
 	/// Set the type of the node, switching it in an undo-able way
 	/// from whatever previous type the node had. To undo (straight after),
@@ -1005,12 +1053,68 @@ Node.prototype = {
 
 		return this;
 	},
+	/// Set the definition type of the node. In some cases, an attempt is made
+	/// to preserve the underlying relationship between type switches. (Easy enough
+	/// for now, very difficult in future with  more types.)
+	setDefinitionType: function(defType) {
+		if (defType == 'cpt') {
+			this.cpt = new Float32Array(new ArrayBuffer(this.numParentCombinations()*this.states.length*4));
+			if (this.definitionType == 'cdt') {
+				for (var i=0; i<this.funcTable.length; i++) {
+					this.cpt[this.states.length*i + this.funcTable[i]] = 1;
+				}
+				this.funcTable = null;
+			}
+			else if (this.definitionType == 'equation') {
+				this.funcText = null;
+				this.funcDef = null;
+			}
+		}
+		else if (defType == 'cdt') {
+			this.funcTable = new Int32Array(new ArrayBuffer(this.numParentCombinations()*4));
+			if (this.definitionType == 'cpt') {
+				var numRows = this.cpt.length / this.states.length;
+				for (var i=0; i<numRows; i++) {
+					var maxProb = -1;
+					var maxProbJ = -1;
+					for (var j=0; j<this.states.length; j++) {
+						var prob = this.cpt[this.states.length*i + j];
+						if (prob > maxProb) {
+							maxProb = prob;
+							maxProbJ = j;
+						}
+					}
+					this.funcTable[i] = maxProbJ;
+				}
+				this.cpt = null;
+			}
+			else if (this.definitionType == 'equation') {
+				this.funcText = null;
+				this.funcDef = null;
+			}
+		}
+		else if (defType == 'equation') {
+			this.funcText = this.id+' = '+this.parents.map(a => a.id).join(' + ');
+			if (this.definitionType == 'cpt') {
+				this.cpt = null;
+			}
+			else if (this.definitionType == 'cdt') {
+				this.funcTable = null
+			}
+		}
+		this.definitionType = defType;
+
+		this.net.needsCompile = true;
+	},
+	/// Set the utilities for the node. This will update the state names
+	/// to match the utilities, which can be useful if the node states are
+	/// being viewed in the network display.
 	setUtilities: function(utilities) {
 		utils = utilities;
 		states = utils.map(function(a,i){ return new State({id: a, index: i}) });
 		funcTable = [];
 		for (var i in utils) {
-			funcTable[i] = i;
+			funcTable[i] = Number(i);
 		}
 
 		this.utilities = utilities;
@@ -1168,8 +1272,10 @@ Node.prototype = {
 
 		this.net.needsCompile = true;
 	},
+	/// Creates a (simple, equal-width) dynamic discretisation from samples
 	discretizeFromSamples: function() {
 		var node = this;
+		/// This needs to be moved somewhere, obviously...
 		var maxStates = 10;
 		/// Do we have something that looks discrete?
 		var samplesSeen = new Map();
@@ -1189,13 +1295,13 @@ Node.prototype = {
 				labels.push(sigFig(states[j][0],3));
 				beliefs.push(states[j][1]/node.samples.length);
 			}
-			node.removeStates();
+			node.removeStates('*');
 			node.addStates(labels);
 			node.beliefs = beliefs;
 		}
 		else {
 			var discInfo = generateMultinomialFromSamples(node.samples, maxStates);
-			node.removeStates();
+			node.removeStates('*');
 			var labels = [];
 			for (var j=0; j<discInfo.boundaries.length-1; j++) {
 				labels[j] = '['+sigFig(discInfo.boundaries[j],3)+"-"+sigFig(discInfo.boundaries[j+1],3);
@@ -1220,6 +1326,41 @@ Node.prototype = {
 			}
 			this.net.needsCompile = true;
 		}
+	},
+	isParent: function(node) {
+		if (typeof(node)=="string")  node = this.net.nodesById[node];
+
+		return this.children.indexOf(node)!=-1;
+	},
+	hasAncestor: function(nodes, includeThis) {
+		if (typeof(nodes)!="object" || !('length' in nodes))  nodes = [nodes];
+		for (var i=0; i<nodes.length; i++) {
+			if (typeof(nodes[i])=="string")  nodes[i] = this.net.nodesById[nodes[i]];
+		}
+
+		var toVisit = includeThis ? [this] : this.parents.slice();
+		while (toVisit.length) {
+			var curNode = toVisit.shift();
+			if (nodes.indexOf(curNode)!=-1)  return true;
+			toVisit = toVisit.concat(curNode.parents);
+		}
+
+		return false;
+	},
+	hasDescendent: function(nodes, includeThis) {
+		if (typeof(nodes)!="object" || !('length' in nodes))  nodes = [nodes];
+		for (var i=0; i<nodes.length; i++) {
+			if (typeof(nodes[i])=="string")  nodes[i] = this.net.nodesById[nodes[i]];
+		}
+
+		var toVisit = includeThis ? [this] : this.children.slice();
+		while (toVisit.length) {
+			var curNode = toVisit.shift();
+			if (nodes.indexOf(curNode)!=-1)  return true;
+			toVisit = toVisit.concat(curNode.children);
+		}
+
+		return false;
 	},
 };
 
@@ -1364,6 +1505,7 @@ function BN(o) {
 	this.numWorkers = 2;
 
 	this.evidence = {};
+	this.selected = {};
 
 	/// Does the cache information need updating?
 	this.needsCompile = false;
@@ -1386,6 +1528,7 @@ function BN(o) {
 	this._trackingArcInfluences = false;
 
 	this.init(o);
+	addDefaultSetters(this);
 }
 BN.prototype = {
 	init: function(o) {
@@ -1604,15 +1747,12 @@ BN.prototype = {
 				label: label,
 				parents: JSON.search(omNode, '//*[children[1]="parents"]/children[3]/children')[0].replace(/[\(\)\s]/g, '')._splitNotEmpty(/,/),
 				states: states,
+				defType: 'cpt',
 				cpt: cpt,
 				pos: {x: Number(centerPos[0]), y: Number(centerPos[1])},
 				size: {width: 80, height: 30},
 				comment: comment,
 			});
-			//node.moveToSubmodel([]);
-			//bn.nodes.push(node);
-			//bn.nodesById[node.id] = node;
-			//onsole.log(node);
 		}
 		this.compile(true);
 	},
@@ -2009,6 +2149,8 @@ BN.prototype = {
 	setUpdateMethod: function(method) {
 		this.updateBeliefs = this["updateBeliefs_"+method];
 	},
+	/// This updates the expected value for the current network,
+	/// given the current evidence.
 	updateExpectedValue: function() {
 		/// XXXXXX Calculating net's current expected value
 		if (this._utilityNodes.length) {
@@ -2610,7 +2752,131 @@ BN.prototype = {
 		}
 		return hasMore;
 	},
+	findAllPathsBetweenNodes: function(sourceNode, destNode) {
+		if (typeof(sourceNode)=="string")  sourceNode = this.nodesById[sourceNode];
+		if (typeof(destNode)=="string")  destNode = this.nodesById[destNode];
+		var pathsFound = [];
+
+		function loop(currentNode, currentPath) {
+			var toVisit = currentNode.parents.concat(currentNode.children);
+			for (var i=0; i<toVisit.length; i++) {
+				var nextNode = toVisit[i];
+				/// Would give cycle, so skip
+				if (currentPath.indexOf(nextNode)!=-1)  continue;
+
+				/// Found our destNode. Save, and skip this node
+				if (nextNode == destNode) {
+					pathsFound.push(currentPath.concat(nextNode));
+					continue;
+				}
+
+				/// Keep searching from this node
+				loop(nextNode, currentPath.concat(nextNode));
+			}
+			/// Couldn't find destNode, return nothing
+		}
+		loop(sourceNode, [sourceNode]);
+
+		return pathsFound;
+	},
+	areNodesDConnected: function(sourceNode, destNode) {
+		var paths = this.findAllPathsBetweenNodes(sourceNode, destNode);
+		var dConnected = false;
+
+		for (var i=0; i<paths.length; i++) {
+			var path = paths[i];
+
+			if (this.isConnectedPath(path)) {
+				dConnected = true;
+				break;
+			}
+		}
+
+		return dConnected;
+	},
+	isConnectedPath: function(path) {
+		var pathBlocked = false;
+		/// If path has only 1 or two nodes, then nodes
+		/// are connected so long as neither of them have evidence
+		if (path.length == 1)  return !(path[0].id in this.evidence);
+		if (path.length == 2)  return !(path[0].id in this.evidence || path[1].id in this.evidence);
+
+		for (var j=2; j<path.length; j++) {
+			var curNode = path[j-1];
+			/// If there is evidence on j-2 or j, then path is blocked. Why? Because,
+			/// j-2 (j) is either not a collider, and hence blockable by evidence; or (j-2) j
+			/// *is* a collider, in which case j-1 is *not* a collider, and hence blockable
+			/// by evidence on j-2 (j)
+			if (path[j-2].id in this.evidence || path[j].id in this.evidence) {
+				pathBlocked = true;
+				break;
+			}
+			if (curNode.isParent(path[j]) || curNode.isParent(path[j-2])) {
+				//console.log('normal:', curNode.id);
+				/// If either is an outgoing arc, then path is blockable by evidence on this node
+				if (curNode.id in this.evidence) {
+					pathBlocked = true;
+					break;
+				}
+			}
+			else {
+				//console.log('collider:', curNode.id);;
+				/// If collider, then path is only unblockable by evidence on this node or descendents
+				/// Scan through all descendents to see if evidence set
+				var evNodes = [];
+				for (var evId in this.evidence) {
+					evNodes.push(this.nodesById[evId]);
+				}
+				if (!curNode.hasDescendent(evNodes, true)) {
+					pathBlocked = true;
+					break;
+				}
+			}
+		}
+
+		return !pathBlocked;
+	},
+	findAllDConnectedNodes: function(sourceNode) {
+		/// To Do
+		var bn = this;
+		if (typeof(sourceNode)=="string")  sourceNode = this.nodesById[sourceNode];
+		var connectedNodes = {};
+		var pathsFound = [];
+
+		function loop(currentNode, currentPath) {
+			var toVisit = currentNode.parents.concat(currentNode.children);
+			for (var i=0; i<toVisit.length; i++) {
+				var nextNode = toVisit[i];
+				/// We already know this node is connected
+				//if (nextNode.id in connectedNodes)  continue;
+				/// Would give cycle, so skip
+				if (currentPath.indexOf(nextNode)!=-1)  continue;
+
+				var nextPath = currentPath.concat(nextNode);
+
+				/// If we don't already know it's connected, check if it is connected
+				if (!(nextNode.id in connectedNodes) && bn.isConnectedPath(nextPath)) {
+					connectedNodes[nextNode.id] = true;
+				}
+
+				/// Keep searching from this node
+				loop(nextNode, nextPath);
+			}
+			/// Couldn't find destNode, return nothing
+		}
+		loop(sourceNode, [sourceNode]);
+
+		var ret = [];
+		for (var nodeId in connectedNodes) {
+			ret.push(this.nodesById[nodeId]);
+		}
+
+		return ret;
+	},
 };
+addDefaultSetters(BN);
+addDefaultSetters(Node);
+addDefaultSetters(State);
 
 if (typeof(exports)!="undefined") {
 	exports.BN = BN;

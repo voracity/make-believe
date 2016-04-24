@@ -1,4 +1,10 @@
-var mb = require("./_/js/makeBelieve.js");
+var mb;
+if (typeof(BN)!="undefined") {
+	mb = {BN: BN, Node: Node, State: State};
+}
+else {
+	mb = require("./_/js/makeBelieve.js");
+}
 
 var bn = new mb.BN({source: `<?xml version="1.0" encoding="ISO-8859-1"?>
 <smile version="1.0" id="TakeUmbrellaProblem" numsamples="1000" discsamples="10000">
@@ -75,8 +81,8 @@ var bn = new mb.BN({source: `<?xml version="1.0" encoding="ISO-8859-1"?>
 
 
 console.apilog("Create new network");
-var bn = new mb.BN();
-bn.iterations = 100000;
+var bn = new mb.BN().setIterations(100000);
+console.apilog("Iterations:", bn.iterations);
 
 console.apilog("Add a new node");
 var pollutionNode = bn.addNode("Pollution", ["Low", "High"], {cpt: [.9, .1]});
@@ -100,8 +106,9 @@ var xrayNode = bn.addNode("XRay", ["Positive", "Negative"])
 var dyspNode = bn.addNode("Dyspnoea", ["Yes", "No"])
 
 console.apilog("Add links for all the new nodes to cancer")
-cancerNode.addParents(["Smoker"])
-cancerNode.addChildren(["XRay","Dyspnoea"])
+cancerNode
+	.addParents(["Smoker"])
+	.addChildren(["XRay","Dyspnoea"]);
 
 console.apilog("Set all the CPTs")
 cancerNode.cpt = [.03,        0.97,         // low       True
