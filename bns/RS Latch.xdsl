@@ -31,7 +31,8 @@
 		</cpt>
 	</dynamic>
 	<extensions>
-		<genie version="1.0" app="GeNIe 2.0.5219.0" name="Network2" faultnameformat="nodestate">
+		<genie version="1.0" app="GeNIe 2.1.380.0" name="Network2" faultnameformat="nodestate">
+			<comment>An SR latch is one of the simplest kinds of electronic memory that can be built with logic gates. See http://en.wikipedia.org/wiki/Flip-flop_%28electronics%29#SR_NOR_latch for more information.\n\nSet the evidence for &apos;R&apos; (Reset) and &apos;S&apos; (Set) to &apos;False&apos; for all time steps. Then enter a &apos;True&apos; in &apos;S&apos; (Set) for time step 3. The &apos;output&apos; of NOR1 will be locked to True thereafter. (You can then set &apos;R&apos; to &apos;True&apos; in a later timestep to clear it.) Requires GeNIe.</comment>
 			<plate leftwidth="120" rightwidth="120">36 21 798 330</plate>
 			<node id="NOR1">
 				<name>NOR1</name>

@@ -1,0 +1,86 @@
+Current Goals
+- A first serious (but basic) version of Make-Believe with editing capabilities
+	- All edits are Undoable
+	- Adding/deleting arcs (GUI + backend)
+	- Inference using junction trees
+	- Compatibility with a wide range of xdsl/dne files (that Make-Believe can support natively)
+	- Data loss protection
+
+Bugs for Current Goals
+- Fix: In node context menu, changing id (and type and possibly others) doesn't update other tabs
+	- Create node duplicate while in node settings dialog
+	- Fix up submodels to work as well (old submodelPath errors)
+	- Create some automated tests
+- Make definition work for decision and utility nodes
+- Bugs with zoom + moving
+	- Arcs laid out wrong
+	- Alignment/snapping completely wrong
+- Create a Definition class, with CPT, CDT and Equation as subclasses (and then remove all the if-else-if statements)
+- UNDO system
+	- node id renames (non-GUI partly works. GUI version doesn't work at all.)
+		- Does this work now? (Probably not when node display type is different)
+	- Hitting Ctrl-Z/Ctrl-Y in input/select/contenteditable/etc. should *not* trigger global undo (only the control-local undo)
+
+
+Bug Backlog
+- CREATE A PRE-RELEASE CHECKLIST
+- Submodel issues:
+	- 'item' refers to node and submodel items. Should I move to more generic 'node' for both? Without affecting inference...
+- Parse equations and manually compile to JS (no pass-through, to minimise security issues)
+- Need to create a RegEx for things like node ids (instead of rewriting definition everywhere)
+- Move the visible graph creation logic out of the display() function
+- Allow switch to flat view and back (how to handle layouts for both group and flat view?)
+- Create proper compile function (start with loadPostprocess). Should probably 'fix' representational errors.
+- States in func tables should be associated with values
+- Empirical distribution nodes (ala ecdf function in R)
+- KEYBOARD SHORTCUTS
+	- Think about shortcuts that I want to add
+- ADD/REMOVE PARENTS (+GUI)
+	- Highlight borders on drag
+- LEARNING
+***	- EM learning
+- Creating nodes
+***	- Experiment with inline CPT-editing? (As a curiosity, mostly, I think.)
+- SELECTIONS
+	- Select multiple objects with selection rectangle
+		- Add to selection using Ctrl, remove from selection with Ctrl-Shift
+	- Delete selected nodes using 'Del' key
+	- Move multiple objects together (very glitchy and slow right now, because every node does an arc redraw)
+		- Slightly improved, by not redrawing arcs multiple times
+		- jQuery position() was massively slow. Just using offsetLeft/offsetTop vastly improved things. Not sure if I need to bother with below optimisation:
+***			- For arcs inside selection, just move them, instead of calc intersections.
+***	- Arc selection
+- Save currently entered evidence to network? (GeNIe complains about any unrecognized elements. That's
+	really bad for backwards/forwards/sidewards compatibility, so perhaps should be thinking about
+	another format?)
+- SUBMODELS
+	- Add submodels
+		- API
+		- GUI
+	- Graphically move items to submodel
+***	- Load formatting properly
+	- Allow changes to node format
+- TEXTBOXES
+- CLEANUP
+	- The event code is a mess. Break it up into functions, and make it clearer what each thing does and what it applies to.
+	- Use event namespaces to clean things up as well.
+STORMY
+***	- Add simple stormy support
+***- Speed up CPT display performance (half fixed. Now need to build up string entirely in memory
+		first before entering it into DOM.)
+DBNs
+- DBN support very broken. Need to fix. (And preferably clean things up at the same time.)
+***DEFINITIONS
+
+Features
+- Continuous evidence...
+- Junction Tree option
+	- Make sure all parents connected (I think this *also* has the effect triangulating the graph, but need to check)
+		(It does, but it probably won't be optimal in terms of treewidth.)
+	- OK, have now done a proper triangulation. (Eliminate all simplicial, then connect smallest family and repeat until no more nodes.)
+	- Create join tree (i.e. cliques and sepsets) from triangulated graph
+***	- Belief propagation
+
+BNs to test/check/fix
+- Dugong.dne
+

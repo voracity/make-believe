@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="ISO-8859-1"?>
-<smile version="1.0" id="Sub0" numsamples="1000" discsamples="10000">
+<smile version="1.0" id="Sub0" numsamples="100000" discsamples="1000">
 	<nodes>
 		<cpt id="asia">
 			<state id="yes" />
@@ -29,12 +29,12 @@
 			<parents>smoke</parents>
 			<probabilities>0.6 0.4 0.3 0.7</probabilities>
 		</cpt>
-		<cpt id="either">
+		<deterministic id="either">
 			<state id="yes" />
 			<state id="no" />
 			<parents>lung tub</parents>
-			<probabilities>1 0 1 0 1 0 0 1</probabilities>
-		</cpt>
+			<resultingstates>yes yes yes no</resultingstates>
+		</deterministic>
 		<cpt id="xray">
 			<state id="yes" />
 			<state id="no" />
@@ -49,13 +49,14 @@
 		</cpt>
 	</nodes>
 	<extensions>
-		<genie version="1.0" app="GeNIe 2.0.5219.0" name="Sub0" faultnameformat="nodestate">
+		<genie version="1.0" app="GeNIe 2.0.5590.0" name="Sub0" faultnameformat="nodestate">
+			<comment>The classic Asia network (also known as Chest Clinic).\n\nOriginal network by Lauritzen &amp; Spiegelhalter (1988).\n\nLauritzen, S.L. &amp; Spiegelhalter, D.J. (1988) Local Computations with Probabilities on Graphical Structures and Their Application to Expert Systems. Journal of the Royal Statistical Society. Series B (Methodological), 50(2):pp. 157-224, Wiley for the Royal Statistical Society</comment>
 			<node id="asia">
 				<name>asia</name>
 				<interior color="e5f6f7" />
 				<outline color="0000bb" />
 				<font color="000000" name="Arial" size="8" />
-				<position>36 24 112 60</position>
+				<position>36 44 112 80</position>
 				<barchart active="true" width="128" height="64" />
 			</node>
 			<node id="tub">
@@ -63,7 +64,7 @@
 				<interior color="e5f6f7" />
 				<outline color="0000bb" />
 				<font color="000000" name="Arial" size="8" />
-				<position>36 154 112 190</position>
+				<position>36 174 112 210</position>
 				<barchart active="true" width="128" height="64" />
 			</node>
 			<node id="smoke">
@@ -71,15 +72,15 @@
 				<interior color="e5f6f7" />
 				<outline color="0000bb" />
 				<font color="000000" name="Georgia" size="16" />
-				<position>294 24 370 60</position>
-				<barchart active="true" width="128" height="64" />
+				<position>294 44 370 80</position>
+				<barchart active="true" width="128" height="87" />
 			</node>
 			<node id="lung">
 				<name>lung</name>
 				<interior color="e5f6f7" />
 				<outline color="0000bb" />
 				<font color="000000" name="Arial" size="8" />
-				<position>294 154 370 190</position>
+				<position>294 174 370 210</position>
 				<barchart active="true" width="128" height="64" />
 			</node>
 			<node id="bronc">
@@ -87,7 +88,7 @@
 				<interior color="e5f6f7" />
 				<outline color="0000bb" />
 				<font color="000000" name="Arial" size="8" />
-				<position>552 154 628 190</position>
+				<position>552 174 628 210</position>
 				<barchart active="true" width="128" height="64" />
 			</node>
 			<node id="either">
@@ -95,7 +96,7 @@
 				<interior color="0000ff" />
 				<outline color="000080" />
 				<font color="ffffff" name="Arial" size="8" />
-				<position>36 284 112 320</position>
+				<position>36 304 112 340</position>
 				<comment>This is a deterministic node.</comment>
 				<barchart active="true" width="128" height="64" />
 			</node>
@@ -104,7 +105,7 @@
 				<interior color="e5f6f7" />
 				<outline color="0000bb" />
 				<font color="000000" name="Arial" size="8" />
-				<position>36 414 112 450</position>
+				<position>36 434 112 470</position>
 				<barchart active="true" width="128" height="64" />
 			</node>
 			<node id="dysp">
@@ -112,7 +113,7 @@
 				<interior color="e5f6f7" />
 				<outline color="0000bb" />
 				<font color="000000" name="Arial" size="8" />
-				<position>294 414 370 450</position>
+				<position>294 434 370 470</position>
 				<barchart active="true" width="128" height="64" />
 			</node>
 		</genie>

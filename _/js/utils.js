@@ -1,3 +1,7 @@
+/***
+	XXX - I need to clean out this utils.js file. Lots of unnecessary stuff.
+***/
+
 if (typeof(console)=="undefined") {
 	console = {
 		log: function() {
@@ -10,6 +14,146 @@ if (typeof(console)=="undefined") {
 		}
 	};
 }
+
+class UndoChange {
+	constructor() {
+	
+	}
+}
+
+/** 
+    Notes on saving state in a |change| object. We should save the state that we need as properties of |change|.
+	Must keep things that don't change for a given state (like string IDs) rather than
+	things that can (like object references), because (for instance) we might delete a node, in which
+	case the object reference will be different sometimes when running through the undos/redos.
+
+	(We can keep a reference to the net, because a net change is not undoable).
+**/
+class UndoList {
+	constructor() {
+		this.list = [];
+		this.index = 0;
+		this.revisionInProgress = false;
+	}
+	
+	/**
+		|change| should be an object of the following form:
+		
+		{name: <name of change>, undo: <undo function>, redo: <redo function>}
+	*/
+	add(change) {
+		if (!this.revisionInProgress) {
+			this.list[this.index] = change;
+			this.index++;
+			/// Any new change, truncates the undo list
+			this.list.length = this.index;
+		}
+	}
+	
+	addAndDo(change) {
+		this.add(change);
+		change.redo();
+	}
+	
+	undo() {
+		if (this.index > 0) {
+			this.index--;
+			this.revisionInProgress = true;
+			try {
+				this.list[this.index].undo();
+			}
+			finally {
+				this.revisionInProgress = false;
+			}
+		}
+	}
+	
+	redo() {
+		if (this.index < this.list.length) {
+			this.revisionInProgress = true;
+			try {
+				this.list[this.index].redo();
+			}
+			finally {
+				this.revisionInProgress = false;
+			}
+			this.index++;
+		}
+	}
+	
+	reset() {
+		this.list.length = 0;
+		this.index = 0;
+	}
+}
+
+function makeSimpleBn(str) {
+	var bn = new BN();
+	var cleanName = n => n.trim().replace(/[^0-9a-zA-Z]/g, '_');
+	var lines = str.split(/\r?\n/);
+	for (var line of lines) {
+		var pair = line.split(/->/);
+		if (pair.length == 2) {
+			var node1 = cleanName(pair[0]);
+			var node2 = cleanName(pair[1]);
+			if (!bn.nodesById[node1])  bn.addNode(node1, ["s0","s1"]);
+			if (!bn.nodesById[node2])  bn.addNode(node2, ["s0","s1"]);
+			bn.nodesById[node1].addChildren([node2]);
+		}
+	}
+	return bn;
+}
+
+(function($, undefined) {
+if (!$.uncamelCase) {
+    // Convert camelCase to dashed
+    $.uncamelCase = function(string) {
+        return string.replace( /([A-Z])/g, '-$1' )
+            .toLowerCase().replace( /^-/, '');
+    };
+}
+
+/// Adapted from: http://jsfiddle.net/rodneyrehm/XV33m/
+/// This will dispatch to data() and attr() (unlike jQuery's data,
+/// which only stores things internally, and not in the DOM).
+/// Note: Not defined for object values.
+$.fn.dataAttr = function(key, value) {
+    var $this = this,
+        ret = this.data(key, value);
+    
+    if (typeof key == "object") {
+        $.each(key, function(key, value) {
+            $this.attr("data-" + jQuery.uncamelCase(key), typeof value in {string:1, number:1} ? value : '~defined~');
+        });
+    } else if (value !== undefined) {
+        $this.attr("data-" + jQuery.uncamelCase(key), typeof value in {string:1, number:1} ? value : '~defined~');
+    }
+    
+    return ret;
+};
+
+$(function() {
+    $('#data').on('click', function(e){
+        e.preventDefault();
+        $(this).dataAttr('hello', "yeah");
+    });
+
+    $('#data2').on('click', function(e){
+        e.preventDefault();
+        $(this).dataAttr('hello', 1);
+    });
+
+    $('#data3').on('click', function(e){
+        e.preventDefault();
+        $(this).dataAttr('hello', {foo: true});
+    });
+});
+
+})(jQuery);
+
+/***
+	Below, unchecked.
+***/
 
 function inArray(el, arr) {
 	for (var i=0; i<arr.length; i++) {

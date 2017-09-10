@@ -3,7 +3,7 @@
 .menu > .header:hover { color: #999; }
 .menu:not(.bar) .menu > .header { background-image: url(menu-right.svg);
 	background-repeat: no-repeat;
-	background-size: auto 30%; background-position: right 7px top 55%; }
+	background-size: auto 30%; background-position: right 12px top 55%; }
 .menu:not(.bar) .menu.active > .header { background-image: url(menu-right-active.svg); }
 .menu .menu.active > .header,
 	.menuAction.active
@@ -18,8 +18,13 @@
 .menu.bar > .itemList { display: inline-block; }
 .menu.bar > .itemList > * { display: inline-block; }
 
-.menuAction, .menu .menu > .header { padding: 3px 5px; cursor: default; }
+.menuAction, .menu .menu > .header { padding: 4px 12px; cursor: default; }
+.menu .menu > .header { padding-right: 28px; }
 .menu .menu > .itemList { min-width: 8em; }
+.menuAction { display: flex; align-items: center; }
+.menuAction .label { flex: 1; }
+.menuAction .shortcut { font-size: 0.7em; color: #aaa; }
+.menuAction.active .shortcut { color: white; }
 
 /** Embedded menus are just part of the current block. e.g. in a tab, or on a page **/
 .menu.embedded { background: #eee; }
@@ -28,3 +33,11 @@
 .menu.embedded .menu.active .itemList { position: absolute; }
 .menu.embedded > .itemList { display: block; }
 .menu.embedded > .itemList > * { display: block; }
+
+/** Context menus **/
+.contextMenu > .itemList { display: block; }
+.contextMenu > .itemList { border-top: none; }
+.contextMenu > .header { border: solid 1px black; box-shadow: 2px 2px 2px rgba(0,0,0,0.3);
+  font-size: 0.8em; padding: 1px 12px; color: #999; background: white; }
+.contextMenu > .header:empty { display: none; }
+.contextMenu > .header:empty + .itemList { border-top: solid 1px black; }

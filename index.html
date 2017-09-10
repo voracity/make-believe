@@ -1,5 +1,7 @@
+<!doctype html>
+<meta charset="utf-8">
 <!--
-Copyright (c) 2014-2016 Steven Mascaro
+Copyright (c) 2014-2017 Steven Mascaro
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal
@@ -19,29 +21,40 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 -->
-<!doctype html>
 <html>
 <head>
-	<title>Make-Believe (R24**)</title>
+	<title>Make-Believe (R25**)</title>
 	<link rel="icon" type="image/png" href="_/images/makeBelieve.png">
-	<script src="_/js/jquery.min.js"></script>
+	<script src="_/js/jquery-3.2.0.min.js"></script>
 	<script>if (typeof($)=="undefined") { window.$ = window.jQuery = require('./_/js/jquery.min.js'); }</script>
 	<script src="_/js/defiant.min.js"></script>
 	<script src="_/js/vkbeautify.0.99.00.beta.js"></script>
+	<script src="_/js/engineCommon.js"></script>
 	<script src="_/js/beliefUpdate_worker.js"></script>
+	<script src="_/js/junctionTree_worker.js"></script>
 	<script src="_/js/equationFunctions.js"></script>
 	<script src="_/js/sylvester.js"></script>
 	<script src="_/js/dagre.min.js"></script>
+	<script src="_/js/stormy.js"></script>
 	<script src="_/js/menu/menu.js"></script>
 	<script src="_/js/tabs.js"></script>
 	<script src="_/js/utils.js"></script>
+	<script src="_/js/htm.js"></script>
 	<script src="_/js/parsing.js"></script>
 	<link href="_/js/menu/menu_styles.css" type="text/css" rel="stylesheet" />
 	<script src="_/js/menu/menu_styles.js"></script>
 	<script src="_/js/makeBelieveTests.js"></script>
+	<script src="_/js/definitions.js"></script>
 	<script src="_/js/makeBelieve.js"></script>
 	<script src="_/js/gui.js"></script>
 	<style>
+	:root {
+		--cpt-background0: rgb(255, 198, 35);
+		--cpt-background1: rgb(255, 228, 125);
+	}
+	
+	* { box-sizing: border-box; }
+	
 	html, body { height: 100%; width: 100%; margin: 0; padding: 0; }
 
 	body { font-size: 8pt; font-family: arial; }
@@ -54,23 +67,33 @@ SOFTWARE.
 	.node { position: absolute; padding: 0 0; border-radius: 0; border: solid 1px #444;
 		background: #F9DAB9; z-index: 1; font-family: arial; }
 	.node.hasEvidence { background: #FFA87F; }
+	.node .controlBar { display: flex; flex-direction: row; max-width: 15em; }
 	.node h6 { font-size: 1em; margin: 0; font-weight: bold; border-bottom: solid 1px #444; padding: 1px;
-		text-overflow: ellipsis; max-width: 15em; white-space: nowrap; overflow: hidden; }
-	.node .state { display: table-row; cursor: pointer; }
+		text-overflow: ellipsis; white-space: nowrap; overflow: hidden; flex: 1;
+		cursor: pointer; }
+	.node .hotSpotParent { width: 20px; border-bottom: solid 1px #444; display: flex;
+		align-items: center; justify-content: center; }
+	.node .hotSpot { background: black; width: 80%; height: 80%; opacity: 0.1; }
+	.node .hotSpot:hover { opacity: 0.5; background: linear-gradient(to bottom right, red, 47%, red, 53%, green, 100%, green); }
+	.node .state { display: table-row; }
+	.node .state .stateName:hover { cursor: pointer; opacity: 0.5; }
 	.node .state > div { display: table-cell; vertical-align: middle; padding: 1px; }
-	.node .state .prob { width: 22px; text-align: left; padding-left: 8px; }
+	.node .state .prob { width: 2.6em; text-align: right; padding-left: 2px; overflow: hidden; display: inline-block; padding-right: 3px; }
 	.node .state .beliefBarView { min-width: 50px; position: relative; }
 	.node.dynamic .state .beliefBarView { min-width: 100px; height: 26px; }
 	.node .state .beliefBar { background: black; height: 10px; width: 0px; }
 	.node *[contenteditable] { display: block; }
 
 	/** Node selection **/
-	.node.selected { outline: dotted 1px rgba(0,0,255,0.8); outline-offset: 1px; }
+	.node.selected { outline: solid 3px rgba(0,50,255,0.6); }
 	.node.dconnected { box-shadow: 0 0 0 4px red; }
+	.rectSelect { position: absolute; z-index: 100; border: solid 1px blue; background: rgba(0,0,128,0.15); }
+	
+	path.dependency.selected { stroke: blue; }
 
 	/** Labelled view **/
 	.node.label .state { display: none; }
-	.node.label { border-radius: 5px; padding: 0.2em; }
+	.node.label { border-radius: 50px; padding: 0.2em; }
 	.node.label h6 { border-bottom: none; overflow: visible; white-space: normal; }
 
 	/** Other node styles (e.g. Decision and utility) **/
@@ -91,6 +114,7 @@ SOFTWARE.
 	/** Text boxes **/
 	.textBox { position: absolute; padding: 0 0; }
 	.textBox h6 { font-weight: inherit; }
+	.textBox[contenteditable] { outline: dotted 1px #666; }
 
 	/* Can also style svg arrows if needed */
 	/*path { stroke: red; }
@@ -98,26 +122,51 @@ SOFTWARE.
 
 	/* HTML CPT tables in the context menus */
 	.cpt { border-collapse: collapse; }
-	.cpt td, .cpt th { padding: 3px; text-align: center; }
+	.cpt td, .cpt th { padding: 3px; text-align: center; border: solid 1px #aaa; }
 	.cpt th.stateLabel { width: 30px; max-width: 30px; }
 	.cpt th.stateLabel span { width: 100%; overflow: hidden; display: inline-block; }
-	.cpt td { border-top: solid 3px transparent; background-repeat: no-repeat; text-align: center;  }
+	.cpt td { background-repeat: no-repeat; text-align: center;  }
 	.cpt tr.invalid td { background: red !important; }
+	/* Ensure span contenteditable's have sensible height, even when empty.
+	   Also, put in some content when empty, seems to help with some cursor issues. */
+	*[data-control=cpt] { height: 1.3em; }
+	*[data-control=cpt]:empty { content: " "; }
 	/** I'm not sure why these require an explicit height. **/
 	.funcDialog { min-height: 15em; }
 	.funcDialog textarea { width: 100%; height: 14em; }
 
 	/** Layout **/
 	body { display: flex; flex-direction: column; height: 100%; }
+	.middle { flex: 1; width: 100%; display: flex; flex-direction: row; }
+	.sidebar { width: 250px; background: #eee; display: none; overflow: hidden; }
+	.sidebar > .comment { width: 250px; padding: 5px; white-space: pre-wrap; }
+	.sidebar .comment:empty::after { content: '[Enter a description]'; color: #aaa; }
+	.sidebar .comment:empty:hover::after { background: white; }
 	.bnouterview { flex: 1; overflow: auto; width: 100%; }
 	.status { background: white;
 		border-top: 1px solid #AAA;
 		width: 100%; z-index: 1000; opacity: 0.8; }
-	.status .expectedValue, .status .duration { margin-left: 1em; }
+	.status > span { margin-left: 1em; }
 	.decisionNet { display: none; }
+	
+	/** Alignment **/
+	.hAlignLine { width: 100%; position: absolute; left: 0; border-top: dashed 1px red; }
+	.vAlignLine { height: 100%; position: absolute; top: 0; border-left: dashed 1px red; }
+	.node.aligning { outline: solid 1px green; }
 
 	/** Menus **/
 	.menu.bar { border-bottom: 1px solid #aaa; white-space: nowrap; }
+	.menu input[type=text] { padding: 1px; }
+	.menu .menuAction { min-height: 20px; }
+	.menu .menuAction hr { width: 100%; border: 0; border-top: solid 1px #ccc; }
+	
+	.contextMenu { position: fixed; z-index: 10000; }
+	
+	/** Help **/
+	.dialog.about .license { max-width: 30em; max-height: 18em; overflow: auto; height: 100%; text-align: left;
+		margin: 10px; border: solid 1px #ccc; }
+	.dialog.keyboardShortcuts .shortcutList { text-align: left; }
+	.dialog.keyboardShortcuts label { display: inline-block; width: 10em; }
 
 	/** Dialogs **/
 	.dialog { display: none; position: absolute; z-index: 10000; background: rgb(255,255,255); background: rgba(255,255,255,0.95);
@@ -126,6 +175,7 @@ SOFTWARE.
 	.dialog h2 { margin: 0; margin-bottom: 8px; }
 	.dialog .controls { margin-top: 8px; text-align: right; }
 	.veil { position: absolute; z-index: 1000; background: white; opacity: 0; top: 0; left: 0; }
+	.dialog .text { text-align: left; }
 
 	/** Tabs **/
 	.tab { display: none; min-height: 15em; min-width: 30em; border: solid 1px black; border-bottom: none;
@@ -143,9 +193,15 @@ SOFTWARE.
 
 	.dialog.node .controls { box-shadow: 2px 2px 2px rgba(0, 0, 0, 0.3); position: relative; z-index: 10; }
 	.dialog.node .tab.active { box-shadow: 2px 2px 2px rgba(0, 0, 0, 0.3); }
-	.dialog.node .tab { overflow-y: auto; max-height: 20em; overflow-x: hidden; }
+	.dialog.node .tab { overflow-y: auto; max-height: 23em; overflow-x: hidden; }
 	.dialog .commentSec label { display: block; }
-	.dialog .comment { font-size: 8pt; font-family: arial; }
+	.dialog .comment { font-size: 8pt; font-family: arial; width: 100%; }
+	
+	/** Console **/
+	.console { display: none; position: fixed; bottom: 20px; left: 10px; width: 200px;
+		z-index: 100; }
+	.consoleInput { width: 100%; padding: 3px;
+		border: solid 1px blue; border-radius: 5px; box-shadow: 2px 2px 2px #7777; }
 	</style>
 	<style id="beliefBarAnimations">
 	.node .state .beliefBar { transition: width 0.3s; }
@@ -153,7 +209,7 @@ SOFTWARE.
 </head>
 <body>
 	<div class="toolbar" style="display: none;">
-		<input type="file" id="openFile" style="display:none;" onchange="fileLoaded(this, updateBN)" accept=".xdsl,.dne">
+		<input type="file" id="openFile" style="display:none;" onchange="fileLoaded(this.files[0], updateBN)" accept=".xdsl,.dne">
 		<input type="file" id="openDataFile" style="display:none;">
 		<button type="button" onclick="app.loadFile()">Load File</button>
 		<button type="button" onclick="app.saveFile()">Save File</button>
@@ -170,8 +226,12 @@ SOFTWARE.
 		<button type="button" onclick="app.autoLayout()">Auto Layout</button>
 		# Samples: <input type="text" name="iterations" value="1000">
 	</div>
-	<div class="bnouterview"><div class="bnview"></div></div>
+	<div class="middle">
+		<div class="bnouterview"><div class="bnview"></div></div>
+		<div class="sidebar"></div>
+	</div>
 	<div class="status">(No net loaded.)</div>
+	<div class="console"><input class="consoleInput" type="text"></div>
 	<!--div class=a>a</div>
 	<div class=b>b</div>
 	<div class=c>c</div-->
@@ -196,7 +256,7 @@ SOFTWARE.
 		UQ_VALUE = /[^;]*/
 		NAME! = ID@
 		BLOCK_TYPE! = ID@
-		ID! = /[a-zA-Z0-9][a-zA-Z0-9]*/@
+		ID! = /[a-zA-Z0-9][a-zA-Z0-9_]*/@
 	</script>
 	<!-- I've included numbers at the start of the ID! rule, because there was
 	     an occasion in which that appeared in a Netica saved file. I don't know if it's really legal or

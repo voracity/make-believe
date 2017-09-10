@@ -17,9 +17,32 @@ OM = object model.
  (but produce a different object model).
 */
 
-function dot() {}
-function dotr() {}
-//function dotr() { console.log.apply(console, arguments); }
+/// Debug functions
+var nullConsole = {
+	log: function(){}, warn: function(){}, trace: function(){}, info: function(){},
+};
+var debug = nullConsole;
+
+function parsing_debug(on) {
+	if (on) {
+		debug = console;
+	}
+	else {
+		debug = nullConsole;
+	}
+}
+
+/*Cute, but not cross-browser...
+function debugOutFunc(...args) {
+	var err = null;
+	try { throw Error('') } catch(_err) { err = _err; }
+
+	var stack = err.stack.split(/\n/);
+	var frameParts = stack[1].match(/^([^@]*).*\/([^\/:]*):([^:]*):([^:]*)$/);
+	var locStr = frameParts[2]+":"+frameParts[3]+":"+frameParts[4];
+
+	console.log('%c%s%c', 'color: blue', locStr, '', ...args);
+}*/
 
 function RuleItem(o) {
 	this.rulename = null;
@@ -90,11 +113,11 @@ Rule.prototype = {
 		var token = null;
 		var strlen = this.str.length;
 		var res = [];
-		dotr("A:["+this.str+"]");
+		debug.log("A:["+this.str+"]");
 		/** rulenames **/
 		if (this.str.matchin( /^(\w+)/, res)) {
 			var matched = res[1];
-			dot("X:["+matched+"]");
+			debug.log("X:["+matched+"]");
 			this.str = this.str.substr(matched.length);
 			token = {rulename: true, value: matched};
 		}
@@ -104,35 +127,35 @@ Rule.prototype = {
 		  object model */
 		else if (this.str.matchin( /^([+*?!@])/, res)) {
 			var matched = res[1];
-			dotr("Y:["+matched+"]");
+			debug.log("Y:["+matched+"]");
 			this.str = this.str.substr(matched.length);
 			token = {operator: true, value: matched};
 		}
 		/** arguments **/
 		else if (this.str.matchin( /^(\()/, res)) {
 			var matched = res[1];
-			dotr("Y:["+matched+"]");
+			debug.log("Y:["+matched+"]");
 			this.str = this.str.substr(matched.length);
 			token = {startArgs: true, value: matched};
 		}
 		/** OR OPERATOR's **/
 		else if (this.str.matchin( /^([|])/, res)) {
 			var matched = res[1];
-			dotr("OR:["+matched+"]");
+			debug.log("OR:["+matched+"]");
 			this.str = this.str.substr(matched.length);
 			token = {orOperator: true, value: matched};
 		}
 		/** STORES (NOW CALLED CLASSES) **/
 		else if (this.str.matchin( /^(\.\s*)(\w+)/, res)) {
 			var matched = res[2];
-			dotr("STORE:["+matched+"]");
+			debug.log("STORE:["+matched+"]");
 			this.str = this.str.substr(res[0].length);
 			token = {store: true, value: matched};
 		}
 		/** WHITESPACE **/
 		else if (this.str.matchin( /^(\s+)/, res)) {
 			var matched = res[1];
-			dotr("Z:["+matched+"]");
+			debug.log("Z:["+matched+"]");
 			this.str = this.str.substr(matched.length);
 			token = {whitespace: true, value: matched};
 		}
@@ -144,7 +167,7 @@ Rule.prototype = {
 		}
 		/** EOF **/
 		else if (this.str.matchin( /^\s*$/, res)) {
-			dotr("EOF");
+			debug.log("EOF");
 			token = {eof: true};
 			return token;
 		}
@@ -157,7 +180,7 @@ Rule.prototype = {
 	S_NORMAL: 0,
 	S_ESCAPE: 1,
 	getLiteral: function(delim) {
-		dot("L:["+this.str+"]");
+		debug.log("L:["+this.str+"]");
 		var res = [];
 		var state = this.S_NORMAL;
 		var atEnd = false;
@@ -190,7 +213,7 @@ Rule.prototype = {
 			if (atEnd) {
 				var lit = this.str.substr(0, ci);
 				this.str = this.str.substr(ci+1);
-				dot("LIT:["+lit+"]");
+				debug.log("LIT:["+lit+"]");
 				return lit;
 			}
 		}
@@ -199,7 +222,7 @@ Rule.prototype = {
 	getArgs: function(par) {
 		var args = [];
 		var atEnd = false;
-		dotr("getArgs:["+this.str+"]");
+		debug.log("getArgs:["+this.str+"]");
 		for (var ci=0; ci<this.str.length; ci++) {
 			switch (this.str.charAt(ci)) {
 				case "'":
@@ -214,7 +237,7 @@ Rule.prototype = {
 			}
 			if (atEnd) {
 				this.str = this.str.substr(ci+1);
-				dot("LINK:["+args.join("|")+"]");
+				debug.log("LINK:["+args.join("|")+"]");
 				return args;
 			}
 		}
@@ -232,6 +255,7 @@ Grammar.prototype = {
 	    LINE = RULE | BLANK
 	**/
 	parseGrammar: function(str) {
+		debug.log("%cparseGrammar()", 'color: green; font-weight: bold;');
 		/// Strip surrounding whitespace
 		str = str.replace(/^\s*|\s*$/gm, '');
 		var lines = str.split(/\n/);
@@ -247,24 +271,28 @@ Grammar.prototype = {
 				var isShadowRule = (m[2]=='!');
 				this.rules[m[1]] = new Rule(m[1], m[3], this, isShadowRule);
 
-				dot(m[1]);
-				dot(this.rules);
+				debug.log(m[1]);
+				debug.log(this.rules);
 
 				/// If this is the first line, it's the root rule
 				if (i==0) {
 					this.mainRule = this.rules[m[1]];
 					this.mainRule.isMainRule = true;
-					dot(this.mainRule);
+					debug.log(this.mainRule);
 				}
 			}
 		}
+		debug.log("%cparseGrammar() complete", 'color: green; font-weight: bold;');
 	},
 	createTree: function(str) {
+		debug.log("createTree()");
 		this.input = str;
 		this.inputStack = [];
 		this.terminatorStack = ['$'];
 		this.stackTerminator = false;
-		return this.applyRule(this.mainRule);
+		var om = this.applyRule(this.mainRule);
+		debug.log("createTree() complete");
+		return om;
 	},
 	applyRule: function(rule) {
 		var store = {type: rule.name, children: []};
@@ -277,11 +305,11 @@ Grammar.prototype = {
 		//this.inputStack.push(this.input);
 		var savedInput = this.input;
 
-		dotr("Applying", rule.name, "on input", this.input, this.inputStack);
+		debug.log("Applying", rule.name, "on input {{{{{", this.input, "}}}}}", this.inputStack);
 		for (var i=0; i<rule.ruleList.length; i++) {
 			var rulePartStr = "Rule:"+rule.name+": Part("+i+")";
-			//dotr("STARTING "+rulePartStr);
-			//dotr("INPUT:", this.input);
+			//debug.log("STARTING "+rulePartStr);
+			//debug.log("INPUT:", this.input);
 			//if (i>0) break;
 			var ruleItem = rule.ruleList[i];
 			if (ruleItem.orOperator) {
@@ -303,8 +331,8 @@ Grammar.prototype = {
 				/// Do nothing for this rule item
 			}
 			else if (ruleItem.literal) {
-				//dotr("Doing LITERAL in "+rulePartStr);
-				dotr("Applying LITERAL", ruleItem.literal, " on input", this.input);
+				//debug.log("Doing LITERAL in "+rulePartStr);
+				debug.log("Applying LITERAL", ruleItem.literal, " on input", this.input);
 				var val = this.applyLiteral(ruleItem);
 				if (val===false) {
 					if (ruleItem.operators['?']) {
@@ -314,19 +342,19 @@ Grammar.prototype = {
 					else {
 						if (rule.isOrRule) {
 							skipToNextOrClause = true;
-							dotr('Continuing or rule from literal: '+rulePartStr);
+							debug.log('Continuing or rule from literal: '+rulePartStr);
 							continue;
 						}
-						dot('litret');
+						debug.log('litret');
 						ruleFailed = true;
 						break;
 					}
 				}
 				else {
 					/// Don't store if encounter ! operator
-					dot("XXX:", ruleItem);
+					debug.log("XXX:", ruleItem);
 					if (!ruleItem.operators['!']) {
-						dot("storing:", ruleItem);
+						debug.log("storing:", ruleItem);
 						store.children.push(val);
 						if (ruleItem.store)  store["class"] = ruleItem.store;
 						if (rule.isShadowRule && ruleItem.operators['@']) {
@@ -336,7 +364,7 @@ Grammar.prototype = {
 				}
 			}
 			else if (ruleItem.rulename) {
-				//dotr("Doing RULENAME in "+rulePartStr);
+				//debug.log("Doing RULENAME in "+rulePartStr);
 				var val = [];
 				var test = 0;
 				var continueOr = false;
@@ -346,10 +374,10 @@ Grammar.prototype = {
 							&& this.input.search(new RegExp('^'+ruleItem.args[0]))!=-1 ) {
 						break;
 					}
-					//dotr('Doing '+ruleItem.rulename+(isLoop?' Loop':' Rule')+' in '+rulePartStr);
+					//debug.log('Doing '+ruleItem.rulename+(isLoop?' Loop':' Rule')+' in '+rulePartStr);
 					var inputLength = this.input.length;
 					var v = this.applyRule(this.rules[ruleItem.rulename]);
-					//dotr('Applied rule', this.rules[ruleItem.rulename], 'Result:', v);
+					//debug.log('Applied rule', this.rules[ruleItem.rulename], 'Result:', v);
 					/// Stop looping if we failed to match *OR* we get match of 0 length (which would
 					/// otherwise produce an infinite loop)
 					if (v===false || inputLength == this.input.length) {
@@ -360,7 +388,7 @@ Grammar.prototype = {
 					/// Break if we fail to match in one section of an or rule,
 					/// and try the next section instead
 					if (v===false && rule.isOrRule && !ruleItem.operators['?']) {
-						dotr('Continuing or rule from rulecall: '+rulePartStr);
+						debug.log('Continuing or rule from rulecall: '+rulePartStr);
 						skipToNextOrClause = true;
 						break;
 					}
@@ -439,9 +467,9 @@ Grammar.prototype = {
 		/// need to track
 		/// However, if the rule failed, we *also* need to reset
 		/// the input to the last valid input
-		dotr(this.inputStack);
+		debug.log(this.inputStack);
 		if (ruleFailed) {
-			dotr("rule", rule.name, "failed");
+			debug.log("rule", rule.name, "failed");
 			this.input = savedInput; //this.inputStack[this.inputStack.length-1];
 		}
 		//this.inputStack.pop();
@@ -452,16 +480,16 @@ Grammar.prototype = {
 			store.isShadowRule = true;
 		}
 		var ret = hoistedObject || (ruleFailed ? false : store);
-		dotr("Finished rule "+rule.name+". Returning:", ret);
+		debug.log("Finished rule "+rule.name+". Returning:", ret);
 		return ret;
 	},
 	applyLiteral: function(ruleItem) {
 		var re = new RegExp('^(?:'+ruleItem.literal+')');
 		var res = [];
 		if (this.input.matchin(re, res)) {
-			//dotr("LIT:["+res[0]+"]");
+			//debug.log("LIT:["+res[0]+"]");
 			this.input = this.input.substr(res[0].length);
-			//dotr(" input:["+this.input+"]");
+			//debug.log(" input:["+this.input+"]");
 			return res[0];
 		}
 		///Returning false means the (conjunctive) rule failed
@@ -470,7 +498,7 @@ Grammar.prototype = {
 	},
 	getFirstLiteral: function(ruleItem) {
 		if (typeof(ruleItem.literal)!="undefined") {
-			dot("xxx");
+			debug.log("xxx");
 			return ruleItem;
 		}
 		else if (ruleItem.rulename=="STR") {
@@ -489,14 +517,14 @@ Grammar.prototype = {
 
 function joinv(sep, arr) {
 	var str = "";
-	dot(arr);
+	debug.log(arr);
 	if (typeof(arr.children)!="undefined") {
-		dot('innervals');
+		debug.log('innervals');
 		str += joinv(sep, arr.children);
 	}
 	else {
 		for (var i in arr) {
-			dot('el'+i);
+			debug.log('el'+i);
 			if (str) { str += sep; }
 			if (typeof(arr[i])=="object") {
 				str += joinv(sep, arr[i]);
@@ -558,3 +586,107 @@ String.prototype.matchin = function(tag, results) {
 	return false;
 }
 
+function matchObject(obj, criteria) {
+	var objMatches = true;
+	var toReturn = obj;
+
+	/// Try to make a match against this object
+	for (var cProp in criteria) {
+		//onsole.log(cProp);
+		if (cProp in obj) {
+			var haveMatch = true;
+			if (criteria[cProp] === OBJECTVALUE) {
+				return obj[cProp];
+			}
+			else if (criteria[cProp].test) {
+				haveMatch = criteria[cProp].test(obj[cProp]);
+			}
+			else if (typeof(criteria[cProp])=="object" && criteria[cProp]!==null) {
+				var m = matchObject(obj[cProp],criteria[cProp]);
+				haveMatch = m!==null;
+				if (m !== obj[cProp]) {
+					toReturn = m;
+				}
+			}
+			else {
+				haveMatch = obj[cProp] == criteria[cProp];
+			}
+			if (!haveMatch) {
+				objMatches = false;
+				break;
+			}
+		}
+		else {
+			objMatches = false;
+			break;
+		}
+	}
+	return objMatches ? toReturn : null;
+}
+
+/* Does not protect against cycles */
+Object.defineProperty(Object.prototype, '_findObject', {value: function(criteria) {
+	/// Can't make it a quick dict, due to no unique id available :( (and I'm not generating them!)
+	var objsEncountered = [];
+	var maxLoops = 10000;
+	var curI = 0;
+
+	function doFind(obj) {
+		if (curI++ > maxLoops) return null;
+		if (objsEncountered.indexOf(obj)>=0)  return null;
+		objsEncountered.push(obj);
+		//onsole.log(...objsEncountered);
+		var m = matchObject(obj, criteria);
+		if ( m!==null ) {
+			return m;
+		}
+		else {
+			/// If can't match against this object, try any sub-objects recursively
+			for (var prop in obj) {
+				try {
+					if (typeof(obj[prop])=="object" && obj[prop]!==null) {
+						var result = doFind(obj[prop]);
+						if (result!==null)  return result;
+					}
+				}
+				catch (e) {}
+			}
+		}
+		return null;
+	}
+	return doFind(this);
+}});
+
+var OBJECTVALUE = {}; /// This essentially creates a unique value to match against
+
+/* Does not protect against cycles */
+Object.defineProperty(Object.prototype, '_findObjects', {value: function(criteria) {
+	/// Can't make it a quick dict, due to no unique id available :( (and I'm not generating them!)
+	var objsEncountered = [];
+	var maxLoops = 10000;
+	var curI = 0;
+
+	var foundObjs = [];
+
+	function doFind(obj) {
+		if (curI++ > maxLoops) return null;
+		if (objsEncountered.indexOf(obj)>=0)  return null;
+		objsEncountered.push(obj);
+		var m = matchObject(obj, criteria);
+		//onsole.log(...objsEncountered);
+		if ( m!==null ) {
+			foundObjs.push(m);
+		}
+		/// Now check against all sub-objects recursively
+		for (var prop in obj) {
+			try {
+				if (typeof(obj[prop])=="object" && obj[prop]!==null) {
+					doFind(obj[prop]);
+				}
+			}
+			catch (e) {}
+		}
+	}
+	doFind(this);
+	return foundObjs;
+}});

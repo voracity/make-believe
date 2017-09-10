@@ -16,7 +16,9 @@ function TabSet(tabs) {
 		/// Skip blanks
 		if (!tabs[i])  continue;
 
-		$tabStrip.append($('<button type=button data-for="'+tabs[i].id+'">').text(tabs[i].label).addClass(tabs[i].active ? 'active' : null));
+		$tabButton = $('<button type=button data-for="'+tabs[i].id+'">').text(tabs[i].label).addClass(tabs[i].active ? 'active' : null);
+		if (tabs[i].onselect)  $tabButton.click(tabs[i].onselect);
+		$tabStrip.append($tabButton);
 		$tabs.append($('<div class="tab '+tabs[i].id+'">').append(tabs[i].content).addClass(tabs[i].active ? 'active' : null));
 	}
 	this.$tabs = $tabs;

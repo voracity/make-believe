@@ -183,7 +183,7 @@
 		</cpt>
 	</nodes>
 	<extensions>
-		<genie version="1.0" app="GeNIe 2.0.5219.0" name="Network1" faultnameformat="nodestate">
+		<genie version="1.0" app="GeNIe 2.1.380.0" name="Network1" faultnameformat="nodestate">
 			<submodel id="Climate">
 				<name>Climate</name>
 				<interior color="ffff99" />
@@ -432,6 +432,11 @@
 						<position>552 451 627 497</position>
 					</node>
 				</submodel>
+				<textbox>
+					<caption>Well, a very small orchard.</caption>
+					<font color="000000" name="Arial" size="8" />
+					<position>298 198 426 212</position>
+				</textbox>
 			</submodel>
 			<node id="Return">
 				<name>Return</name>

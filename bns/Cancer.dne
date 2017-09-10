@@ -1,12 +1,12 @@
 // ~->[DNET-1]->~
 
-// File created by someone at MonashU using Netica 4.16 on Feb 02, 2016 at 23:16:06.
+// File created by someone at MonashU using Netica 5.12 on Apr 19, 2017 at 16:32:08.
 
 bnet Sub0 {
 AutoCompile = TRUE;
 autoupdate = TRUE;
 title = "Sub0";
-whenchanged = 1454415359;
+whenchanged = 1492583526;
 
 visual V1 {
 	defdispform = BELIEFBARS;
@@ -16,23 +16,23 @@ visual V1 {
 	linkfont = font {shape= "Arial"; size= 9;};
 	windowposn = (26, 26, 901, 332);
 	resolution = 72;
-	drawingbounds = (1046, 769);
+	drawingbounds = (1495, 769);
 	showpagebreaks = FALSE;
 	usegrid = TRUE;
 	gridspace = (6, 6);
-	NodeSet Node {BuiltIn = 1; Color = 0xc0c0c0;};
-	NodeSet Nature {BuiltIn = 1; Color = 0xf8eed2;};
-	NodeSet Deterministic {BuiltIn = 1; Color = 0xd3caa6;};
-	NodeSet Finding {BuiltIn = 1; Color = 0xc8c8c8;};
-	NodeSet Constant {BuiltIn = 1; Color = 0xffffff;};
-	NodeSet ConstantValue {BuiltIn = 1; Color = 0xffffb4;};
-	NodeSet Utility {BuiltIn = 1; Color = 0xffbdbd;};
-	NodeSet Decision {BuiltIn = 1; Color = 0xdee8ff;};
-	NodeSet Documentation {BuiltIn = 1; Color = 0xf0fafa;};
-	NodeSet Title {BuiltIn = 1; Color = 0xffffff;};
+	NodeSet Node {BuiltIn = 1; Color = 0x00C0C0C0;};
+	NodeSet Nature {BuiltIn = 1; Color = 0x00F8EED2;};
+	NodeSet Deterministic {BuiltIn = 1; Color = 0x00D3CAA6;};
+	NodeSet Finding {BuiltIn = 1; Color = 0x00C8C8C8;};
+	NodeSet Constant {BuiltIn = 1; Color = 0x00FFFFFF;};
+	NodeSet ConstantValue {BuiltIn = 1; Color = 0x00FFFFB4;};
+	NodeSet Utility {BuiltIn = 1; Color = 0x00FFBDBD;};
+	NodeSet Decision {BuiltIn = 1; Color = 0x00DEE8FF;};
+	NodeSet Documentation {BuiltIn = 1; Color = 0x00F0FAFA;};
+	NodeSet Title {BuiltIn = 1; Color = 0x00FFFFFF;};
+	NodeSet target {Disabled = 1; Color = 0x00C8C8C8;};
 	PrinterSetting A {
 		margins = (1270, 1270, 1270, 1270);
-		landscape = FALSE;
 		magnify = 1;
 		};
 	};
@@ -41,14 +41,14 @@ node Pollution {
 	kind = NATURE;
 	discrete = TRUE;
 	chance = CHANCE;
-	states = (low, high);
+	states = (low, moderate, high);
 	parents = ();
 	probs = 
-		// low          high         
-		  (0.9,         0.1);
+		// low          moderate     high         
+		  (0.7,         0.2,         0.1);
 	title = "Pollution";
-	whenchanged = 0;
-	belief = (0.9, 0.1);
+	whenchanged = 1470576115;
+	belief = (0.7, 0.2, 0.1);
 	visual V1 {
 		center = (227, 100);
 		height = 1;
@@ -84,17 +84,16 @@ node Cancer {
 		// True         False         // Pollution Smoker 
 		  (0.03,        0.97,         // low       True   
 		   0.001,       0.999,        // low       False  
+		   0.04,        0.96,         // moderate  True   
+		   0.01,        0.99,         // moderate  False  
 		   0.05,        0.95,         // high      True   
 		   0.02,        0.98);        // high      False  ;
 	title = "Cancer";
-	whenchanged = 0;
-	belief = (0.01163, 0.98837);
+	whenchanged = 1470576145;
+	belief = (0.01349, 0.98651);
 	visual V1 {
 		center = (370, 224);
 		height = 3;
-		link 1 {
-			path = ((257, 126), (341, 198));
-			};
 		};
 	};
 
@@ -110,7 +109,7 @@ node Xray {
 		   0.2,         0.8);         // False  ;
 	title = "XRay?";
 	whenchanged = 1450788154;
-	belief = (0.208141, 0.791859);
+	belief = (0.209443, 0.790557);
 	visual V1 {
 		center = (509, 343);
 		height = 4;
@@ -130,11 +129,24 @@ node Dyspnoea {
 	title = "Dyspnoea";
 	comment = "Shortness of breath";
 	whenchanged = 1454415359;
-	belief = (0.3040705, 0.6959295);
+	belief = (0.3047215, 0.6952785);
 	visual V1 {
 		center = (227, 343);
 		height = 5;
 		};
 	};
+
+node NOTE1 {
+	kind = CONSTANT;
+	discrete = FALSE;
+	parents = ();
+	title = "A simple example network.\n\nWith a simple example comment.";
+	whenchanged = 1481976934;
+	visual V1 {
+		center = (642, 222);
+		height = 6;
+		};
+	};
+NodeSet target {Nodes = (Cancer);};
 ElimOrder = (Xray, Dyspnoea, Pollution, Smoker, Cancer);
 };

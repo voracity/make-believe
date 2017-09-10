@@ -90,32 +90,112 @@ R23
 	- Handle dangling utility children
 	- Test switching between all 3
 - Added deterministic example BN (Logical Gates.xdsl)
-R24**
-- Use hybrid jQuery interface object.setXXX() (returning this) and object.XXX for gets
-- Auto-generate setXXX methods for all properties, to allow/enforce jQuery-style chaining with setXXX()
+R24
+- API: Use hybrid jQuery interface object.setXXX() (returning this) and object.XXX for gets
+- API: Auto-generate setXXX methods for all properties, to allow/enforce jQuery-style chaining with setXXX()
 - API: D-connected methods: areNodesDConnected (tests if two nodes are d-connected) and findAllDConnectedNodes (finds all nodes that are d-connected to a given node). In addition, there is isConnectedPath (tests if a single path is connected) and findAllPathsBetweenNodes
 - GUI support for finding d-connected nodes
-
-Bugs
-- CREATE A PRE-RELEASE CHECKLIST
-- Develop an approach to selecting/editing...
-- Submodel issues:
-	- 'item' refers to node and submodel items. Should I move to more generic 'node' for both? Without affecting inference...
-- Creating nodes
-	- Double click to add node to canvas (done)
-	- Rename node and state names (content editable? done in context menu)
-	- Add and delete states (API only atm)
-- addStates/deleteStates: Update child CPTs (if they have CPTs)
-- add/remove parents/children: Need to update CPTs, etc.
-- Move the visible graph creation logic out of the display() function
-- Allow switch to flat view and back (how to handle layouts for both group and flat view?)
+R25**
+- Rewrote d-connected methods. Created much faster method, and one that is simpler/more robust.
+- Give option for setting time limit for computations, in addition to iteration limit
+	- Provided impl. Now clean up and add UI
+	- Add report in status bar on how many iterations were run for last inference
 - Handle node type changes
 	- Add 'Nature - Chance' and 'Nature - Deterministic' (or otherwise handle deterministic in some way)
 		- Reorganise CPT/Func Table/etc. tabs into 'Definition', with changeable types
 			- Add a proper definitionType field to node
-**			- Changing between cpt/funcTable works (now funcText sort of, but badly). Need to avoid committing change until user clicks 'Save'
-- Create proper compile function (start with loadPostprocess). Should probably 'fix' representational errors.
+			- Changing between cpt/funcTable works (now funcText sort of, but badly).
+			- Need to avoid committing change until user clicks 'Save'
+				- Switching between cpt/funcTable works without saving, until clicking save.
+					- Fixed: Switching from Prob Table to Deterministic and back to Prob Table loses the original CPT
+					- Fixed: Switching equation -> CPT should give uniform CPT by default
+	- Fixed: .dnes
+- Added key shortcuts to normalize (F1) and overwrite current with remainder (F2)
+- Typing '.' at the end of a cpt prob advances automatically to next cpt cell
+- Typing '1' and changing the cell of a cpt auto-sets all other entries to 0
+- Added snapping and alignment indicators when moving nodes/submodels
+- Added getItems(), fixed getAllItems() to include display items (mainly just textboxes)
+- Add and delete states
+	- Fixed: Context menu does add state on duplicate node (need to copy to original when click 'Save')
+	- Child definitions need to be updated 
+		- CPT children
+			- Add State: Set new states to uniform (we can do better eventually...)
+			- Delete State
+		- FuncTable children
+			(have created setInitialDefinition(), to reset any node def to an "initial state")
+			- Add State
+			- Delete State
+		- Equation children (well, we're going to treat this as just working)
+- Added drag/drop opening of files
+- Nodes resize when entering evidence
+- Initial keyboard shortcut support
+	- Add shortcut labels to menu (or tooltips?)
+	- Create a help popup with all current/default shortcuts
+- Initial undo/redo support (very experimental)
+- Added proper intersection calculations for boxes with rounded borders (in celebration, I made borders very much rounder)
+- Add/remove parents/children
+	- Add to list of parents/children (done)
+	- Update CPTs
+		(Add/remove parent states) - done
+		(Add parent) - done
+		(Remove parent) - done
+		(Test and clean up)
+			- Adding and removing states in the same go doesn't work (e.g. + then - causes new state name to be ignored)
+				- More testing needed...
+				- Create regression tests
+	- GUI for adding parents/children
+		- Need to reconsider the double-click drag, because doesn't work with a touchpad (Can toggle double-click/single-click drag for now, because there's no way to handle touchpad limitations well)
+			- Add a preference for toggling double-click/single-click to add arc
+		- Add arc to canvas when dragging (without node at end)
+		- Drag left/bottom makes child, drag right/up makes parent
+- Add Naive Bayes learner
+- Add TAN structure learner
+- Add moveStates function
+	- Update child CPTs (chose to do this using generic method, rather than a specialised one.
+		Probably slower, but probably more robust.)
+- FIXED: '+Add State' gui button can produce NaN in interface. Need to update belief vector size, I think (not sure why this used to work)
+- Handle saving of different evidence scenarios to network
+	- Allow removal of saved scenarios (With 'del' key)
+- Save stored scenarios when saving the network
 - Style comment in node context dialog
-
-Features
-- Continuous evidence...
+- Added description editing
+- Save submodels
+- Double-click anywhere to bring up add node/text/etc. menu (instead of making new node)
+- Double-click to edit text-box, blur/click elsewhere to go back to view mode and save the text
+- Creating nodes
+	- Double click to add node to canvas (done)
+	- By default, highlight node title/id for editing
+	- On double-clicking title (to edit it), tab should cycle through state names for editing (incl. Shift-Tab to reverse back)
+		- Working, but I wouldn't trust it very much!
+		- Have a bad way of making sure only one node is being actively edited. Fix this.
+	- Shift-Enter to add state
+		- Need to do Ctrl-Shift-Enter to add state before
+		- Need to implement undo()
+	- Move up/down through states & title using Up/Down
+	- Move state up/down using Ctrl-Up/Down (using moveStates function)
+	- Move state using Ctrl-Left/Right in CPT dialog (punted on trying to execute when clicking 'save',
+		so it executes immediately; there's no data loss, so no big deal, but might be slow on large CPTs/child CPTs)
+	- Control-Del to delete state (undo is buggy, but that's true with almost all undoable actions)
+- Definition classes
+	- Create definition placeholder
+	- Start moving functionality into definition placeholder
+	- Convert everything to using def's (load_xdsl/load_dne/new node mostly done)
+	- There are some tangling issues between Node and Definitions. Not 100% sure how best to handle.
+		- Node, States (state spaces) and Definitions (Relations) are all different concepts now
+	- Make addStates work (duplicate, duplicateLocal, updateDefinition, etc.)
+	- CPT working, now CDT
+	- Make removeStates work
+		- Remove states not working properly
+		- Test
+	- .dne load has weird issue where inference is correct, but def.cpt is just uniform
+	- Test
+	- Make moveStates work
+	- Fix setDefinitionType
+	- Fix setUtilities, setFuncTable, setEquation, cpt1d, randomizeCpt, normalizeCpt
+	- Fix setType
+	- Make the regression tests work again (originally 1/5, now 2/5, now 5/5. Woohoo!)
+		- Switch over the regression test code to async/await
+	- Node props dialog not working for everything (may be fixed. Check)
+	- Remove every non-def line of code
+- Make definition a subobject of node (a bit like node.format)
+- Rename node and state names (content editable? done in context menu)
