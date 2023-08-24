@@ -12,12 +12,14 @@ function TabSet(tabs) {
 	var $tabs = $('<div class="tabSet">');
 	var $tabStrip = $('<div class=tabStrip>');
 	$tabs.append($tabStrip);
-	for (var i=0; i<tabs.length; i++) {
+	for (let i=0; i<tabs.length; i++) {
 		/// Skip blanks
 		if (!tabs[i])  continue;
 
 		$tabButton = $('<button type=button data-for="'+tabs[i].id+'">').text(tabs[i].label).addClass(tabs[i].active ? 'active' : null);
-		if (tabs[i].onselect)  $tabButton.click(tabs[i].onselect);
+		if (tabs[i].onselect) {
+			$tabButton.click(event => tabs[i].onselect(event, event.target.closest('.tabSet').querySelector('.tab.'+event.target.dataset.for)));
+		}
 		$tabStrip.append($tabButton);
 		$tabs.append($('<div class="tab '+tabs[i].id+'">').append(tabs[i].content).addClass(tabs[i].active ? 'active' : null));
 	}

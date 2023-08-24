@@ -199,3 +199,29 @@ R25**
 	- Remove every non-def line of code
 - Make definition a subobject of node (a bit like node.format)
 - Rename node and state names (content editable? done in context menu)
+- Undo for moving nodes
+	- Created a |moveTo| gui & api function
+- BN update bug on undo (i.e. doesn't compile/belief update) --- actually a removeparents bug
+- Fixed some dramatic inefficiences on first load/continuous networks
+- Need to relayout arcs, when changing node/state labels inline
+- Undo add/delete node
+	- Have a possible implementation for both. For deletes, I save the node and child CPTs, and then restore it
+	- Test --- delete currently broken, when redoing.
+- Rename bn.displayItems to bn.basicItems
+- Submodel/textBox editing
+	(Lot's of things missing I didn't realise, like delete textbox/submodel!)
+	- Delete submodel
+	- guiDelete submodel
+		- updateArcs needs to work with submodels
+		- more checking needed
+	- guiAdd submodel (partially there)
+	- guiAdd/Delete textboxes
+	- textbox properties
+	- textbox resizing (simple)
+- Implement Junction Tree
+	- Implement factors
+		- Convert CPT to factor
+		- Multiply factors
+		- Marginalize
+		- Reduce (given evidence)
+		- Normalize to produce prob vector

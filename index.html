@@ -1,45 +1,57 @@
 <!doctype html>
-<meta charset="utf-8">
-<!--
-Copyright (c) 2014-2017 Steven Mascaro
-
-Permission is hereby granted, free of charge, to any person obtaining a copy
-of this software and associated documentation files (the "Software"), to deal
-in the Software without restriction, including without limitation the rights
-to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-copies of the Software, and to permit persons to whom the Software is
-furnished to do so, subject to the following conditions:
-
-The above copyright notice and this permission notice shall be included in all
-copies or substantial portions of the Software.
-
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-SOFTWARE.
--->
 <html>
 <head>
+	<meta charset="utf-8">
+	<!--
+	Copyright (c) 2014-2023 Steven Mascaro
+
+	Permission is hereby granted, free of charge, to any person obtaining a copy
+	of this software and associated documentation files (the "Software"), to deal
+	in the Software without restriction, including without limitation the rights
+	to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+	copies of the Software, and to permit persons to whom the Software is
+	furnished to do so, subject to the following conditions:
+
+	The above copyright notice and this permission notice shall be included in all
+	copies or substantial portions of the Software.
+
+	THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+	IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+	FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+	AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+	LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+	OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+	SOFTWARE.
+	-->
 	<title>Make-Believe (R25**)</title>
 	<link rel="icon" type="image/png" href="_/images/makeBelieve.png">
-	<script src="_/js/jquery-3.2.0.min.js"></script>
+	<meta name="viewport" content="width=device-width, initial-scale=1" />
+
+	<script src="_/js/jquery-3.2.1.min.js"></script>
 	<script>if (typeof($)=="undefined") { window.$ = window.jQuery = require('./_/js/jquery.min.js'); }</script>
-	<script src="_/js/defiant.min.js"></script>
+	<!--script src="_/js/defiant.min.js"></script-->
+	<script src="_/js/offmainthread.js"></script>
+	<script src="_/js/path.polyfill.min.js"></script>
 	<script src="_/js/vkbeautify.0.99.00.beta.js"></script>
+	<script src="_/js/html2canvas.js"></script>
 	<script src="_/js/engineCommon.js"></script>
+	<script src="_/js/jscolor.js"></script>
+	<script src="_/js/codeflask.min.js"></script>
+	<script src="_/js/gunzip.min.js"></script>
+	<script src="_/js/jszip.min.js"></script>
+	<script src="_/js/buffer.js"></script>
+	<script src="_/js/javaDeserialize.js"></script>
 	<script src="_/js/beliefUpdate_worker.js"></script>
 	<script src="_/js/junctionTree_worker.js"></script>
 	<script src="_/js/equationFunctions.js"></script>
 	<script src="_/js/sylvester.js"></script>
-	<script src="_/js/dagre.min.js"></script>
+	<script src="_/js/dagre2.min.js"></script>
 	<script src="_/js/stormy.js"></script>
 	<script src="_/js/menu/menu.js"></script>
 	<script src="_/js/tabs.js"></script>
 	<script src="_/js/utils.js"></script>
 	<script src="_/js/htm.js"></script>
+	<script src="_/js/objectlinks.js"></script>
 	<script src="_/js/parsing.js"></script>
 	<link href="_/js/menu/menu_styles.css" type="text/css" rel="stylesheet" />
 	<script src="_/js/menu/menu_styles.js"></script>
@@ -47,54 +59,124 @@ SOFTWARE.
 	<script src="_/js/definitions.js"></script>
 	<script src="_/js/makeBelieve.js"></script>
 	<script src="_/js/gui.js"></script>
+	<script src="_/js/contextmenus.js"></script>
 	<style>
 	:root {
 		--cpt-background0: rgb(255, 198, 35);
 		--cpt-background1: rgb(255, 228, 125);
+		--node-background: #F9DAB9;
+		--node-text: black;
+		--node-evidence: #FFA87F;
 	}
 	
-	* { box-sizing: border-box; }
+	* { box-sizing: border-box; min-height: 0; min-width: 0; }
 	
-	html, body { height: 100%; width: 100%; margin: 0; padding: 0; }
+	html, body { height: 100%; width: 100%; margin: 0; padding: 0; overflow: hidden; }
 
 	body { font-size: 8pt; font-family: arial; }
+	.bnComponent { width: 100%; height: 100%; position: relative; display: flex; flex-direction: column; }
 	.bnview { width: 100%; height: 100%; position: relative; }
 
 	/* Give h6 a normal size by default */
 	h6 { font-size: 1em; }
+	
+	th { text-align: left; }
+	
+	input.jscolor { border: solid 1px #777; }
+	input.jscolor:hover { border: solid 1px black; }
 
 	/* Node formatting */
 	.node { position: absolute; padding: 0 0; border-radius: 0; border: solid 1px #444;
-		background: #F9DAB9; z-index: 1; font-family: arial; }
-	.node.hasEvidence { background: #FFA87F; }
-	.node .controlBar { display: flex; flex-direction: row; max-width: 15em; }
-	.node h6 { font-size: 1em; margin: 0; font-weight: bold; border-bottom: solid 1px #444; padding: 1px;
+		background: var(--node-background); color: var(--node-text); z-index: 1; font-family: tahoma; font-size: 9pt; width: max-content; display: grid; grid-template-columns: auto auto auto;
+		align-items: stretch; align-content: center; }
+	.node, .submodel, .status { user-select: none; }
+	.submodel { cursor: pointer; }
+	.node.editMode { user-select: initial; }
+	.node.hasEvidence { background: var(--node-evidence); font-style: italic; }
+	.node .controlBar { position: relative; border-bottom: solid 1px #444; grid-column: 1 / 4 }
+	.node h6 { font-size: 1em; margin: 0; font-weight: bold; padding: 1px;
 		text-overflow: ellipsis; white-space: nowrap; overflow: hidden; flex: 1;
-		cursor: pointer; }
-	.node .hotSpotParent { width: 20px; border-bottom: solid 1px #444; display: flex;
-		align-items: center; justify-content: center; }
-	.node .hotSpot { background: black; width: 80%; height: 80%; opacity: 0.1; }
-	.node .hotSpot:hover { opacity: 0.5; background: linear-gradient(to bottom right, red, 47%, red, 53%, green, 100%, green); }
-	.node .state { display: table-row; }
+		cursor: pointer; max-width: 15em; }
+	.node h6[contenteditable] { cursor: text; }
+	.node .hotSpotParent { width: 28px; display: flex;
+		align-items: center; justify-content: center; position: absolute;
+		bottom: 100%; right: 0; height: 18px; }
+	.node .hotSpotReverse { background: url(_/images/arc_tail_cursor2.svg) no-repeat 50% 50%;
+		background-size: 8px 12px; width: 50%; height: 100%; opacity: 0; margin-right: 0px; }
+	.node .hotSpot { background: url(_/images/arc_head_cursor2.svg) no-repeat 50% 50%;
+		background-size: 8px 12px; width: 50%; height: 100%; opacity: 0; }
+	.node:hover .hotSpot, .node:hover .hotSpotReverse { opacity: 0.3; }
+	.node .hotSpot:hover, .node .hotSpotReverse:hover { opacity: 1; background-color: #0003; }
+	.node .states { display: contents; position: relative; }
+	.node .state { display: contents; }
 	.node .state .stateName:hover { cursor: pointer; opacity: 0.5; }
-	.node .state > div { display: table-cell; vertical-align: middle; padding: 1px; }
-	.node .state .prob { width: 2.6em; text-align: right; padding-left: 2px; overflow: hidden; display: inline-block; padding-right: 3px; }
-	.node .state .beliefBarView { min-width: 50px; position: relative; }
+	.node .state .stateName[contenteditable]:hover { cursor: text; }
+	.node .state > div { display: table-cell; vertical-align: middle; padding: 1px 5px 2px; }
+	.node .state .prob { width: 2.6em; text-align: right; padding-left: 5px; overflow: hidden; display: inline-block; padding-right: 3px; justify-self: end; }
+	.node .state .beliefBarView { min-width: 50px; position: relative; border-left: solid 1px black; padding: 1px 0; background: #7772; display: flex; flex-direction: column; align-items: start; justify-content: center; }
 	.node.dynamic .state .beliefBarView { min-width: 100px; height: 26px; }
-	.node .state .beliefBar { background: black; height: 10px; width: 0px; }
+	.node .state .beliefBar { background: #000c; height: 0.9em; width: 0px; }
+	.node .state .beliefBar2 { background: gray; height: 10px; width: 0px; }
 	.node *[contenteditable] { display: block; }
+	
+	/** I'm not sure why I don't have it this way all the time ? **/
+	.node h6 { text-align: left; overflow: visible; white-space: normal; padding: 2px 6px 2px 5px; }
 
 	/** Node selection **/
-	.node.selected { outline: solid 3px rgba(0,50,255,0.6); }
-	.node.dconnected { box-shadow: 0 0 0 4px red; }
+	.node.dconnected, .node.evidenceSetHighlight { box-shadow: 0 0 0 4px red; }
+	.node.related { box-shadow: 0 0 3px 2px red; }
+	.item.selected { /*outline: solid 3px rgba(0,50,255,0.6);*/ box-shadow: 0 0 3px 2px rgba(0,50,255,0.6); }
 	.rectSelect { position: absolute; z-index: 100; border: solid 1px blue; background: rgba(0,0,128,0.15); }
 	
 	path.dependency.selected { stroke: blue; }
+	.movePoint { fill: blue; stroke: none; }
+	
+	/** Flashing, to get user's attention **/
+	.flash1 { outline: solid 3px blue; }
+	.flash2 { outline: solid 3px lightblue; }
 
 	/** Labelled view **/
-	.node.label .state { display: none; }
-	.node.label { border-radius: 50px; padding: 0.2em; }
-	.node.label h6 { border-bottom: none; overflow: visible; white-space: normal; }
+	.node.ds_label .state { display: none; }
+	.node.ds_label { border-radius: 50px; padding: 0.2em; }
+	.node.ds_label .controlBar { border-bottom: none; }
+	.node.ds_label h6 { overflow: visible; white-space: normal; }
+	/*.node.ds_label .hotSpotParent { display: none; }*/
+	.node.ds_label h6 { text-align: center; }
+	
+	/** States only view **/
+	.node.ds_labelStates .state .stateName { grid-column: 1 / span 3; }
+	.node.ds_labelStates .state .prob { display: none; }
+	.node.ds_labelStates .state .beliefBarView { display: none; }
+	/*.node.ds_labelStates .hotSpotParent { display: none; }*/
+	.node.ds_labelStates h6 { text-align: left; overflow: visible; white-space: normal; padding: 2px 6px 2px 5px; }
+	.node.ds_labelStates .stateName { padding: 0px 6px 0px 5px; }
+	.node.ds_labelStates .state:last-of-type .stateName { padding-bottom: 2px;}
+	/** Bare label view (i.e. labels and no boxes) **/
+	.node.ds_bareLabel .state { display: none; }
+	.node.ds_bareLabel { border-radius: 50px; padding: 0.2em; background: none !important; color: black !important; border: none; }
+	.node.ds_bareLabel.hasEvidence { border: solid 2px black !important; border-radius: 0; }
+	.node.ds_bareLabel .controlBar { border-bottom: none; }
+	.node.ds_bareLabel h6 { overflow: visible; white-space: normal; }
+	/*.node.ds_bareLabel .hotSpotParent { display: none; }*/
+	.node.ds_bareLabel h6 { text-align: center; }
+	.node.ds_stacked { display: block; min-width: 130px; font-size: 0 !important; }
+	.node.ds_stacked .states { display: flex; }
+	.node.ds_stacked .state :is(.stateName,.prob) { display: none; }
+	.node.ds_stacked .controlBar { font-size: 11px; }
+	.node.ds_stacked .beliefBarView { display: contents; }
+	.node.ds_stacked .state :is(.beliefBar,.beliefBar2) { display: inline-block; height: 30px; cursor: pointer;
+		overflow: hidden; font-size: 9pt; text-align: center; }
+	.node.ds_stacked .state :is(.beliefBar,.beliefBar2)::before { content: attr(data-state-name); color: white; white-space: pre; }
+	.node.ds_stacked .state:last-child .beliefBar { flex: 1; }
+	.node.ds_stacked .state:nth-child(6n+1) .beliefBar { background: #044B7F; }
+	.node.ds_stacked .state:nth-child(6n+2) .beliefBar { background: #95190C; }
+	.node.ds_stacked .state:nth-child(6n+3) .beliefBar { background: #107E7D; }
+	.node.ds_stacked .state:nth-child(6n+4) .beliefBar { background: #E3B505; }
+	.node.ds_stacked .state:nth-child(6n+5) .beliefBar { background: #610345; }
+	/* Colors from: https://coolors.co/e3b505-95190c-610345-107e7d-044b7f */
+	/** temp
+	.node { max-width: 85px; }
+	.node h6 { width: -moz-min-content; }**/
 
 	/** Other node styles (e.g. Decision and utility) **/
 	.node.decision { background: #A5BEF2; }
@@ -108,44 +190,63 @@ SOFTWARE.
 	.submodel { position: absolute; padding: 0 0; border-radius: 0; border: solid 3px #444;
 		background: #F9DAB9; z-index: 1; font-family: arial; display: flex;
 		 min-width: 70px; min-height: 50px; justify-content: center; align-items: center; }
-	.submodel h6 { font-size: 1em; margin: 0; font-weight: bold; }
+	.submodel h6 { font-size: 1em; margin: 0; font-weight: bold; text-align: center; }
 	.submodel.parent { min-width: 20px; min-height: 15px; }
 
 	/** Text boxes **/
-	.textBox { position: absolute; padding: 0 0; }
+	.textBox { position: absolute; padding: 2px; cursor: pointer; }
+	.textBox.editMode { cursor: initial; height: auto !important; }
 	.textBox h6 { font-weight: inherit; }
 	.textBox[contenteditable] { outline: dotted 1px #666; }
+	
+	/** Images **/
+	.imageBox { position: absolute; }
 
 	/* Can also style svg arrows if needed */
 	/*path { stroke: red; }
 	polyline { fill: red; }*/
 
 	/* HTML CPT tables in the context menus */
-	.cpt { border-collapse: collapse; }
-	.cpt td, .cpt th { padding: 3px; text-align: center; border: solid 1px #aaa; }
-	.cpt th.stateLabel { width: 30px; max-width: 30px; }
-	.cpt th.stateLabel span { width: 100%; overflow: hidden; display: inline-block; }
-	.cpt td { background-repeat: no-repeat; text-align: center;  }
-	.cpt tr.invalid td { background: red !important; }
+	.CPT { border-collapse: collapse; }
+	.CPT th .move { position: absolute; top: -2px; left: 0; height: 5px; width: 100%;
+		cursor: grab; }
+	.CPT td, .CPT th { padding: 3px; text-align: center; border: solid 1px #aaa; position: relative; }
+	.CPT th.stateLabel { width: 30px; max-width: 30px; }
+	.CPT th.stateLabel span { width: 100%; overflow: hidden; display: inline-block; white-space: pre; }
+	.CPT td { background-repeat: no-repeat; text-align: center; cursor: text; }
+	.CPT tr.invalid td { background: red !important; }
+	.CPT td { background-image: linear-gradient(to top, var(--cpt-background0), calc(var(--prob) * 100%), var(--cpt-background0), calc(var(--prob) * 100%), transparent); }
+	.CPT tr:nth-child(2n) td { background-image: linear-gradient(to top, var(--cpt-background1), calc(var(--prob) * 100%), var(--cpt-background1), calc(var(--prob) * 100%), transparent); }
+	.cdt td { cursor: auto; }
 	/* Ensure span contenteditable's have sensible height, even when empty.
 	   Also, put in some content when empty, seems to help with some cursor issues. */
 	*[data-control=cpt] { height: 1.3em; }
-	*[data-control=cpt]:empty { content: " "; }
 	/** I'm not sure why these require an explicit height. **/
 	.funcDialog { min-height: 15em; }
 	.funcDialog textarea { width: 100%; height: 14em; }
+	
+	.movingColumn { position: fixed; z-index: 100; height: 10px; width: 10px; background: red; }
+	
+	.titlebar { display: flex; }
+	.titlebar .title { flex: 1; }
 
 	/** Layout **/
-	body { display: flex; flex-direction: column; height: 100%; }
+	body { display: flex; flex-direction: column; height: 100%; font-size: 10pt; }
 	.middle { flex: 1; width: 100%; display: flex; flex-direction: row; }
-	.sidebar { width: 250px; background: #eee; display: none; overflow: hidden; }
-	.sidebar > .comment { width: 250px; padding: 5px; white-space: pre-wrap; }
+	.sidebar { width: 250px; background: #eee; display: none; overflow: hidden; overflow-y: auto; }
+	.sidebar .boxes { height: 100%; display: flex; flex-direction: column; }
+	.sidebar .box { border-top: solid 1px #ccc; border-bottom:solid 1px #ccc; }
+	.sidebar .titlebar { display: flex; align-items: center; background: #777; color: white; }
+	.sidebar .titlebar .title { flex: 1; padding: 3px 5px; font-weight: bold; font-size: 12px; }
+	.sidebar .commentSec { width: 250px; white-space: pre-wrap; }
+	.sidebar .comment { padding: 5px; max-height: 150px; overflow: auto; font-size: 8pt; }
 	.sidebar .comment:empty::after { content: '[Enter a description]'; color: #aaa; }
 	.sidebar .comment:empty:hover::after { background: white; }
-	.bnouterview { flex: 1; overflow: auto; width: 100%; }
+	.bnouterview { flex: 1; overflow: auto; width: 100%; height: 100%; display: flex; }
+	.bnmidview { flex: 1; overflow: auto; width: 100%; height: 100%; display: flex; }
 	.status { background: white;
 		border-top: 1px solid #AAA;
-		width: 100%; z-index: 1000; opacity: 0.8; }
+		width: 100%; z-index: 1000; opacity: 0.8; font-size: 9pt; }
 	.status > span { margin-left: 1em; }
 	.decisionNet { display: none; }
 	
@@ -159,27 +260,36 @@ SOFTWARE.
 	.menu input[type=text] { padding: 1px; }
 	.menu .menuAction { min-height: 20px; }
 	.menu .menuAction hr { width: 100%; border: 0; border-top: solid 1px #ccc; }
+	.menu .menuAction.separator { background: white; min-height: 10px; padding: 0; }
+	.menuAction.checked { background-image: url(_/images/check.png); background-position: 2px 50%; background-size: 8px 8px;
+		background-repeat: no-repeat; }
+	.menuAction.checked.active { background-image: url(_/images/check_white.png); }
+	.menu .menuAction.separator:last-child { display: none; }
+	.menuAction .controls { float: right; }
 	
 	.contextMenu { position: fixed; z-index: 10000; }
 	
 	/** Help **/
 	.dialog.about .license { max-width: 30em; max-height: 18em; overflow: auto; height: 100%; text-align: left;
 		margin: 10px; border: solid 1px #ccc; }
+	.dialog.about .mbIcon { height: 1em; vertical-align: text-top; }
 	.dialog.keyboardShortcuts .shortcutList { text-align: left; }
 	.dialog.keyboardShortcuts label { display: inline-block; width: 10em; }
 
 	/** Dialogs **/
 	.dialog { display: none; position: absolute; z-index: 10000; background: rgb(255,255,255); background: rgba(255,255,255,0.95);
-		border: solid 1px black; box-shadow: 2px 2px 2px #888; padding: 1.2em; text-align: center; min-width: 150px; }
+		border: solid 1px black; box-shadow: 2px 2px 2px #888; padding: 1.2em; text-align: center; min-width: 300px;
+		max-height: 80%; max-width: 80%; flex-direction: column; border-radius: 0; }
 	.dialog.page { width: 80%; height: 70%; }
+	.dialog .content { overflow: auto; }
 	.dialog h2 { margin: 0; margin-bottom: 8px; }
-	.dialog .controls { margin-top: 8px; text-align: right; }
+	.dialog .controls { margin-top: 8px; text-align: right; align-self: stretch; }
 	.veil { position: absolute; z-index: 1000; background: white; opacity: 0; top: 0; left: 0; }
 	.dialog .text { text-align: left; }
 
 	/** Tabs **/
 	.tab { display: none; min-height: 15em; min-width: 30em; border: solid 1px black; border-bottom: none;
-	  background: white; text-align: left; padding: 5px 10px; z-index: 10; position: relative; }
+	  background: white; text-align: left; padding: 5px 10px; z-index: 10; position: relative; max-height: 85vh; overflow: auto; }
 	.tab.active { display: block; }
 	.tabSet .tabStrip { display: block; text-align: left; }
 	.tabSet .tabStrip button { background: #eee; border: solid 1px black; border-bottom: none;
@@ -187,7 +297,7 @@ SOFTWARE.
 	.tabSet .tabStrip button.active { color: black; z-index: 15; background: white; opacity: 1; }
 
 	/** Context menu **/
-	.dialog.contextMenu { border: none; box-shadow:none; background: none; }
+	.dialog.contextMenu { border: none; box-shadow:none; background: none; padding: 0; max-height: initial; max-width: initial; font-size: 9pt; }
 	.dialog.contextMenu .controls { margin-top: 0px; border: solid 1px black; border-top: solid 1px #ccc; background: white; }
 	.dialog.contextMenu label { display: inline-block; width: 90px; }
 
@@ -196,70 +306,240 @@ SOFTWARE.
 	.dialog.node .tab { overflow-y: auto; max-height: 23em; overflow-x: hidden; }
 	.dialog .commentSec label { display: block; }
 	.dialog .comment { font-size: 8pt; font-family: arial; width: 100%; }
+
+	.dialog .dimension { width: 3em; }
+
+	.dialog ul { text-align: left; margin: 1em 0; padding-left: 12px; }
+	.dialog ul.checklist { padding-left: 0; list-style-type: none; }
+	.dialog ul li * { vertical-align: middle; }
+	.dialog ul h3 { margin-bottom: 0; margin-left: -11px; }
+
+	.definition.tab.active { display: flex; }
+	.definition.tab.active > .definition { flex: 1; display: flex; flex-direction: column; }
+	.defTabContent { flex: 1; display: flex; flex-direction: column; }
+	.defEquation { flex: 1; }
+	.contextMenu .defEquation textarea { width: 100%; height: 100%; }
+	
+	table.stateSpace[data-state-space-type=categorical] .minimum,
+	table.stateSpace[data-state-space-type=categorical] .value,
+	table.stateSpace[data-state-space-type=ordered] .minimum,
+	table.stateSpace[data-state-space-type=ordered] .value,
+	table.stateSpace[data-state-space-type=point] .minimum,
+	table.stateSpace[data-state-space-type=interval] .value,
+	table.stateSpace[data-state-space-type=continuous] .value,
+	table.stateSpace tr.maximum
+		{ display: none; }
+	table.stateSpace[data-state-space-type=interval] tr.maximum,
+	table.stateSpace[data-state-space-type=continuous] tr.maximum
+		{ display: table-row; }
+	table.stateSpace[data-state-space-type=interval] tr.footer button[name=addState],
+	table.stateSpace[data-state-space-type=continuous] tr.footer button[name=addState]
+		{ position: relative; top: -15px; }
+	table.stateSpace th, table.stateSpace td { height: 2.1em; }
+	table.stateSpace td:not(.delete) { border: solid 1px #ccc; }
+	table.stateSpace th.blank, table.stateSpace td.blank { border: none; }
+	table.stateSpace[data-state-space-type=interval] td:not(.minimum),
+	table.stateSpace[data-state-space-type=continuous] td:not(.minimum)
+		{ position: relative; top: 0.75em; }
+	.notApplicable { display: none; }
+	.dialog.contextMenu .notApplicable { display: none; }
+	
+	
+	.contextMenu .approxTranslation { display: none; font-size: 8pt; line-height: 7pt; width: 10em; position: absolute; right: 5px; top: 3px; text-align: right; color: #333; }
+	.contextMenu .approxTranslation.active { display: block; }
+	.contextMenu .continuous label { white-space: pre; width: auto; }
+ 
+	.definition.tab.active .definitionMade { flex: 1; display: flex; }
+	.equationText { position: relative; flex: 1; border: solid 1px #ccc; }
+	.equationText .codeflask__flatten {
+		white-space: pre-wrap;
+		overflow-wrap: anywhere;
+		padding: 2px 6px;
+	  }
+	
+	table .cellSelected,
+	/* I can't think of a nice way of doing the following. That is, override the alternating row colouring without artificially increasing the specificity. */
+	.CPT tr:nth-child(n) td.cellSelected
+	{ background: blue; color: white; }
+	.cellSelected { caret-color: transparent; }
+	
+	.intervene { outline: solid 2px green; }
+	
+	/** Fields in forms **/
+	.fields { display: grid; grid-template-columns: auto 1fr; align-items: center; justify-items: start; grid-gap: 5px 2px; }
+	.field { display: contents; }
+	.field.wide { display: block; grid-column: 1 / span 2; width: 100%; }
+	.field.wide label { display: block; }
+	
+	.field.wide textarea { font-size: 8pt; font-family: arial; width: 100%; min-height: 4em; }
+	
+	.insertSpaceProtector { opacity: 0.01; background: white; position: fixed; z-index: 100;
+		cursor: row-resize; }
+	.insertSpaceProtector.vertical { cursor: col-resize; }
+	.insertSpaceProtector.rectangular { cursor: crosshair; }
 	
 	/** Console **/
 	.console { display: none; position: fixed; bottom: 20px; left: 10px; width: 200px;
 		z-index: 100; }
 	.consoleInput { width: 100%; padding: 3px;
 		border: solid 1px blue; border-radius: 5px; box-shadow: 2px 2px 2px #7777; }
+
+	/** Add remove this class when moving, dropping, etc. */
+	.disableSelections {
+		-webkit-touch-callout: none;
+		-webkit-user-select: none;
+		-khtml-user-select: none;
+		-moz-user-select: none;
+		-ms-user-select: none;
+		user-select: none;
+	}
+	
+	/** Focus particular menu items temporarily. This is more hacky
+		than needed, because no way to make child more opaque directly. **/
+	.unfocusMenu .menuAction, .unfocusMenu .header { opacity: 0.2; }
+	.unfocusMenu .itemList { background: #fff2; border: solid 1px transparent; box-shadow: none; }
+	.focusMenu.menuAction { opacity: 1; }
+	
+	.spaceLabel { display: inline-block; width: 9em; }
+	
+	.menu .restore { display: flex; max-width: 300px; gap: 10px; }
+	.menu .label { flex: 1; overflow: hidden; text-overflow: ellipsis; }
+	
+	
+	/* XXX Replace with generalised windowing/dialogue functionality **/
+	/*.eachValidator { position: fixed; top: 10px; right: 10px; background: white; padding: 10px; padding-top: 0; box-shadow: 2px 2px 2px #cccc; z-index: 100; }
+	.eachValidator h2 { font-size: 10pt; background: #eee; margin: 0 -10px 5px; padding: 2px; }*/
+	
+	.eachValidator :is(button,select,.counter) { }
+	div.eachValidator button {  font-size: 1.2em; }
+	.eachValidator { display: flex; gap: 5px; padding: 5px; align-items: center; }
+	.eachValidator .currentNode { flex: 1; }
+	.eachValidator .counter { display: flex; align-items: center; padding: 6px; }
+	.eachValidatorPar .fields { padding: 5px; padding-top: 1px; }
+	.eachValidatorPar .description { outline: solid 1px #ccc; height: 8em; font-size: 9pt; overflow: auto; }
+	
+	.varDict table { border-collapse: collapse; }
+	.varDict :is(th,td) { border: solid 1px #ccc; text-align: left; padding: 5px; }
+	.varDict .vdComment { white-space: pre-wrap; }
+	@media (max-device-width: 500px) {
+		.menu .itemList { left: 0 !important; }
+	}
+	</style>
+	<!-- contenteditable empty hacks :\ -->
+	<style>
+	/* Firefox + Chrome hack */
+	:not(td)[contenteditable]:empty::before { content: "\00a0"; }
+	</style>
+	<style class="fxContenteditable">
+	/* Firefox hack */
+	/*td[contenteditable]:empty { display: block; margin: -1px; }*/
+	</style><script>
+	if (navigator.userAgent.toLowerCase().indexOf('firefox') == -1) {
+		document.querySelector('.fxContenteditable').disabled = true;
+	}
+	</script>
+	<style media="print" id="printSheet">
+		body > * { display: none; }
+		body > .middle { display: flex; }
+		.middle .sidebar { display: none !important; }
+		.node .hotSpotParent { display: none; }
 	</style>
 	<style id="beliefBarAnimations">
-	.node .state .beliefBar { transition: width 0.3s; }
+	.node .state .beliefBar, .node .state .beliefBar2 { transition: width 0.3s; }
+	</style>
+	<style data-style="netica">
+	.node { position: absolute; padding: 0 0; border-radius: 0; border: solid 1px #444;
+		background: rgb(248,238,210); z-index: 1; font-family: arial; font-size: 9pt; width: max-content; }
+	.node h6 { text-align: center; padding: 2px 8px 2px 8px; }
+	.node .state > div { padding: 0; }
+	.node .state .stateName { padding-left: 8px; }
+	.node .state .beliefBarView { background: rgba(132,128,126,0.48); border-left: solid 1px black; }
+	.node .state .beliefBarView::before { display: block; content: ""; width: 25%; height: 100%; border-right: dotted 1px black; border-left: dotted 1px black; position: absolute; top: 0;
+		left: 25%; pointer-events: none; }
+	.node .state .beliefBarView::after { display: block; content: ""; width: 76%; height: 100%; border-right: dotted 1px black; position: absolute; top: 0; pointer-events: none; }
+	.node .state .beliefBar { height: 7px; }
+	.node .state .prob { text-align: right; }
+	</style>
+	<style data-style="genie">
+	.bnview .netSvgCanvas { background-image: radial-gradient(circle at 15px 1px, #ddd 0.5px, transparent 0), radial-gradient(circle at 1px 15px, #ddd 0.5px, transparent 0);
+		background-size: 16px 2px, 2px 16px; min-height: 100%; min-width: 100%; }
+	.netSvgCanvas path.dependency { stroke: rgb(0,0,128); }
+	#arrowhead polyline { fill: rgb(0,0,128); }
+	.node { position: absolute; padding: 0 0; border-radius: 0; border: solid 1px rgb(0,0,128);
+		background: rgb(229,246,247); z-index: 1; font-family: arial; font-size: 9pt; width: max-content; }
+	.node.label { border-radius: 50%; padding: 0.5em 0.8em; }
+	.node h6 { text-align: center; padding: 1px 0 1px 0; font-weight: normal; }
+	.node .state > div { padding: 0; }
+	.node .state .stateName { padding-left: 2px; }
+	.node .state .beliefBarView { border-left: solid 1px black; background: none; }
+	.node .state .beliefBar { height: 1em; background-repeat: no-repeat; }
+	.node .state:nth-child(6n+1) .beliefBar { background-image: linear-gradient(to right, rgb(0,0,255), rgb(0,255,255));
+		 border: solid 1px rgb(0,0,255); }
+	.node .state:nth-child(6n+2) .beliefBar { background-image: linear-gradient(to right, rgb(255,128,0), rgb(255,255,0));
+		 border: solid 1px rgb(255,128,0); }
+	.node .state:nth-child(6n+3) .beliefBar { background-image: linear-gradient(to right, rgb(0,160,0), rgb(0,255,0));
+		 border: solid 1px rgb(0,160,0); }
+	.node .state:nth-child(6n+4) .beliefBar { background-image: linear-gradient(to right, rgb(128,0,128), rgb(255,0,255));
+		 border: solid 1px rgb(128,0,128); }
+	.node .state:nth-child(6n+5) .beliefBar { background-image: linear-gradient(to right, rgb(64,0,0), rgb(255,0,0));
+		 border: solid 1px rgb(64,0,0); }
+	.node .state:nth-child(6n+6) .beliefBar { background-image: linear-gradient(to right, rgb(128,128,128), rgb(255,255,255));
+		 border: solid 1px rgb(128,128,128); }
+	.node .state .prob { text-align: right; }
 	</style>
 </head>
 <body>
-	<div class="toolbar" style="display: none;">
-		<input type="file" id="openFile" style="display:none;" onchange="fileLoaded(this.files[0], updateBN)" accept=".xdsl,.dne">
-		<input type="file" id="openDataFile" style="display:none;">
-		<button type="button" onclick="app.loadFile()">Load File</button>
-		<button type="button" onclick="app.saveFile()">Save File</button>
-		<button onclick="app.updateBN()">Update</button>
-		Example BNs: <select class="exampleBns">
-		<option></option>
-		<option>Asia.xdsl</option>
-		<option>RS Latch.xdsl</option>
-		<option>Umbrella.xdsl</option>
-		<option>Water.xdsl</option>
-		</select>
-		<input type="range" name="viewZoom" min="0.25" max="3" step="0.25" value="1"> <span class="viewZoomText">100%</span>
-		<button type="button" onclick="app.findGoodDecisions()" class="decisionNet">Find Good Decisions</button>
-		<button type="button" onclick="app.autoLayout()">Auto Layout</button>
-		# Samples: <input type="text" name="iterations" value="1000">
+	<div class="bnComponent">
+		<div class="toolbar" style="display: none;">
+			<input type="file" id="openFile" style="display:none;" onchange="app.fileLoaded(this.files[0], app.updateBN)" accept=".mb,.xdsl,.dne,.cmp">
+			<input type="file" id="openDataFile" style="display:none;">
+			<button type="button" onclick="app.loadFile()">Load File</button>
+			<button type="button" onclick="app.saveFile()">Save File</button>
+			<button onclick="app.updateBN()">Update</button>
+			Example BNs: <select class="exampleBns">
+			<option></option>
+			<option>Asia.xdsl</option>
+			<option>RS Latch.xdsl</option>
+			<option>Umbrella.xdsl</option>
+			<option>Water.xdsl</option>
+			</select>
+			<input type="range" name="viewZoom" min="0.25" max="3" step="0.25" value="1"> <span class="viewZoomText">100%</span>
+			<button type="button" onclick="app.findGoodDecisions()" class="decisionNet">Find Good Decisions</button>
+			<button type="button" onclick="app.autoLayout()">Auto Layout</button>
+			# Samples: <input type="text" name="iterations" value="1000">
+		</div>
+		<div class="middle">
+			<div class="bnouterview"><div class="bnmidview"><div class="bnview"></div></div></div>
+			<div class="sidebar"><div class="boxes"></div></div>
+		</div>
+		<div class="status">(No net loaded.)</div>
+		<div class="console"><input class="consoleInput" type="text"></div>
+		<!--iframe id="downloadFrame" srcdoc='<a id="download" href="" download=""></a>' style="display: none;"></iframe-->
+		<script type="text/plain" class="dneGrammar">
+			DNE = DNE_ITEM*
+			DNE_ITEM! = COMMENT | STATEMENT@ | BLANK
+			COMMENT! = /\/\/.*/ EOL
+			WSC! = /\s*/ COMMENT? /\s*/
+			WSC_REQ! = /\s+/ COMMENT? /\s*/ | /\s*/ COMMENT? /\s+/
+			BLANK = WSC EOL
+			EOL = /\r?\n|$/
+			STATEMENT! = ASSIGN_STATEMENT@ | BLOCK_STATEMENT@
+			BLOCK_STATEMENT = WSC BLOCK_TYPE WSC_REQ NAME WSC /\{/! WSC BLOCK_BODY WSC /\}/! WSC /;/! WSC
+			ANON_BLOCK_EXPR = WSC BLOCK_TYPE WSC /\{/! WSC BLOCK_BODY WSC /\}/! WSC
+			BLOCK_BODY = DNE_ITEM*
+			ASSIGN_STATEMENT = WSC NAME WSC /=/ WSC ASSIGN_EXPR WSC /;/! WSC
+			ASSIGN_EXPR! = ANON_BLOCK_EXPR@ | BASIC_EXPR@
+			BASIC_EXPR = /"/ DQ_VALUE@! /"/ | /'/ SQ_VALUE@! /'/ | UQ_VALUE@!
+			DQ_VALUE = /(\\.|[^"])*/
+			SQ_VALUE = /(\\.|[^'])*/
+			UQ_VALUE = /[^;]*/
+			NAME! = ID@
+			BLOCK_TYPE! = ID@
+			ID! = /[a-zA-Z0-9][a-zA-Z0-9_]*/@
+		</script>
+		<!-- I've included numbers at the start of the ID! rule, because there was
+			 an occasion in which that appeared in a Netica saved file. I don't know if it's really legal or
+			 not, but to be safe, I accept it. -->
 	</div>
-	<div class="middle">
-		<div class="bnouterview"><div class="bnview"></div></div>
-		<div class="sidebar"></div>
-	</div>
-	<div class="status">(No net loaded.)</div>
-	<div class="console"><input class="consoleInput" type="text"></div>
-	<!--div class=a>a</div>
-	<div class=b>b</div>
-	<div class=c>c</div-->
-	<a id="download" href="" download=""></a>
-	<script type="text/plain" class="dneGrammar">
-		DNE = DNE_ITEM*
-		DNE_ITEM! = COMMENT | STATEMENT@ | BLANK
-		COMMENT! = /\/\/.*/ EOL
-		WSC! = /\s*/ COMMENT? /\s*/
-		WSC_REQ! = /\s+/ COMMENT? /\s*/ | /\s*/ COMMENT? /\s+/
-		BLANK = WSC EOL
-		EOL = /\r?\n|$/
-		STATEMENT! = ASSIGN_STATEMENT@ | BLOCK_STATEMENT@
-		BLOCK_STATEMENT = WSC BLOCK_TYPE WSC_REQ NAME WSC /\{/! WSC BLOCK_BODY WSC /\}/! WSC /;/! WSC
-		ANON_BLOCK_EXPR = WSC BLOCK_TYPE WSC /\{/! WSC BLOCK_BODY WSC /\}/! WSC
-		BLOCK_BODY = DNE_ITEM*
-		ASSIGN_STATEMENT = WSC NAME WSC /=/ WSC ASSIGN_EXPR WSC /;/! WSC
-		ASSIGN_EXPR! = ANON_BLOCK_EXPR@ | BASIC_EXPR@
-		BASIC_EXPR = /"/ DQ_VALUE@! /"/ | /'/ SQ_VALUE@! /'/ | UQ_VALUE@!
-		DQ_VALUE = /(\\.|[^"])*/
-		SQ_VALUE = /(\\.|[^'])*/
-		UQ_VALUE = /[^;]*/
-		NAME! = ID@
-		BLOCK_TYPE! = ID@
-		ID! = /[a-zA-Z0-9][a-zA-Z0-9_]*/@
-	</script>
-	<!-- I've included numbers at the start of the ID! rule, because there was
-	     an occasion in which that appeared in a Netica saved file. I don't know if it's really legal or
-	     not, but to be safe, I accept it. -->
 </body>
 </html>

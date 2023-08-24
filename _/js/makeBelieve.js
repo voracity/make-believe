@@ -1,6 +1,35 @@
 /** This whole section needs to change **/
-var TEMP_USEJTREE = false;
-var useWorkers = TEMP_USEJTREE ? false : true;
+var mbConfig = {
+	updateMethod: 'autoSelect',
+	useWorkers: false,
+	// updateMethod: 'likelihoodWeighting',
+	// useWorkers: true,
+	updateMethod: 'junctionTree',
+	useWorkers: true,
+	numWorkers: 2,
+	iterations: 10000,
+};
+var FILE_EXTENSIONS = {
+	mb: {text: true},
+	xdsl: {text: true},
+	dne: {text: true},
+	cmp: {text: false},
+};
+function getFileType(fileName) {
+	let format = fileName.replace(/^.*\.([^.]*)$/, '$1');
+	/// Assume xdsl if extension not recognised (XXX probably should at least throw a warning before
+	/// the inevitable failure to load anything)
+	console.log(format);
+	if (!FILE_EXTENSIONS[format]) {
+		format = "xdsl";
+	}
+	return format;
+}
+function getFileTypeInfo(format) {
+	let fileExtInfo = FILE_EXTENSIONS[format];
+	return fileExtInfo;
+}
+
 if (typeof($)=="undefined") {
 	/// XXX Quick hack to suppress ordinary console.logs in the API
 	/// XXX Fix by actually removing unnecessary console.log statements!
@@ -8,6 +37,7 @@ if (typeof($)=="undefined") {
 	console.log = function(){}
 
 	$ = require('cheerio');
+	/*** Am using Object.assign now
 	/// I use jQuery's extend, add something like it
 	$.extend = function() {
 		var newObj = {};
@@ -19,7 +49,12 @@ if (typeof($)=="undefined") {
 		}
 		return newObj;
 	}
+	***/
 	bu = require('./beliefUpdate_worker.js');
+	({addObjectLinks} = require('./objectlinks.js'));
+	({CPT, CDT, Equation, NodeDefinitions} = require('./definitions.js'));
+	({JunctionTree} = require('./junctionTree_worker.js'));
+	({makeBnForUpdates} = require('./engineCommon.js'));
 
 	function genPass(length) {
 		var pwd;
@@ -29,19 +64,21 @@ if (typeof($)=="undefined") {
 		}
 		return pwd.toLowerCase();
 	}
-	useWorkers = false;
+	mbConfig.useWorkers = false;
 }
 
 var titlePostfix = typeof(document)!="undefined" ? document.title : ""; /// Valid on load, but not any other time of course
-var openBns = [];
-var openData = [];
-var currentBn = null;
 
 /// Adds a default |setXXX| function for every property in the object,
 /// unless one is already specified in the chain. This should be called
 /// on the constructor (i.e. addDefaultSetters(Object)) as well as
 /// *inside* the constructor at the end of property initialisations
 /// (i.e. addDefaultSetters(this)).
+///
+/// For addDefaultSetters(Object), it will create
+/// an object (that's empty), and assigned setters to the prototype based on that.
+/// However, the constructor might set things up differently in a given circumstance,
+/// so it's often required to addDefaultSetters(this) as well.
 function addDefaultSetters(Obj) {
 	var o = Obj;
 	var proto = o.__proto__;
@@ -66,28 +103,11 @@ function addDefaultSetters(Obj) {
 	})(i); }
 }
 
-if (!Array.prototype.findIndex) {
-  Object.defineProperty(Array.prototype, 'findIndex', {value: function(predicate) {
-	if (this === null) {
-	  throw new TypeError('Array.prototype.findIndex called on null or undefined');
-	}
-	if (typeof predicate !== 'function') {
-	  throw new TypeError('predicate must be a function');
-	}
-	var list = Object(this);
-	var length = list.length >>> 0;
-	var thisArg = arguments[1];
-	var value;
-
-	for (var i = 0; i < length; i++) {
-	  value = list[i];
-	  if (predicate.call(thisArg, value, i, list)) {
-		return i;
-	  }
-	}
-	return -1;
-  }});
-}
+// Not such a good idea, given no way to distinguish length and methods like filter, etc.
+// /// Add a property to an array, and make sure it isn't enumerable
+// function setArrayProperty(obj, prop, value) {
+	// Object.defineProperty(obj, prop, {configurable:true, writable:true, enumerable: false, value});
+// }
 
 /// I'm not sure if this guarantees a nicely formatted string.
 function sigFig(num, digits) {
@@ -175,35 +195,8 @@ function klDiv(distro1, distro2) {
 	return sum;
 }
 
-/// Inconsistencies between html and svg are very annoying
-function makeSvg(tag, attrs) {
-	var el= document.createElementNS('http://www.w3.org/2000/svg', tag);
-	for (var k in attrs) {
-		el.setAttribute(k, attrs[k]);
-	}
-	return el;
-}
-
 String.prototype._splitNotEmpty = function() {
 	return this.length==0 ? [] : this.split.apply(this, arguments);
-}
-
-function getQs() {
-	var params = {};
-	var argSpecs = window.location.search.substring(1).split('&');
-	if (window.location.search) {
-		for (var i in argSpecs) {
-			var argInfo = argSpecs[i].split('=');
-			params[unescape(argInfo[0])] = unescape(argInfo[1]);
-		}
-	}
-	return params;
-}
-
-if (typeof(window)!="undefined")  window.qs = getQs();
-
-function loadFile() {
-	$("#openFile").click();
 }
 
 function baseName(fileName) {
@@ -213,76 +206,6 @@ function baseName(fileName) {
 	}
 	return null;
 }
-
-/**
-	@file: a file object, from (e.g.) an <input> or a |event.dataTransfer.files| object
-*/
-function fileLoaded(file, callback) {
-	var fileExts = {xdsl:true,dne:true};
-
-	var fileName = baseName(file.name);
-	var format = file.name.replace(/^.*\.([^.]*)$/, '$1');
-	/// Assume xdsl if extension not recognised (XXX probably should at least throw a warning before
-	/// the inevitable failure to load anything)
-	console.log(format);
-	if (!fileExts[format]) {
-		format = "xdsl";
-	}
-
-	//onsole.debug(file);
-	var reader = new FileReader();
-	reader.onload = function(e) {
-		openBns.push(new BN({source: e.target.result, outputEl: $(".bnview"), format: format, fileName: fileName}));
-		currentBn = openBns[openBns.length-1];
-		if (callback)  callback();
-	}
-	reader.readAsText(file);
-}
-
-/// Loads the file of the given name/path from the server via XHR, and
-/// then calls the callback
-function loadFromServer(fileName, callback) {
-	var fileExts = {xdsl:true,dne:true};
-	var format = fileName.replace(/^.*\.([^.]*)$/, '$1');
-	if (!fileExts[format]) {
-		format = "xdsl";
-	}
-	$.get(fileName, function(data) {
-		openBns.push(new BN({source: data, outputEl: $(".bnview"), format: format, fileName: baseName(fileName)}));
-		currentBn = openBns[openBns.length-1];
-		if (callback)  callback();
-	}, "text");
-}
-
-function readChosenFile(inp, callback) {
-	var file = inp.files[0];
-	console.debug(file);
-	var reader = new FileReader();
-	reader.onload = function(e) {
-		if (callback)  callback(e.target.result, e);
-	}
-	reader.readAsText(file);
-}
-
-function loadTabbedData(text) {
-	var lines = text.replace(/^\s*|\s*$/g, '').split(/\r?\n/);
-	var data = [];
-	for (var ent of lines.entries()) {
-		var i = ent[0], line = ent[1];
-		lines[i] = line.split(/\t/);
-		if (i>0) {
-			var row = {};
-			for (var ent of lines[0].entries()) { var hi=ent[0],header=ent[1]; row[header] = lines[i][hi]; }
-			data.push(row);
-		}
-	}
-	openData.push(data);
-}
-
-function updateBN(callback) {
-	currentBn.updateAndDisplayBeliefs(null, callback);
-}
-
 /// From https://developer.mozilla.org/en-US/docs/Web/Guide/API/DOM/The_structured_clone_algorithm
 function clone(objectToBeCloned) {
   // Basis.
@@ -336,15 +259,6 @@ function renewArray(arr, initial) {
 	return arr;
 }
 
-/// Count the number of state combinations across all nodes in |nodes|
-function numNodeStateCombinations(nodes) {
-	var numNodeStates = 1;
-	for (var j=0; j<nodes.length; j++) {
-		numNodeStates *= nodes[j].states.length;
-	}
-	return numNodeStates;
-}
-
 /// The |initialStates| and |nextStates| functions can be used together
 /// to step through every row in a CPT, with indexes pointing back to each parent state.
 /// Run |initialStates| on the list of parent nodes, to initialise an array of state indexes,
@@ -364,141 +278,12 @@ function nextStates(nodes, states) {
 	return j >= 0;
 }
 
-/** Dialogs **/
-function popupDialog($a, opts) {
-	var opts = opts || {};
-	opts.buttons = opts.buttons || [];
-	opts.className = opts.className || "";
-
-	/// $a could be a string, element or jquery element
-	$a = $("<div class=dialog>")
-		.addClass(opts.className)
-		.html($a)
-		.appendTo("body");
-
-	/// Add controls
-	$a.append($('<div class=controls>').append(opts.buttons));
-
-	var $veil = $("<div class=veil>").width($(window).width()).height($(window).height())
-		.css({opacity: 0})
-		.animate({opacity: 0.5}, 300)
-		.appendTo($("body"));
-
-
-	var w = $a.outerWidth(),
-		h = $a.outerHeight();
-	$a.fadeIn(300);
-
-	$a.css({left: (($(window).width() - w)/2)+"px"});
-	$a.css({top:(($(window).height() - h)/2)+"px"});
-
-	$a.data("veil", $veil);
-	
-	return $a;
-}
-
-function reportError(msg) {
-	popupDialog(msg+"<div class=controls><button type=button onclick=dismissDialogs()>OK</button></div>");
-}
-
-function dismissDialog($a, callback) {
-	$a.fadeOut(300);
-	$a.data("veil").animate({opacity: 0}, 300, function() { $(this).hide(); if (typeof(callback)=="function")  callback(); });
-	$a.data("veil").remove();
-	$a.remove();
-}
-
-function dismissDialogs(callback) {
-	var first = true;
-	var $dialogs = $();
-	$(".dialog:visible").each(function() {
-		$dialogs.add(dismissDialog($(this), first ? callback : null));
-		first = false;
-	});
-}
-
-function nyi() {
-	popupDialog('Not yet implemented :(', {buttons:[
-		$('<button type=button>OK</button>').click(dismissDialogs),
-	]});
-}
-
-function popupEditDialog($content, opts) {
-	popupDialog($content, {
-		className: 'contextMenu '+opts.className,
-		buttons: [
-			$('<button type=button class=saveButton disabled>').html('Save').on('click', function() {
-				$(".dialog .saveButton")[0].disabled = true;
-				console.log(whatsDirty);
-				var controls = opts.controls;
-				var success = true;
-				for (var control in controls) {
-					if (whatsDirty[control]) {
-						whatsDirty[control] = false;
-						/**
-						Validity needs to be checked for all controls *first* (to avoid partial updates), but that's not
-						the case right now.
-
-						Currently, change events should be checked in order of failure priority.
-						XXX: This needs fixing.
-						*/
-						if ($('.dialog *[data-control='+control+']').is('input, select, textarea')) {
-							//var valid = $('.dialog *[data-control='+control+']').get().map(a=>$(a).is(':valid')).reduce((a,b)=>a && b);
-							var valid = $('.dialog *[data-control='+control+']').get().map(function(a){return $(a).is(':valid')}).reduce(function(a,b){return a && b});
-							if (valid) {
-								var $control = $('.dialog *[data-control='+control+']');
-								var val = $control.val();
-								/// 'false' specifically means change didn't save
-								if (controls[control].change(val, $control)===false) {
-									$(".dialog .saveButton")[0].disabled = false;
-									whatsDirty[control] = true;
-									success = false;
-
-									/// XXX: This needs fixing. Need validate all controls first.
-									return false;
-								}
-							}
-							else {
-								/// XXX: This needs fixing. Need validate all controls first.
-								return false;
-							}
-						}
-						else {
-							/// Non-standard control, just call with no arguments
-
-							/// 'false' specifically means change didn't save
-							if (controls[control].change($('.dialog *[data-control='+control+']'))===false) {
-								$(".dialog .saveButton")[0].disabled = false;
-								whatsDirty[control] = true;
-								success = false;
-
-								/// XXX: This needs fixing. Need validate all controls first.
-								return false;
-							}
-						}
-					}
-				}
-				if (success && opts.onsave) {
-					opts.onsave();
-				}
-			}),
-			$('<button type=button class=closeButton>').html('Close').on('click', dismissDialogs),
-		],
-	});
-	$(".dialog").data("whatsDirty", {})
-	var whatsDirty = $(".dialog").data("whatsDirty");
-	$(".dialog").on("change keyup", function(event) {
-		if ($(event.target).closest('*[data-control]').length) {
-			var name = $(event.target).closest('*[data-control]').data('control');
-			whatsDirty[name] = true;
-		}
-		$(".dialog .saveButton")[0].disabled = false;
-	});
-}
-/** End Dialogs **/
-
+//var IDREGEX = /([_a-zA-Z])([_0-9a-zA-Z]{0,29})/; /// NOTE: Not anchored at start,end
+var IDREGEX = /([_a-zA-Z])([_0-9a-zA-Z]*)/; /// NOTE: Not anchored at start,end
 function makeValidId(str) {
-	return str.replace(/[^_0-9a-zA-Z]/g, '_').replace(/^[^_a-zA-Z]/, '_$0').substr(0, 32);
+	try {
+		return str.replace(/[^_0-9a-zA-Z]/g, '_').replace(/^[^_a-zA-Z]/, '_$&'); //.substr(0, 30);
+	} catch(e) { return null; }
 }
 
 /**
@@ -510,14 +295,22 @@ function makeValidId(str) {
 function State(o) {
 	/// The state's ID (as per GeNIe)
 	this.id = null;
+	/// An optional label for the state
+	this.label = null;
 	/// The state's index in the node state list
 	this.index = null;
+	/// An optional value for the state
+	this.value = null;
+	/// An optional minimum/maximum, if this state specifies a range
+	this.minimum = null;
+	this.maximum = null;
 
 	/// Set options based on constructor args
 	for (var i in o) {
 		this[i] = o[i];
 	}
 	addDefaultSetters(this);
+	addObjectLinks(this);
 }
 
 /// You would not normally create this object directly.
@@ -533,9 +326,67 @@ function DisplayItem(o) {
 		fontColor: null,
 		fontFamily: null,
 		fontSize: null,
+		/// A displayStyle is how the item will be displayed (e.g. via CSS), but doesn't
+		/// change what gets written to canvas (e.g. unlike `view`, once that's working).
+		displayStyle: null,
 	};
-	
+
+	/// A view is a custom way of displaying this item on canvas that will be called instead of
+	/// the default method.
+	/// This should be function of the form displayItem => html.
+	this.view = null;
+
 	Object.assign(this, o);
+}
+DisplayItem.prototype = {
+	moveTo(x, y) {
+		this.pos.x = x;
+		this.pos.y = y;
+	},
+	isGraphItem() {
+		/// XXX Not sure this is best way to detect whether we're working with
+		/// a graph item.
+		return Boolean(this.parents || this.subNodes);
+	},
+	/// This only works for graph items
+	/// This will remove path entries in *other* items only (not this item)
+	cleanPathsInOut() {
+		for (let pathIn of this.pathsIn) {
+			let i = pathIn.parentItem.pathsOut.findIndex(p => p.childItem.id == this.id);
+			pathIn.parentItem.pathsOut.splice(i,1);
+		}
+		for (let pathOut of this.pathsOut) {
+			let i = pathOut.childItem.pathsIn.findIndex(p => p.parentItem.id == this.id);
+			pathOut.childItem.pathsIn.splice(i,1);
+		}
+	},
+	removePathRefs(item) {
+		/// Can't be in/out multiple times.
+		for (let itemListType of ['pathsIn','pathsOut']) {
+			let itemType = itemListType == 'pathsIn' ? 'parentItem' : 'childItem';
+			let index = this[itemListType].findIndex(p => p[itemType].id == item.id);
+			if (index !== -1)  this[itemListType].splice(index, 1);
+		}
+	},
+};
+
+/// Adds mix-in AND updates prototype if needed
+function addMixin(o, mixin, ...args) {
+	mixin.apply(o, args);
+	if (!o.__mixins)  o.__mixins = new Set();
+
+	if (!o.__mixins.has(mixin)) {
+		/// Using name in lieu of the function, because it's less problematic
+		/// for cloning, etc.
+		o.__mixins.add(mixin.name);
+		let proto = Object.getPrototypeOf(o);
+		Object.assign(Object.getPrototypeOf(o), mixin.prototype);
+		/*for (let k in mixin.prototype) {
+			if (!(k in proto)) {
+				proto[k] = mixin.prototype[k];
+			}
+		}*/
+	}
 }
 
 /** To create a node, call new Node({opt1:...,opt2:...}) **/
@@ -545,9 +396,10 @@ function Node(o) {
 	/*
 		Member vars and their defaults
 	*/
+	this._type = "Node";
 	/// Every node receives a unique key (that should not be altered by
 	/// the user, lest they want things to go awry!)
-	this._key = genPass(10);
+	Object.defineProperty(this, '_key', {value: genPass(10)});
 	/// The net to which the node belongs
 	this.net = null;
 	/// The node's ID (as per GeNIe)
@@ -556,6 +408,15 @@ function Node(o) {
 	this.label = null;
 	/// Type of node: nature, decision, utility
 	this.type = "nature";
+	this.stateSpace = {
+		/// The type of the state space: categorical, ordered, point, interval or continuous
+		/// The first 4 are discrete, the last continuous (of course)
+		type: "categorical",
+		/// For continuous nodes, whether we also have a discretized set of states
+		discretized: false,
+		/// If discretized continuous, is the discretization just for children
+		forChildrenOnly: false,
+	};
 	/// A list of states (state objects {id: _, index: _}) XXX
 	this.states = [];
 	/// A map of state ids -> position in states array
@@ -569,8 +430,8 @@ function Node(o) {
 	/// The def defines (appropriately enough) how this node interacts
 	/// with the rest of the network, and to some extent the user.
 	this.def = null;
-	/// The utilities associated with this node's states
-	this.utilities = [];
+	/// The values (potentially utilities) associated with this node's states (TO REMOVE)
+	this.values = [];
 	/// The current beliefs for this node (net must have been updated separately)
 	this.beliefs = null;
 	/// 'counts' (per state) and 'seen' (for the whole node) are generated
@@ -579,8 +440,11 @@ function Node(o) {
 	this.counts = null;
 	this.seen = 0;
 	/// 'samples' are for continuous nodes, and are a list of all the samples
-	/// created for this node
+	/// created for this node.
+	/// Coupled with the samples, are the sample weights, which is the weight
+	/// of the case in which the sample was generated
 	this.samples = [];
+	this.sampleWeights = [];
 	/// In a DBN, the time-dependent version of the CPT/funcTable (e.g. t=0, t=1, etc. within a CPT in GeNIe)
 	this.dbnOrder = 0;
 	/// In a DBN, what temporal step this node falls into
@@ -594,22 +458,50 @@ function Node(o) {
 	/// The path (left-to-right array) through the submodels to this node. An empty array means the node
 	/// is in the root model.
 	this.submodelPath = [];
-
+	/// A comment or description describing or documenting the node
+	this.comment = "";
+	
 	/// Does the display need updating?
 	this._updateDisplay = false;
 
-	/// Visual properties
-	DisplayItem.apply(this, {size: {width: 110, height: 50}});
 	/// For arc drawing/updating
 	this.pathsIn = [];
 	this.pathsOut = [];
 
+	/// Visual properties
+	addMixin(this, DisplayItem, {size: {width: 110, height: 50}});
+
 	/// Set options based on constructor args
 	Object.assign(this, o);
+	/// These specific properties are copied, everything else has its pointer saved
+	this.parents = this.parents.slice();
+	this.children = this.children.slice();
+	this.submodelPath = this.submodelPath.slice();
+	/// These are more convenient ways of setting the definitions
+	if (this.cpt) {
+		this.def = new CPT(this, this.cpt);
+		delete this.cpt;
+	}
+	else if (this.cdt || this.funcTable) {
+		this.def = new CDT(this, this.cdt || this.funcTable);
+		delete this.cdt;
+		delete this.funcTable;
+	}
+	else if (this.equation || this.funcText) {
+		this.def = new Equation(this, this.equation || this.funcText);
+		delete this.equation;
+		delete this.funcText;
+	}
+	/// This could be expensive in some marginal cases
+	else if (this.def) {
+		this.def = this.def.duplicate({node: this});
+	}
 
-	if (!o.__noinit && new.target)  this.init({addToCanvas: o.addToCanvas});
 	addDefaultSetters(this);
+	addObjectLinks(this);
+	if (!o.__noinit && new.target)  this.init({addToCanvas: o.addToCanvas, submodelPath: o.submodelPath});
 }
+Node.__fieldCopyTypes = {parents: 'shallow', children: 'shallow', submodelPath: 'deep'};
 /// Use this if the node hasn't been set up yet. Otherwise,
 /// just this.parseEquation with equationText.
 /*Node.parseEquation = function(nodeId, parentIds, equationText) {
@@ -701,6 +593,15 @@ Node.makeNodeFromXdslEl = function (el, $xdsl, opts) {
 	if ($extInfo.find("> outline")) {
 		format.borderColor = '#'+$extInfo.find("> outline").attr("color");
 	}
+	/// displayStyle will be default, unless explicitly specified with barchart
+	if ($extInfo.find('> barchart')) {
+		if ($extInfo.find('> barchart').attr('active')!='true') {
+			format.displayStyle = 'label';
+		}
+		else {
+			format.displayStyle = 'detailed';
+		}
+	}
 	if ($extInfo.find("> font")) {
 		format.fontColor = '#'+$extInfo.find("> font").attr("color");
 		format.fontFamily = $extInfo.find("> font").attr("name");
@@ -718,7 +619,7 @@ Node.makeNodeFromXdslEl = function (el, $xdsl, opts) {
 		format.fontSize = null;
 	}
 
-	console.log("OPTS:", opts);
+	//onsole.log("OPTS:", opts);
 
 	/// We will define what we can for Node, and then fix things
 	/// up later.
@@ -730,7 +631,7 @@ Node.makeNodeFromXdslEl = function (el, $xdsl, opts) {
 		states: states,
 		parents: $el.find("parents").text()._splitNotEmpty(/\s+/),
 		def: def,
-		utilities: utils,
+		values: utils,
 		dbnOrder: $el.is("[order]") ? Number($el.attr("order")) : 0,
 		dynamic: $el.attr("dynamic")=="plate",
 		engineOnly: opts.engineOnly,
@@ -750,17 +651,36 @@ Node.prototype = {
 		o = o || {};
 		var node = this;
 
+		/// Create a valid ID. If id was like a label, put it into label
+		/// No checking for duplicates (which assumes a Net)
+		let origId = undefined;
+		let idExists = this.net?.find?.(node.id);
+		if (!node.id || idExists) {
+			origId = node.id;
+			node.id = genPass(10);
+		}
+		let validId = makeValidId(node.id);
+		if (node.id != validId) {
+			if (!node.label) {
+				node.label = origId ?? node.id;
+			}
+			node.id = validId;
+		}
+		if (idExists) {
+			this.renameToUnique({id:origId});
+		}
+
 		/// Make setter do the right thing, instead of this
 		if (!node.net)  node.net = null;
 
 		node._updateDisplay = !node.engineOnly;
-		
+
 		if (!node.states || !node.states.length) {
-			node.states = ["state0","state1"];
+			node.states = ["true","false"];
 		}
 
 		/// Convert states, if needed
-		if (node.states.length && typeof(node.states[0])=="string") {
+		if (node.states.length && !node.states[0].id) {
 			var statesById = {};
 			var stateObjects = [];
 			for (var i=0; i<node.states.length; i++) {
@@ -771,11 +691,14 @@ Node.prototype = {
 			node.states = stateObjects;
 			node.statesById = statesById;
 		}
-		
+
 		if (node.def) {
 			node.def.node = node;
 		}
 		
+		/// Observe by default
+		node.intervene = false;
+
 		/// Setup the vectors needed for the inference (needed even if using workers)
 		node.beliefs = new Float32Array(new ArrayBuffer(node.states.length*4));
 		node.counts = new Float32Array(new ArrayBuffer(node.states.length*4));
@@ -789,6 +712,10 @@ Node.prototype = {
 				node.id = "node"+i;
 			}
 
+			/// If no submodel specified, use current submodel
+			if (!o.submodelPath && !this.submodelPath) {
+				this.submodelPath = this.net.currentSubmodel.slice();
+			}
 			/// Notify submodel
 			this.moveToSubmodel(this.submodelPath);
 
@@ -804,7 +731,9 @@ Node.prototype = {
 					node.parents[i] = parent;
 				}
 				if (typeof(parent)=="object") {
-					parent.children.push(node);
+					if (parent.children.indexOf(node)==-1) {
+						parent.children.push(node);
+					}
 				}
 			}
 
@@ -818,23 +747,21 @@ Node.prototype = {
 				}
 				if (typeof(child)=="object") {
 					//var oldNode = this.duplicate(this.id, null, true);
-					var oldChild = child.duplicateLocal();
-					child.parents.push(node);
-					child.def.updateChild({oldChild});
+					if (child.parents.indexOf(node)==-1) {
+						var oldChild = child.duplicateLocal();
+						child.parents.push(node);
+						child.def.updateChild({oldChild});
+					}
 				}
 			}
 		}
 
-		if (!node.id) {
-			node.id = genPass(10);
-		}
-		
 		/// Need to do this after we've handled parents and children
 		if (!node.def) {
 			node.def = new CPT(node);
 		}
 
-		if (this.net !== null) {
+		if (this.net !== null && !bn.nodes.includes(node)) {
 			/// Notify the network
 			bn.nodes.push(node);
 			bn.nodesById[node.id] = node;
@@ -849,11 +776,315 @@ Node.prototype = {
 			/// Update node count, comments, etc. (if present)
 			bn.updateViewer = true;
 
+			/// XXX Remove the following
 			if (o.addToCanvas) {
 				bn.display();
 				bn.updateAndDisplayBeliefs();
 			}
 		}
+	},
+
+	get state() {
+		return this.statesById;
+	},
+	
+	/// The domain is the set of variables involved in the node's local
+	/// relationship. i.e. The node and its parents.
+	getDomain() {
+		return [this.id, ...this.parents.map(p=>p.id)];
+	},
+	/* Rewrite, remove recursion for desc/anc */
+	getDescendants(o = {}, visited = new Set()) {
+		o.stopIf ??= _=>false;
+		o.arcs ??= false;
+		let filteredChildren = this.children.filter(c => !o.stopIf(c) && !visited.has(c));
+		let descendants = !o.arcs ? filteredChildren : this.children.map(c => `${this.id}-${c.id}`);
+		filteredChildren.forEach(c => visited.add(c));
+		for (let child of filteredChildren) {
+			descendants.push(...child.getDescendants(o, visited));
+		}
+		return [...new Set(descendants)];
+	},
+	getAncestors(o = {}, visited = new Set()) {
+		o.stopIf ??= _=>false;
+		o.arcs ??= false;
+		let filteredParents = this.parents.filter(p => !o.stopIf(p) && !visited.has(p));
+		let ancestors = !o.arcs ? filteredParents : this.parents.map(p => `${p.id}-${this.id}`);
+		ancestors.forEach(p => visited.add(p));
+		for (let parent of filteredParents) {
+			ancestors.push(...parent.getAncestors(o, visited));
+		}
+		return [...new Set(ancestors)];
+	},
+	wouldBeCycleIfParent(parent) {
+		if (this == parent)  return true;
+		/// XXX Rewrite for better perf
+		return this.getDescendants().includes(parent);
+	},
+	wouldBeCycleIfChild(child) {
+		if (this == child)  return true;
+		/// XXX Rewrite for better perf
+		return this.getAncestors().includes(child);
+	},
+	wouldBeCycle(otherNode, otherNodeIsParent = true) {
+		if (otherNodeIsParent)  return this.wouldBeCycleIfParent(otherNode);
+		return this.wouldBeCycleIfChild(otherNode);
+	},
+	getPathsDownTo(otherNode) {
+		let matchFunc = otherNode;
+		if (typeof(otherNode)!='function') {
+			matchFunc = curNode => curNode==otherNode;
+		}
+		let openPaths = this.children.slice().map(n => [n]);
+		let provenPaths = [];
+		
+		while (openPaths.length) {
+			let curPath = openPaths.pop();
+			if (matchFunc(curPath.at(-1))) {
+				provenPaths.push(curPath);
+			}
+			else if (curPath.at(-1).children.length) {
+				openPaths.push(...curPath.at(-1).children.map(c => curPath.concat(c)));
+			}
+			/// else leaf, and nothing more to find
+		}
+		// console.log(provenPaths.map(a => a.map(n => n.id)));
+		return provenPaths;
+	},
+	getPathsUpTo(otherNode) {
+		let openPaths = this.parents.slice().map(n => [n]);
+		let provenPaths = [];
+		
+		while (openPaths.length) {
+			let curPath = openPaths.pop();
+			if (curPath.at(-1)==otherNode) {
+				provenPaths.push(curPath);
+			}
+			else if (curPath.at(-1).parents.length) {
+				openPaths.push(...curPath.at(-1).parents.map(c => curPath.concat(c)));
+			}
+			/// else leaf, and nothing more to find
+		}
+		// console.log(provenPaths.map(a => a.map(n => n.id)));
+		return provenPaths;
+	},
+	/// FIX: Not node specific, move to net
+	getCommonAncestors(nodes, type = 'pairwise') {
+		/// inefficient much
+		let allCommon = new Set();
+		for (let i=0; i<nodes.length; i++) {
+			for (let j=i+1; j<nodes.length; j++) {
+				let common = new Set(nodes[i].getAncestors({stopIf:n=>n==nodes[j]})).intersection(new Set(nodes[j].getAncestors({stopIf:n=>n==nodes[i]})));
+				/// Now remove any ancestors higher up
+				for (let node of common) {
+					common = common.difference(node.getAncestors());
+				}
+				allCommon = allCommon.union(common);
+			}
+		}
+		return allCommon;
+	},
+	/// FIX: Not node specific, move to net
+	getCommonDescendants(nodes, o = {}) {
+		o.pairwise ??= true;
+		o.all ??= false;
+		/// inefficient much
+		let allCommon = new Set();
+		for (let i=0; i<nodes.length; i++) {
+			for (let j=i+1; j<nodes.length; j++) {
+				let common = new Set(nodes[i].getDescendants({stopIf:n=>n==nodes[j]})).intersection(new Set(nodes[j].getDescendants({stopIf:n=>n==nodes[i]})));
+				/// Now remove any descendants lower down
+				if (!o.all) {
+					for (let node of new Set(common)) {
+						common = common.difference(node.getDescendants());
+					}
+				}
+				allCommon = allCommon.union(common);
+			}
+		}
+		return allCommon;
+	},
+	/// FIX: Not node specific, move to net
+	getDirected(allNodes, o = {}) {
+		o.arcs ??= false;
+		
+		let nextO = {arcs: o.arcs};
+		let foundNodes = new Set();
+		for (let i=0; i<allNodes.length; i++) {
+			for (let j=0; j<allNodes.length; j++) {
+				if (i==j)  continue;
+				if (!o.arcs) {
+					let nodes = new Set(allNodes[i].getDescendants().concat(allNodes[i])).intersection(allNodes[j].getAncestors().concat(allNodes[j]));
+					foundNodes = foundNodes.union(nodes);
+				}
+				else {
+					let arcs = new Set(allNodes[i].getDescendants(nextO)).intersection(allNodes[j].getAncestors(nextO));
+					foundNodes = foundNodes.union(arcs);
+				}
+			}
+		}
+		return [...foundNodes];
+	},
+	getDconnectedIndirect(allNodes, o = {}) {
+		o.noSourceParents ??= false;
+		o.noSourceChildren ??= false;
+		let arcsToPaths = arcs => {
+			return arcs.map(arc => arc.split(/-/).map(id => this.net.node[id]));
+		};
+		if (allNodes.length>=2) {
+			let cause = allNodes[1].hasAncestor(allNodes[0]) ? allNodes[0] : allNodes[0].hasAncestor(allNodes[1]) ? allNodes[1] : allNodes[0];
+			let effect = allNodes[0]== cause ? allNodes[1] : allNodes[0];
+			let dc = new Set(this.net.findAllDConnectedNodes4(cause, effect, {arcs:true, ...o}));
+			let directed = this.getDirected(allNodes, {arcs:true});
+			let indirect = dc.difference(directed);
+			let onPathNodes = new Set();
+			let directedNodes = new Set(arcsToPaths([...directed]).flat());
+			let indirectNodes = new Set(arcsToPaths([...indirect]).flat());
+			for (let node of directedNodes) {
+				if (node==effect)  continue;
+				for (let neighbor of node.children.concat(node.parents)) {
+					if (!allNodes.includes(neighbor) && indirectNodes.has(neighbor)) {
+						onPathNodes = onPathNodes.union(this.getDirected([node, cause],{arcs:true}));
+					}
+				}
+			}
+			return [...indirect.union(onPathNodes)];
+		}
+		return [];
+	},
+	getBackdoorPaths(allNodes) {
+		return this.getDconnectedIndirect(allNodes, {noSourceChildren: true});
+	},
+	getSelectionBias(allNodes) {
+		return this.getDconnectedIndirect(allNodes, {noSourceParents: true});
+	},
+	/// |relationType| can be a string (e.g. 'parent') or array (e.g. ['parent', 'child'])
+	getRelated(relationType, allNodes) {
+		let arcsToPaths = arcs => {
+			return arcs.map(arc => arc.split(/-/).map(id => this.net.node[id]));
+		};
+		/// Run |getRelated| for each relationship type, and return all distinct nodes found
+		if (typeof(relationType)!='string') {
+			let nodes = new Set();
+			relationType.forEach(r => this.getRelated(r).forEach(n => nodes.add(n)));
+			return [...nodes];
+		}
+		
+		if (relationType == 'parent') {
+			return [...this.parents];
+		}
+		else if (relationType == 'child') {
+			return [...this.children];
+		}
+		else if (relationType == 'direct') {
+			return this.parents.concat(this.children);
+		}
+		else if (relationType == 'ancestor') {
+			return this.getAncestors();
+		}
+		else if (relationType == 'descendant') {
+			return this.getDescendants();
+		}
+		else if (relationType == 'dconnected') {
+			/// XXX: Move the dconnected function to Node
+			return this.net.findAllDConnectedNodes2(this);
+		}
+		else if (relationType == 'markovBlanket') {
+			return [...new Set([...this.parents,...this.children,...this.children.map(c => c.parents).flat()])];
+		}
+		else if (relationType == 'directedPaths') {
+			return this.getDirected(allNodes);
+		}
+		else if (relationType == 'confounder' || relationType == 'commonCause' || relationType == 'commonAncestor'
+				|| relationType == 'confounderActive') {
+			let workingBn = this.net;
+			let workingNode = this;
+			let workingNodes = allNodes;
+			if (relationType == 'confounderActive') {
+				let nodesA = this.net.findAllDConnectedNodes2(allNodes[0], {includeEvidence:true, stopAfter: n => n == allNodes[1]});
+				let nodesB = this.net.findAllDConnectedNodes2(allNodes[1], {includeEvidence:true, stopAfter: n => n == allNodes[0]});
+				let commonDNodes = [...new Set(nodesA).intersection(nodesB)];
+				workingBn = this.net.makeFilteredStructure(commonDNodes);
+				workingNode = workingBn.node[this.id];
+				if (!workingNode)  return [];
+				workingNodes = allNodes.map(n => workingBn.node[n.id]).filter(v => v);
+			}
+			let allCommon = workingNode.getCommonAncestors(workingNodes);
+			/// These are known ancestors of both, just get paths down to effects
+			let allExtraNodes = new Set();
+			for (let node of allCommon) {
+				let extraNodes = node.getPathsDownTo(workingNode).flat();
+				allExtraNodes = allExtraNodes.union(extraNodes);
+			}
+			
+			return [...allCommon.union(allExtraNodes)].map(n => this.net.node[n.id]);
+		}
+		else if (relationType == 'collider' || relationType == 'colliderActive') {
+			let workingBn = this.net;
+			let workingNode = this;
+			let workingNodes = allNodes;
+			if (relationType == 'colliderActive') {
+				workingBn = this.net.makeFilteredStructure(this.net.findAllDConnectedNodes2(allNodes[0], {includeEvidence:true}));
+				workingNode = workingBn.node[this.id];
+				if (!workingNode)  return [];
+				workingNodes = allNodes.map(n => workingBn.node[n.id]).filter(v => v);
+			}
+			let allCommon = workingNode.getCommonDescendants(workingNodes);
+			/// These are known descendants of both, just get paths up to effects
+			let allExtraNodes = new Set();
+			for (let node of allCommon) {
+				let extraNodes = node.getPathsUpTo(workingNode).flat();
+				allExtraNodes = allExtraNodes.union(extraNodes);
+			}
+			if (relationType == 'colliderActive') {
+				/// Add in path to nearest downstream evidence(s)
+				let allDownstreamEvidences = new Set();
+				for (let node of allCommon) {
+					node = this.net.node[node.id];
+					let downstreamEvidences = node.getPathsDownTo(n => n.hasEvidence()).flat();
+					allDownstreamEvidences = allDownstreamEvidences.union(downstreamEvidences);
+				}
+				allExtraNodes = allExtraNodes.union(allDownstreamEvidences);
+			}
+			
+			return [...allCommon.union(allExtraNodes)].map(n => this.net.node[n.id]);
+		}
+		else if (relationType == 'dconnectedPaths') {
+			if (allNodes.length>=2) {
+				let arcs = this.net.findAllDConnectedNodes4(allNodes[0], allNodes[1],{arcs:true});
+				return {paths:arcsToPaths(arcs).concat([[allNodes[0]], [allNodes[1]]])};
+			}
+		}
+		else if (relationType == 'dconnectedIndirect') {
+			/// Likely wrong
+			/*let dNodes = [];
+			for (let an of allNodes) {
+				let otherNodes = allNodes.filter(n => n!=an);
+				dNodes.push(new Set(this.net.findAllDConnectedNodes2(an, {stopIf: n => otherNodes.includes(n)})));
+			}
+			let commonDNodes = dNodes.length >= 2 ? dNodes.reduce((a,v)=>a.intersection(v)) : dNodes.length >= 1 ? dNodes[0] : [];
+			// let commonDNodes = dNodes.reduce((a,v) => a.union(v), new Set());
+			return [...commonDNodes];
+			let directed = this.getDirected(allNodes);
+			// return [...commonDNodes.difference(directed)];*/
+			let arcs = this.getDconnectedIndirect(allNodes);
+			return {paths:arcsToPaths(arcs).concat(allNodes.map(n => [n]))};
+		}
+		else if (relationType == 'backpaths' || relationType =='backdoorPaths') {
+			let arcs = this.getBackdoorPaths(allNodes);
+			return {paths:arcsToPaths(arcs).concat(allNodes.map(n => [n]))};
+		}
+		else if (relationType == 'selectionBias') {
+			let arcs = this.getSelectionBias(allNodes);
+			return {paths:arcsToPaths(arcs).concat(allNodes.map(n => [n]))};
+		}
+		return [];
+	},
+	addToNet(net) {
+		//return net.addNode(this.id, this.states.map(s=>s.id), this);
+		this.net = net;
+		this.init();
+		return this;
 	},
 	/**
 	Return the size of the Cartesian product of all the parents,
@@ -874,7 +1105,7 @@ Node.prototype = {
 		for (var i=0; i<this.states.length; i++) {
 			this.statesById[this.states[i].id] = this.states[i];
 		}
-		
+
 		/// Update the belief vectors
 		this.beliefs = new Float32Array(new ArrayBuffer(this.states.length*4));
 		this.counts = new Float32Array(new ArrayBuffer(this.states.length*4));
@@ -883,7 +1114,7 @@ Node.prototype = {
 	/// node and states (but not definitions).
 	/// The default is to do a minimal duplication to capture the relationship,
 	/// but other properties can be included.
-	///	The local fragment is NOT attached to the current network unless specified.
+	///	The local fragment is NOT attached to the current network.
 	/// XXX: States are also not duplicated. Make them duplicated? Yes. Yes, they need to
 	/// be duplicated.
 	duplicateLocal: function(o = {}) {
@@ -896,7 +1127,8 @@ Node.prototype = {
 				new Node({id: parent.id, states, statesById})
 			);
 		}
-		var states = JSON.parse(JSON.stringify(this.states));
+		var states = clone(this.states);
+		//debugger;
 		var statesById = states.reduce((a,v) => (a[v.id] = v, a), {});
 		/// Make child
 		var child = new Node({id: this.id, def: this.def.duplicate(),
@@ -904,7 +1136,7 @@ Node.prototype = {
 			parents: newParents});
 		child.def.node = child;
 		Object.assign(child, o);
-		
+
 		return child;
 	},
 	/// Add the states with the names in |newStates|.
@@ -929,7 +1161,7 @@ Node.prototype = {
 
 		for (var i=0; i<newStates.length; i++) {
 			var stateName = newStates[i];
-			this.states.splice(insertPoint, 0, new State({id: stateName, index: i}));
+			this.states.splice(insertPoint+i, 0, new State({id: stateName, index: i}));
 			this.statesById[stateName] = this.states[insertPoint];
 		}
 		/// And now let's update all the indices...
@@ -942,7 +1174,7 @@ Node.prototype = {
 		/// Update the definition
 		this.def.updateStates({oldNumStates: numStates, newNumStates: numNewStates,
 			insertPoint: insertPoint});
-		
+
 		/// Update children
 		if (updateChildren) {
 			for (var [i,child] of Object.entries(this.children)) {
@@ -955,7 +1187,7 @@ Node.prototype = {
 		//this.counts = new Float32Array(new ArrayBuffer(this.states.length*4));
 
 		if (this.net)  this.net.needsCompile = true;
-		
+
 		return this;
 	},
 	/// statesToRemove=* -> remove all, statesToRemove = [1,2,"gary"] -> remove states
@@ -1046,9 +1278,9 @@ Node.prototype = {
 	/// Thanks Google!
 	/// To play it safe, use state IDs instead.
 	/// (Note, this method only makes sense with CPT nodes.)
-	moveStates: function(moves, opts) {
-		opts = opts || {};
+	moveStates: function(moves, opts = {}) {
 		var updateChildren = typeof(opts.updateChildren)=="undefined" ? true : opts.updateChildren;
+		opts.childrenOnly ??= false;
 		var oldChildren = [];
 
 		if (updateChildren) {
@@ -1069,7 +1301,7 @@ Node.prototype = {
 			/// Ensure from/to are both numbers
 			fromStateI = Number(this.statesById[fromStateI].index);
 			toStateI = Number(toStateI);
-			
+
 			/// Update this node's CPT
 			var dir = fromStateI < toStateI ? 1 : -1;
 			this.def.updateStates({fromStateI, toStateI});
@@ -1093,47 +1325,127 @@ Node.prototype = {
 
 		if (this.net)  this.net.needsCompile = true;
 	},
+	moveParents(opts = {}) {
+		opts.moves ??= null;
+		opts.order ??= null;
+		/// Rearrange parents in definition (e.g. CPT)
+		/// (Unfortunately named |updateChild| can actually be used to just update me)
+		let oldChild = this.duplicateLocal();
+		let newParents = this.parents.slice();
+		if (opts.moves) {
+			let parentIndexes = Object.fromEntries(Object.entries(newParents).map(([i,p]) => [p.id,i]));
+			let toMove = new Set();
+			let fixed = {};
+			let fill = [];
+			/// Convert to all ints
+			for (let k in opts.moves) {
+				let i = isNaN(k) ? parentIndexes[k] : k;
+				let toI = isNaN(opts.moves[k]) ? parentIndexes[opts.moves[k]] : opts.moves[k];
+				fixed[toI] = i;
+				toMove.add(i);
+			}
+			/// Get all things that aren't being explicitly moved
+			for (let i=0; i<newParents.length; i++) {
+				if (!toMove.has(i)) {
+					fill.push(newParents[i]);
+				}
+			}
+			/// Now move
+			for (let i=0, j=0; i<newParents.length; i++) {
+				if (i in fixed) {
+					newParents[i] = this.parents[fixed[i]];
+				}
+				else {
+					newParents[i] = fill[j];
+					j++;
+				}
+			}
+		}
+		else if (opts.order) {
+			for (let [i,j] of opts.order.entries()) {
+				newParents[i] = this.parents[j];
+			}
+			/// Can I overwrite parents array like this?
+		}
+		this.parents = newParents;
+		
+		this.def.updateChild({oldChild: oldChild});
+		
+		if (this.net)  this.net.needsCompiled = true;
+	},
 	/// Rename this node to |newId|. If there is already a node called newId,
-	/// the function emits a warning (but does not halt or stop the chaining).
+	/// the function fails and emits a warning (but does not halt or stop the chaining).
 	rename: function(newId) {
 		var oldId = this.id;
 		/// Fix newId if needed
 		newId = makeValidId(newId);
-		if (newId in this.net.nodesById) {
-			console.log("Can't rename node because '"+newId+"' already exists.");
-			return this;
+		if (this.net) {
+			if (newId in this.net.nodesById) {
+				console.log("Can't rename node because '"+newId+"' already exists.");
+				return this;
+			}
+			delete this.net.nodesById[this.id];
+			this.net.nodesById[newId] = this;
 		}
-		delete this.net.nodesById[this.id];
 		this.id = newId;
-		this.net.nodesById[newId] = this;
 
 		/// The definition may need to do something to handle renames
-		if (this.def.renameNode)  this.def.renameNode(oldId, newId);
+		this.def?.renameNode?.(oldId, newId);
+
+		return this;
+	},
+	/** I'm not precisely sure how this could have worked. It's only for renaming
+	existing node ids, but I can't see the point of that... Unless it was for the DBN rollout...
+	
+	Unique handling needs to be rewritten. Might be best to use approach from bni.
+	
+	**/
+	renameToUnique(o = {}) {
+		o = {
+			id: this.id,
+			net: this.net,
+			idExists(possId) { return this.net.find(possId); },
+			...o
+		};
+		let m = o.id.match(/^.*_(\d+)$/);
+		let idCounter = m ? m[1] : 1;
+		let baseId = o.id.replace(/^(.*)_\d+$/, '$1');
+		let newId = null;
+		do {
+			newId = baseId + `_${idCounter}`;
+			idCounter++;
+		} while(o.idExists(newId));
+
+		this.rename(newId);
 
 		return this;
 	},
 	/// The following methods are not meant to be called directly (hence the _ underscore)
 	/// Call addParents instead, and pass it a list of parents (even if just one).
-	_addParent: function(parent) {
+	_addParent: function(parent, {noUpdate} = {noUpdate: false}) {
 		if (typeof(parent)=="string")  parent = this.net.nodesById[parent];
 
 		/// Check that parent is not already present
 		if (this.parents.findIndex(function(p) { return p == parent })==-1) {
-			var oldChild = this.duplicateLocal();
+			console.assert(!this.parents.find(p => p.id == parent.id), "Parent ID already exists");
+			console.log({noUpdate});
+			if (!noUpdate)  var oldChild = this.duplicateLocal();
 			this.parents.push(parent);
 			/// Some chance parents/children lists are out of sync, but if so we have bigger problems
 			parent.children.push(this);
 
 			//this.updateDefinition({type: 'parentsChanged', oldNode: oldNode});
-			this.def.updateChild({oldChild});
+			if (!noUpdate)  this.def.updateChild({oldChild});
+			
+			this.net.needsCompile = true;
 		}
 	},
-	_addChild: function(child) {
+	_addChild: function(child, {noUpdate} = {noUpdate: false}) {
 		var prevChild = child;
 		if (typeof(child)=="string")  child = this.net.nodesById[child];
 		if (!child)  throw new Exception("No such node: "+prevChild);
 
-		child._addParent(this);
+		child._addParent(this, {noUpdate});
 	},
 	_removeParent: function(parent) {
 		if (typeof(parent)=="string")  parent = this.net.nodesById[parent];
@@ -1151,7 +1463,7 @@ Node.prototype = {
 			/// so that things that save pointers to originals (always internal only)
 			/// are still valid
 			this.parents = this.parents.slice();
-			parent.children = parent.children.splice();
+			parent.children = parent.children.slice();
 
 			this.parents.splice(parentIndex, 1);
 			parent.children.splice(childIndex, 1);
@@ -1167,13 +1479,13 @@ Node.prototype = {
 	/// XXX The list versions aren't terribly efficient, but should be OK
 	/// most of the time
 	/// Each |parent| can be a string or a node
-	addParents: function(parents) {
-		for (var i=0; i<parents.length; i++)  this._addParent(parents[i]);
+	addParents: function(parents, {noUpdate} = {noUpdate: false}) {
+		for (var i=0; i<parents.length; i++)  this._addParent(parents[i], {noUpdate});
 		return this;
 	},
 	/// Each |child| can be a string or a node
-	addChildren: function(children) {
-		for (var i=0; i<children.length; i++)  this._addChild(children[i]);
+	addChildren: function(children, {noUpdate} = {noUpdate: false}) {
+		for (var i=0; i<children.length; i++)  this._addChild(children[i], {noUpdate});
 		return this;
 	},
 	/// Each |parent| can be a string or a node
@@ -1186,6 +1498,19 @@ Node.prototype = {
 		for (var i=0; i<children.length; i++)  this._removeChild(children[i]);
 		return this;
 	},
+	/// For any references in the node, make the node point to the right thing
+	/// XXX A work in progress still...
+	updateItemReferences(idMap) {
+		/// Update parents and children
+		for (let list of [this.parents, this.children]) {
+			for (let i=0; i<list.length; i++) {
+				let newId = idMap[list[i].id];
+				if (newId) {
+					list[i] = this.net.find(newId);
+				}
+			}
+		}
+	},
 	/// Set the type of the node, switching it in an undo-able way
 	/// from whatever previous type the node had. To undo (straight after),
 	/// just re-set the type back to its previous value.
@@ -1193,7 +1518,7 @@ Node.prototype = {
 		if (nType == undefined)  return this.type;
 
 		nType = nType.toLowerCase();
-		
+
 		if (nType == "decision") {
 			this.def = new CPT(this);
 		}
@@ -1209,13 +1534,13 @@ Node.prototype = {
 			for (var i in utils) {
 				funcTable[i] = i;
 			}
-			this.utilities = utils;
+			this.values = utils;
 			this.states = states;
 			this.def = new CDT(this, funcTable);
 			this.removeChildren(this.children);
 		}
 
-		this.net.needsCompile = true;
+		if (this.net)  this.net.needsCompile = true;
 
 		this.type = nType;
 
@@ -1226,25 +1551,27 @@ Node.prototype = {
 	/// for now, very difficult in future with  more types.)
 	setDefinitionType: function(defType) {
 		if (defType == this.def.type)  return;
-		
+
 		this.def = new NodeDefinitions[defType](this.def);
-		
+
 		return this;
 	},
-	/// Set the utilities for the node. This will update the state names
-	/// to match the utilities, which can be useful if the node states are
+	/// Set the values for the node. This will update the state names
+	/// to match the values, which can be useful if the node states are
 	/// being viewed in the network display.
-	setUtilities: function(utilities) {
-		utils = utilities;
-		states = utils.map(function(a,i){ return new State({id: a, index: i}) });
+	setValues: function(values, {updateStateNames} = {updateStateNames: true}) {
 		funcTable = [];
-		for (var i in utils) {
+		for (var i in values) {
 			funcTable[i] = Number(i);
 		}
 
-		this.utilities = utilities;
-		this.states = states;
+		this.values = values;
 		this.def.set(funcTable);
+
+		if (updateStateNames) {
+			states = values.map((a,i) => new State({id: a, index: i}));
+			this.states = states;
+		}
 
 		this.net.needsCompile = true;
 
@@ -1253,8 +1580,10 @@ Node.prototype = {
 	/// Set the submodel for this node by specifying a path
 	setSubmodelPath: function(path) {
 		/// XXX Improve validation of the path
-		if (path.search(/^\//)!==-1) {
-			this.moveToSubmodel(path.replace(/\/$/,'').split(/\//).slice(1));
+		path = BN.makeSubmodelPath(path);
+
+		if (path !== null) {
+			this.moveToSubmodel(path);
 		}
 
 		return this;
@@ -1269,13 +1598,17 @@ Node.prototype = {
 	/// Move this node to the given submodel. |path| is a left-to-right array
 	/// representing the path.
 	moveToSubmodel: function(path) {
+		var node = this;
+		path = BN.makeSubmodelPath(path);
+		
 		/// Remove from old submodel (if there)
 		var oldSubmodel = this.net.getSubmodel(this.submodelPath);
-		var node = this;
-		var oldIndex = oldSubmodel.subNodes.findIndex(function(v) { return v==node; });
-		console.log(oldIndex);
-		if (oldIndex >= 0) {
-			oldSubmodel.subNodes.splice(oldIndex,1);
+		if (oldSubmodel) {
+			var oldIndex = oldSubmodel.subNodes.findIndex(function(v) { return v==node; });
+			//onsole.log(oldIndex);
+			if (oldIndex >= 0) {
+				oldSubmodel.subNodes.splice(oldIndex,1);
+			}
 		}
 
 		if (path instanceof Submodel) {
@@ -1288,31 +1621,37 @@ Node.prototype = {
 		/// Move node to new submodel
 		this.net.getSubmodel(this.submodelPath).subNodes.push(this);
 	},
-	/// Create a duplicate node in the same network
-	/// If null is passed for |id|, a random id is generated
+	/// Create a duplicate node, that is *not*
+	/// added to the net by default.
+	/// If {addToNet: true} is specified, however, it will be added
+	/// to the same net with a random ID.
 	/// XXX This is not a proper duplicate function yet.
-	duplicate: function(id, extraProps, dontAddToNet) {
-		var nodeProps = {};
-		this.duplicateInto(nodeProps, extraProps);
-		if (!id)  id = genPass(10);
-		if (dontAddToNet) {
-			var node = Object.create(Node.prototype);
-			node.id = id;
-			for (var i in nodeProps) {
-				node[i] = nodeProps[i];
-			}
+	duplicate(extraProps = {}) {
+		let node = new Node();
+		this.duplicateInto(node, extraProps);
+
+		if (extraProps.addToNet) {
+			let id = genPass(10);
+			return this.net.addNode(id, this.states.map(s => s.id), node);
+		}
+		else {
+			node.id = this.id;
+			node.net = null;
+			node.pathsIn = [];
+			node.pathsOut = [];
+
 			return node;
 		}
-		return this.net.addNode(id, this.states.map(function(s){ return s.id }), nodeProps);
 	},
 	/// This is like duplicate, but overwrites |this| with (selected) properties in |node|
 	/// |node| doesn't have to be an actual node, it can be an empty plain object
 	duplicateInto: function(node, extraProps) {
-		/// Note: net is included in the duplication, but node is *not* added to the net (i.e.
+		/// Note: net is included in the duplication (the pointer, not the object value),
+		/// but node is *not* added to the net (i.e.
 		/// there's no ref. to this node from the net, only a ref to the net from this node)
-		var propsToDuplicate = {label:1,parents:1,children:1,def:1,utilities:1,
-			dbnOrder:1,dynamic:1,engineOnly:1,comment:1,format:1,type:1,
-			states:1,/*statesById:1,*/submodelPath:1,net:1};
+		var propsToDuplicate = {label:1,parents:1,children:1,def:1,values:1,
+			dbnOrder:1,dynamic:1,dynamicParents:1,engineOnly:1,comment:1,format:1,type:1,
+			states:1,/*statesById:1,*/submodelPath:1,net:1,pos:1,size:1};
 		//var propsToDuplicate = {parents:1,cpt:1};
 		for (var i in this) {
 			if (i in propsToDuplicate) {
@@ -1333,16 +1672,22 @@ Node.prototype = {
 					}
 					else if (this[i].duplicate) {
 						node[i] = this[i].duplicate();
+						if ("node" in node[i])  node[i].node = node;
 					}
 					else {
-						console.log(i);
-						node[i] = new this[i].constructor();
-						for (var k in this[i]) {
-							if (this[i][k] && this[i][k].slice) {
-								node[i][k] = this[i][k].slice();
-							}
-							else {
-								node[i][k] = this[i][k];
+						if (["net"].indexOf(i)!=-1) {
+							node[i] = this[i];
+						}
+						else {
+							console.log("DUPLICATE ELSE:", i);
+							node[i] = new this[i].constructor();
+							for (var k in this[i]) {
+								if (this[i][k] && this[i][k].slice) {
+									node[i][k] = this[i][k].slice();
+								}
+								else {
+									node[i][k] = this[i][k];
+								}
 							}
 						}
 					}
@@ -1360,98 +1705,84 @@ Node.prototype = {
 		}
 	},
 	/// Delete this node from its network
-	delete: function(opts) {
-		opts = opts || {};
-		/// XXX To be implemented
-		opts.absorb = opts.absorb || false;
+	delete(o = {}) {
+		o = {
+			submodel: true,
+			/// XXX To be implemented
+			absorb: false,
+			...o
+		};
 		var node = this;
+
 		/// Remove from the net's references
-		for (var nodeListType of ['nodes','_rootNodes','_decisionNodes','_utilityNodes','_nodeOrdering']) {
-			var index = this.net[nodeListType].findIndex(function(n) { return n.id == node.id; });
-			if (index !== -1)  this.net[nodeListType].splice(index, 1);
-		}
-		delete this.net.nodesById[this.id];
+		this.net.removeNodeRefs(this);
 
 		/// Remove from the submodel's references
-		var submodel = this.net.getSubmodel(node.submodelPath);
-		var index = submodel.subNodes.findIndex(function (n) { return n.id == node.id; });
-		submodel.subNodes.splice(index, 1);
-
-		/// Remove from other node's references (in parents)
-		for (var otherNode of this.net.nodes) {
-			/// Can't be in/out multiple times.
-			for (var nodeListType of ['pathsIn','pathsOut']) {
-				var otherItem = nodeListType == 'pathsIn' ? 'parentItem' : 'childItem';
-				var index = otherNode[nodeListType].findIndex(function(p) { return p[otherItem].id == node.id; });
-				if (index !== -1)  otherNode[nodeListType].splice(index, 1);
-			}
-
-			/// Inefficient
-			var otherSubmodel = this.net.getSubmodel(otherNode.submodelPath);
-			for (var nodeListType of ['pathsIn','pathsOut']) {
-				var otherItem = nodeListType == 'pathsIn' ? 'parentItem' : 'childItem';
-				var index = otherSubmodel[nodeListType].findIndex(function(p) { return p[otherItem].id == node.id; });
-				if (index !== -1)  otherSubmodel[nodeListType].splice(index, 1);
-			}
-
-			var asChildIndex = otherNode.children.findIndex(function(n){return n.id == node.id});
-			if (asChildIndex !== -1)  otherNode.children.splice(asChildIndex, 1);
-
-			/// If this node was a parent, we need special treatment, because it affects child definition
-			var asParentIndex = otherNode.parents.findIndex(function(n) { return n.id == node.id; });
-			if (asParentIndex != -1) {
-				/// It was one of otherNode's parents, so need to remove and
-				/// fix CPT/equation
-
-				//if (otherNode.cpt && node.cpt) {
-
-					/// This includes all the
-					/*var nodeAndLaterCombos = numNodeStateCombinations(otherNode.parents.slice(asParentIndex));
-					var laterCombos = numNodeStateCombinations(otherNode.parents.slice(asParentIndex+1));
-					var earlierCombos = numNodeStateCombinations(otherNode.parents.slice(0, asParentIndex));
-					var earlierAndNodeCombos = numNodeStateCombinations(otherNode.parents.slice(0, asParentIndex+1));
-					//onsole.log(nodeAndLaterCombos, laterCombos, earlierCombos, earlierAndNodeCombos, otherNode.cpt);
-
-					/// Collapse/marginalise CPT
-					var newCpt = new Float32Array(new ArrayBuffer(earlierCombos*laterCombos*otherNode.states.length*4));
-					for (var j1=0; j1<earlierCombos; j1++) {
-						for (var k=0; k<node.states.length; k++) {
-							for (var j2=0; j2<laterCombos; j2++) {
-								oldRow = (j1 * nodeAndLaterCombos) + (k * laterCombos) + j2;
-								newRow = (j1 * laterCombos) + j2;
-								for (var i=0; i<otherNode.states.length; i++) {
-									newCpt[newRow*otherNode.states.length + i] += otherNode.cpt[oldRow*otherNode.states.length + i];
-								}
-							}
-						}
-					}
-					/// Normalise (actually, this may be slightly off due to rounding)
-					for (var i=0; i<newCpt.length; i++) {
-						newCpt[i] = newCpt[i]/node.states.length;
-					}
-					node.cpt = newCpt;*/
-					//onsole.log(newCpt);
-
-				//}
-
-				/// Make copy of how node used to be
-				/// (We need to pass in net for the lat
-				var oldChild = otherNode.duplicateLocal();
-
-				/// Remove
-				otherNode.parents.splice(asParentIndex, 1);
-
-				/// Fix up
-				otherNode.def.updateChild({oldChild});
-			}
+		if (o.submodel) {
+			var submodel = this.net.getSubmodel(node.submodelPath);
+			submodel.removeNodeRefs(this);
 		}
 
+		/// Remove from other nodes' references (in parents)
+		for (let parent of this.parents) {
+			parent.removeChildRefs(this);
+		}
+		for (let child of this.children) {
+			/// If this node was a parent, we need special treatment, because it affects child definition
+			/// Make copy of how node used to be
+			/// (We need to pass in net for the lat
+			var oldChild = child.duplicateLocal();
+		
+			child.removeParentRefs(this);
+
+			child.def.updateChild({oldChild});
+		}
+		/// XXX Inefficient
+		for (let otherNode of this.net.nodes) {
+			var otherSubmodel = this.net.getSubmodel(otherNode.submodelPath);
+			otherSubmodel.removePathRefs(this);
+		}
 		/** Display is updated in display section below. **/
 
 		this.net.needsCompile = true;
+
+		this.net = null;
+
+		return this;
 	},
 	absorb: function() {
-		this.delete({absorb: true});
+		return this.delete({absorb: true});
+	},
+	updateDiscretization() {
+		/// We may have a manually specified discretisation. If so, don't over-write it
+		/// XXX forChildrenOnly doesn't work properly yet
+		if (!this.stateSpace.discretized || this.stateSpace.forChildrenOnly) {
+			this.discretizeFromSamples();
+		}
+		else {
+			/// States are fixed manually, so just need to update belief vector based on samples
+			this.seen = 0;
+			this.counts = new Array(this.states.length).fill(0);
+			for (let i=0; i<this.samples.length; i++) {
+				let val = this.samples[i];
+				let stateI = -1;
+				
+				for (let j=0; j<this.states.length; j++) {
+					let state = this.states[j];
+					
+					if (val < state.maximum) {
+						stateI = j;
+						break;
+					}
+				}
+				
+				this.counts[stateI] += this.sampleWeights[i];
+				this.seen += this.sampleWeights[i];
+			}
+			
+			this.beliefs = new Float32Array(this.counts.map(c => c/this.seen));
+			this.counts = new Int32Array(this.counts);
+		}
 	},
 	/// Creates a (simple, equal-width) dynamic discretisation from samples
 	discretizeFromSamples: function() {
@@ -1479,6 +1810,10 @@ Node.prototype = {
 			}
 			node.removeStates('*');
 			node.addStates(labels);
+			for (let j=0; j<node.states.length; j++) {
+				let state = node.states[j];
+				state.minimum = state.maximum = states[j][0];
+			}
 			node.beliefs = beliefs;
 		}
 		else {
@@ -1490,6 +1825,11 @@ Node.prototype = {
 				labels[j] += (j+2==discInfo.boundaries.length) ? ']' : ')';
 			}
 			node.addStates(labels);
+			for (let j=0; j<node.states.length; j++) {
+				let state = node.states[j];
+				state.minimum = discInfo.boundaries[j];
+				state.maximum = discInfo.boundaries[j+1];
+			}
 			node.beliefs = discInfo.bins;
 		}
 		node._updateDisplay = true;
@@ -1562,17 +1902,30 @@ Node.prototype = {
 
 		return false;
 	},
+	removeChildRefs(child) {
+		let asChildIndex = this.children.findIndex(n => n.id == child.id);
+		if (asChildIndex !== -1)  this.children.splice(asChildIndex, 1);
+	},
+	removeParentRefs(parent) {
+		let asParentIndex = this.parents.findIndex(n => n.id == parent.id);
+		if (asParentIndex != -1)  this.parents.splice(asParentIndex, 1);
+	},
+	hasEvidence() {
+		return this.id in this.net.evidence;
+	},
 };
 
 function TextBox(o) {
 	o = o || {};
+
+	this._type = "TextBox";
 
 	/// Defaults
 	this.id = genPass(10);
 	this.submodelPath = [];
 
 	/// Visual properties
-	DisplayItem.apply(this);
+	addMixin(this, DisplayItem);
 	this.pos = {x: 0, y: 0};
 
 	this.text = '';
@@ -1584,60 +1937,170 @@ function TextBox(o) {
 
 	this.init(o);
 	addDefaultSetters(this);
+	addObjectLinks(this);
 }
 TextBox.prototype = {
 	init: function(o) {
 		o = o || {};
 
 		if (this.net) {
-			this.net.displayItems.push(this);
-			
-			if (o.addToCanvas) {
+			this.net.addTextBox(this);
+
+			/// Notify submodel
+			this.moveToSubmodel(this.submodelPath);
+
+			/*if (o.addToCanvas) {
 				this.net.display();
 				this.net.updateAndDisplayBeliefs();
-			}
+			}*/
 		}
-	}
+	},
+	duplicate(extraProps = {}) {
+		let newTextBox = new TextBox();
+
+		Object.assign(newTextBox, this, {
+			id: genPass(10),
+			net: null,
+			size: clone(this.size),
+			pos: clone(this.pos),
+			format: clone(this.format),
+		}, pick(extraProps, ...Object.keys(this)));
+
+		if (extraProps.addToNet) {
+			this.net.addTextBox(newTextBox);
+		}
+
+		return newTextBox;
+	},
+	delete(o = {submodel: true}) {
+		let i = this.net.basicItems.findIndex(item => item.id == this.id);
+		if (i != -1)  this.net.basicItems.splice(i,1);
+
+		/// Remove reference from submodel
+		if (o.submodel) {
+			let submodel = this.net.getSubmodel(this.submodelPath);
+			let index = submodel.subItems.indexOf(this);
+			if (index != -1)  submodel.subItems.splice(index, 1);
+		}
+	},
+	setSubmodelPath: Node.prototype.setSubmodelPath,
+	getSubmodelPathStr: Node.prototype.getSubmodelPathStr,
+	moveToSubmodel: function(path) {
+		var node = this;
+		path = BN.makeSubmodelPath(path);
+
+		/// Update old submodel
+		let oldSubmodel = this.net.getSubmodel(this.submodelPath);
+		if (oldSubmodel) {
+			let index = oldSubmodel.subItems.indexOf(this);
+			if (index != -1)  oldSubmodel.subItems.splice(index, 1);
+		}
+
+		if (path instanceof Submodel) {
+			path = path.submodelPath.concat([path.id]);
+		}
+
+		/// Save new path
+		this.submodelPath = path.slice();
+
+		/// Update new submodel
+		let newSubmodel = this.net.getSubmodel(this.submodelPath);
+		newSubmodel.subItems.push(this);
+	},
+	addToNet(net) {
+		this.net = net;
+		this.init();
+		return this;
+	},
+	rename(nId) {
+		this.id = makeValidId(nId);
+	},
+	renameToUnique: Node.prototype.renameToUnique,
 };
+
+function ImageBox(o) {
+	o = o || {};
+
+	this._type = "ImageBox";
+
+	/// Defaults
+	this.id = genPass(10);
+	this.submodelPath = [];
+
+	/// Visual properties
+	addMixin(this, DisplayItem);
+	this.pos = {x: 0, y: 0};
+
+	this.imageUrl = '';
+
+	/// Set options based on constructor args
+	for (var i in o) {
+		this[i] = o[i];
+	}
+
+	this.init(o);
+	addDefaultSetters(this);
+}
+/// Almost all the methods are the same as TextBox. Need to refactor
+ImageBox.prototype = Object.assign({}, TextBox.prototype, {
+	init: function(o) {
+		o = o || {};
+
+		if (this.net) {
+			this.net.addImageBox(this);
+
+			/// Notify submodel
+			this.moveToSubmodel(this.submodelPath);
+
+			/*if (o.addToCanvas) {
+				this.net.display();
+				this.net.updateAndDisplayBeliefs();
+			}*/
+		}
+	},
+});
 
 function Submodel(o) {
 	o = o || {};
+
+	this._type = "Submodel";
 
 	/// Defaults
 	this.id = null;
 	this.submodelPath = [];
 	this.subNodes = [];
 	this.submodelsById = {};
+	this.subItems = []; /// Any other items
 	this.comment = "";
 
 	/// Visual properties
-	DisplayItem.apply(this);
+	addMixin(this, DisplayItem);
 	/// For arc drawing/updating
 	this.pathsIn = [];
 	this.pathsOut = [];
 
 	/// Set options based on constructor args
 	Object.assign(this, o);
-	
+
 	/// XXX: Implement addToCanvas
 	if (!o.__noinit && new.target)  this.init({addToCanvas: o.addToCanvas});
 }
 Submodel.prototype = {
 	init: function(o) {
 		o = o || {};
-		
+
 		if (this.net) {
-			this.net.submodelsById[this.id] = this;
-			
 			if (!this.id) {
 				var i = 0;
 				while (this.net.submodelsById["submodel"+i]) i++;
 				this.id = "submodel"+i;
 			}
-			
-			if (o.addToCanvas) {
-				this.net.display();
-				this.net.updateAndDisplayBeliefs();
+
+			/// Add to nets submodels (XXX should this be there?)
+			this.net.submodelsById[this.id] = this;
+			/// Add to parent submodel
+			if (this.submodelPath.length) {
+				this.net.getSubmodel(this.submodelPath).submodelsById[this.id] = this;
 			}
 		}
 
@@ -1645,18 +2108,152 @@ Submodel.prototype = {
 			this.id = genPass(10);
 		}
 	},
+	duplicate(extraProps = {},) {
+		theClass = this instanceof BN ? BN : Submodel;
+		let newSubmodel = new theClass();
+
+		Object.assign(newSubmodel, this, {
+			id: genPass(10),
+			net: null,
+			size: clone(this.size),
+			pos: clone(this.pos),
+			format: clone(this.format),
+		}, pick(extraProps, ...Object.keys(this)));
+
+		if (!extraProps.addToNet) {
+			/// Retain id, if we're not adding back into this net
+			newSubmodel.id = this.id;
+		}
+
+		newSubmodel.submodelsById = {};
+		newSubmodel.subNodes = [];
+		newSubmodel.subItems = [];
+		newSubmodel.pathsIn = [];
+		newSubmodel.pathsOut = [];
+
+		/// Duplicate all the directly contained items (which may include submodels)
+		let newItems = [];
+		for (let item of this.getItems()) {
+			let newItem = item.duplicate({submodelPath: [...this.submodelPath, newSubmodel.id], notFinal: true, ...pick(extraProps,['addToNet'])});
+			if (newItem instanceof Submodel) {
+				newSubmodel.submodelsById[newItem.id] = newItem;
+			}
+			else if (newItem instanceof Node) {
+				newSubmodel.subNodes.push(newItem);
+			}
+			else if (newItem instanceof TextBox) {
+				newSubmodel.subItems.push(newItem);
+			}
+			newItems.push(newItem);
+			//newItem.moveToSubmodel(newSubmodel);
+		}
+
+		/// If this is the last duplicate call
+		if (!extraProps.notFinal) {
+			/// Get all items from the *original* hierarchy (for checking)
+			let newItems = newSubmodel.getAllItems();
+			let originalItems = this.getAllItems();
+		
+			for (let item of newItems) {
+				if (item.children) {
+					/// Remove references to children not inside the submodel hierarchy
+					let nonMatched = item.children.filter(c => !originalItems.includes(c));
+					for (let nonMatchedItem of nonMatched) {
+						let index = item.children.indexOf(nonMatchedItem);
+						item.children.splice(index,1);
+						item.needsCompile = true;
+					}
+					/// Update all the other node references
+					for (let [i,child] of item.children.entries()) {
+						let otherItem = newItems.find(item => item.id == child.id);
+						if (otherItem) {
+							item.children[i] = otherItem;
+						}
+					}
+					for (let [i,parent] of item.parents.entries()) {
+						let otherItem = newItems.find(item => item.id == parent.id);
+						if (otherItem) {
+							item.parents[i] = otherItem;
+						}
+					}
+				}
+			}
+		}
+
+
+
+		if (extraProps.addToNet) {
+			this.net.addSubmodel(newSubmodel);
+		}
+
+		return newSubmodel;		
+	},
+	addToNet(net) {
+		this.net = net;
+		this.init();
+
+		for (let item of this.getItems()) {
+			item.addToNet(net);
+		}
+
+		return this;
+	},
+	find(itemId) {
+		if (!itemId)  return undefined;
+		for (let item of this.getItems()) {
+			if (item.id == itemId)  return item;
+			if (item.find) {
+				let subFind = item.find(itemId);
+				if (subFind)  return subFind;
+			}
+		}
+		return undefined;
+	},
+	findItems(type) {
+		if (type=='rootNodes') {
+			return this.getItems().filter(n => !n.parents.length);
+		}
+		else if (type=='leafNodes') {
+			return this.getItems().filter(n => !n.children.length);
+		}
+		else if (type=='arcs') {
+			return this.getItems().filter(n=>n.isGraphItem()).map(g=>g.pathsIn.map(p=>p.arcSelector)).flat();
+		}
+		return [];
+	},
 	/// XXX: Add check for valid id (and use a globally defined regexp for it)
 	rename: function(newId) {
-		var parent = this.net.getSubmodel(this.submodelPath);
-		delete parent.submodelsById[this.id];
+		newId = makeValidId(newId);
+		if (this.net) {
+			var parent = this.net.getSubmodel(this.submodelPath);
+			delete parent.submodelsById[this.id];
+			parent.submodelsById[newId] = this;
+			delete this.net.submodelsById[this.id];
+			this.net.submodelsById[newId] = this;
+		}
 		this.id = newId;
-		parent.submodelsById[newId] = this;
-		/// Unfortunately, need to update all items referring to this one
+		/// Need to update all items referring to this one
 		var allItems = this.getAllItems();
 		for (var i=0; i<allItems.length; i++) {
 			allItems[i].submodelPath[this.submodelPath.length] = newId;
 		}
-		
+
+		return this;
+	},
+	renameToUnique(o = {}) {
+		Node.prototype.renameToUnique.call(this, o);
+
+		for (let item of this.getItems()) {
+			let prevId = item.id;
+			item.renameToUnique(o);
+			if (!this.net) {
+				if (item._type == "Submodel") {
+					delete this.submodelsById[prevId];
+					this.submodelsById[item.id] = item;
+				}
+			}
+		}
+
 		return this;
 	},
 	/**
@@ -1684,12 +2281,13 @@ Submodel.prototype = {
 		items = items.concat(this.subNodes);
 
 		/// text items
-		for (var i in this.net.displayItems) {
+		items.push(...this.subItems);
+		/*for (var i in this.subItems) {
 			/// Check if item belongs to this submodel (no shortcut for items, like there is for nodes)
-			if (this.net.displayItems[i].submodelPath.join("/") == this.submodelPath.concat([this.id]).join("/")) {
-				items.push(this.net.displayItems[i]);
+			if (this.net.basicItems[i].submodelPath.join("/") == this.submodelPath.concat([this.id]).join("/")) {
+				items.push(this.net.basicItems[i]);
 			}
-		}
+		}*/
 
 		///submodels
 		for (var i in this.submodelsById) {
@@ -1700,8 +2298,6 @@ Submodel.prototype = {
 	},
 	/**
 	Get all the items (nodes, submodels, text, etc.) in this and any submodels.
-
-	XXX Text needs to be implemented (for submodels in general)
 	*/
 	getAllItems: function() {
 		var submodelsToVisit = [this];
@@ -1722,14 +2318,17 @@ Submodel.prototype = {
 	/// representing the path --- or the submodel itself;
 	moveToSubmodel: function(path) {
 		console.log("path:", path);
+		var submodel = this;
+		path = BN.makeSubmodelPath(path);
+
 		/// Remove from old submodel (if there)
 		var oldSubmodel = this.net.getSubmodel(this.submodelPath);
-		var submodel = this;
-		delete oldSubmodel.submodelsById[submodel.id];
+		/// The top level indexes all submodels, so need to leave it there in that case (FIX)
+		if (oldSubmodel && this.submodelPath.length)  delete oldSubmodel.submodelsById[submodel.id];
 
 		/// Save old path
 		var oldPath = this.submodelPath.slice();
-		
+
 		if (path instanceof Submodel) {
 			path = path.submodelPath.concat([path.id]);
 		}
@@ -1747,6 +2346,64 @@ Submodel.prototype = {
 			item.submodelPath = this.submodelPath.concat(item.submodelPath.slice(oldPath.length));
 		}
 	},
+	/** This will delete the submodel, and all its contents **/
+	delete(o = {items: true, submodel: true}) {
+		let items = this.getItems();
+
+		if (o.items) {
+			for (let item of items) {
+				item.delete(o);
+			}
+		}
+
+		if (o.submodel) {
+			/// Delete from parent submodel
+			delete this.net.getSubmodel(this.submodelPath).submodelsById[this.id];
+			/// Delete from network index of all submodels
+			delete this.net.submodelsById[this.id];
+
+			/// Clean up pathsIn/pathsOut for other things
+			this.cleanPathsInOut();
+		}
+	},
+	/** This will put all the submodel's contents into the current level first,
+		and then delete the submodel container **/
+	absorb() {
+		let items = this.getItems();
+
+		let deletePoint = this.submodelPath.length;
+
+		for (let item of items) {
+			item.moveToSubmodel(this.submodelPath);
+		}
+
+		/// Delete from parent submodel
+		delete this.net.getSubmodel(this.submodelPath).submodelsById[this.id];
+		/// Delete from network index of all submodels
+		delete this.net.submodelsById[this.id];
+
+		/// Clean up pathsIn/pathsOut for other things
+		this.cleanPathsInOut();
+	},
+	includes(item) {
+		if (item.submodelPath.length <= this.submodelPath.length)  return false;
+
+		for (let i=0; i<this.submodelPath.length; i++) {
+			if (item.submodelPath[i]!=this.submodelPath[i])  return false;
+		}
+
+		if (item.submodelPath[this.submodelPath.length] == this.id) {
+			return true;
+		}
+		else {
+			return false;
+		}
+	},
+	/// Reference management
+	removeNodeRefs(node) {
+		let index = this.subNodes.findIndex(n => n.id == node.id);
+		if (index != -1)  this.subNodes.splice(index, 1);
+	},
 };
 
 /// An index for naming new BNs
@@ -1754,26 +2411,28 @@ var __newBnIndex = 1;
 
 /// A BN is also a submodel (of course...)
 function BN(o) {
+	console.log("BNINDEX", __newBnIndex);
 	o = o || {};
 	/// This implements the 'submodel' interface ({id/node/submodels/pos/size})
 	Submodel.apply(this);
 
-	o.format = o.format || "xdsl";
+	/// Format is either 1) specified, 2) given in the file name, or 3) assumed to be an xdsl
+	o.format = o.format ?? (o.fileName ? getFileType(o.fileName) : null) ?? "xdsl";
 
 	this.fileName = o.fileName || null;
 	this.source = o.source;
 	this.sourceFormat = o.format;
-	this.outputEl = null;
 
 	/// Use worker threads to do belief updating?
-	this.useWorkers = useWorkers;
+	this.updateMethod = mbConfig.updateMethod;
+	this.useWorkers = mbConfig.useWorkers;
 	this._workers = [];
-	this.numWorkers = 2;
+	this.numWorkers = mbConfig.numWorkers;
 
 	this.evidence = {};
 	/// This is just saved sets of evidence (or saved scenarios)
 	this.evidenceSets = [];
-	
+
 	this.selected = new Set();
 
 	/// Does the cache information need updating?
@@ -1782,7 +2441,7 @@ function BN(o) {
 	/// (once they're all written!) or change this.objs and then set this.needsCompile.)
 	this.nodes = [];
 	this.nodesById = {};
-	this.displayItems = [];
+	this.basicItems = [];
 
 	/// Various cached information
 	this._utilityNodes = [];
@@ -1790,8 +2449,8 @@ function BN(o) {
 	this._rootNodes = [];
 	this._nodeOrdering = [];
 
-	/// Track changes to the BN
-	this.changes = new UndoList();
+	/// GUI-oriented properties
+	this.outputEl = null;
 
 	this.currentSubmodel = []; //["Orchard","Tree"];
 
@@ -1799,36 +2458,233 @@ function BN(o) {
 
 	this._trackingArcInfluences = false;
 
-	if (!o.__noinit && new.target)  this.init(o);
+	//if (!o.__noinit && new.target)  this.init(o);
+	if (!o.__noinit)  this.init(o);
 	addDefaultSetters(this);
+	addObjectLinks(this);
+}
+/**
+The arguments can be: a single string id, a single item object (e.g. Node, Submodel, etc.),
+an inline list of ids/objects, or an (arbitrarily nested) array of ids/objects. You can
+also mix in undefined and falsy elements, and they will be eliminated from the list.
+
+It *always* returns an array of ids, so that the return is a constant shape. (I had more
+complex conditional return previously, but this is more robust/useful.)
+*/
+BN.getIds = function(...items) {
+	let ids = [];
+	items = items.filter(item => item);
+	for (let item of items) {
+		if (Array.isArray(item)) {
+			ids.splice(ids.length, 0, ...BN.getIds(...item));
+		}
+		else {
+			ids.push(typeof(item)=="string" ? item : item.id);
+		}
+	}
+	return ids;
+};
+BN.makeSubmodelPath = function(path) {
+	if (Array.isArray(path))  return path;
+
+	if (path.search(/^\//)!==-1) {
+		return path.replace(/\/$/,'').split(/\//).slice(1);
+	}
+
+	return null;
+};
+BN.defaultIterations = mbConfig.iterations;
+BN.updateMethodTitles = {
+	'likelihoodWeighting': 'Likelihood Weighting',
+	'junctionTree': 'Junction Tree',
+};
+BN.sortItems = function(items, sortType) {
+	if (sortType == 'original')  return items;
+	let sortedItems = null;
+	if (sortType == 'idAZ') {
+		sortedItems = items.slice().sort((a,b)=>a.id.localeCompare(b.id));
+	}
+	else if (sortType == 'idZA') {
+		sortedItems = items.slice().sort((a,b)=>b.id.localeCompare(a.id));
+	}
+	else if (sortType == 'labelAZ') {
+		sortedItems = items.slice().sort((a,b)=>a.label.localeCompare(b.label));
+	}
+	else if (sortType == 'labelZA') {
+		sortedItems = items.slice().sort((a,b)=>b.label.localeCompare(a.label));
+	}
+	else if (sortType == 'rootsToLeaves') {
+		sortedItems = BN.prototype.topologicalSort(items);
+	}
+	else if (sortType == 'leavesToRoots') {
+		sortedItems = BN.prototype.topologicalSort(items).reverse();
+	}
+	else if (sortType == 'colorRootsToLeaves') {
+		let colorMap = new Map();
+		BN.prototype.topologicalSort(items).forEach(n => colorMap.has(n.format.backgroundColor) || colorMap.set(n.format.backgroundColor, colorMap.size));
+		sortedItems = items.slice().sort((a,b)=>colorMap.get(a.format.backgroundColor) - colorMap.get(b.format.backgroundColor));
+	}
+	else if (sortType == 'colorLeavesToRoots') {
+		sortedItems = BN.sortItems(items, 'colorRootsToLeaves').reverse();
+	}
+	return sortedItems;
 }
 BN.prototype = {
 	init: function(o) {
 		o = o || {};
 
-		this.iterations = 1000;
+		this.iterations = BN.defaultIterations;
 		this.timeLimit = null;
 		this.updateViewer = true;
+		this.doAutoLayout = false;
 		this.perfLoops = 100;
 		this.perfIterations = 100000;
-		
+
 		this.fileName = this.fileName || "bn"+(__newBnIndex++)+".xdsl";
 
+		let sourcePromise = null;
 		if (this.source) {
-			this["load_"+this.sourceFormat](this.source);
+			sourcePromise = this["load_"+this.sourceFormat](this.source);
+			//debugger;
 		}
+		
+		completeInit = () => {
+			if (o.outputEl) {
+				this.outputEl = $(o.outputEl);
+				this.display();
+				/// I was going to pass in BN as an arg,
+				/// but I can't because sometimes updateBN is passed,
+				/// which expects a callback as its first arg.
+				/// That's somewhat nasty.
+				if (o.onload)  o.onload();
+			}
+		}
+		
+		if (sourcePromise) {
+			sourcePromise.then(completeInit);
+		}
+		else {
+			/// Use setTimeout to give other things (like setting currentBn)
+			/// a chance to run first
+			setTimeout(completeInit, 0);
+		}
+	},
+	load_mb(mbStr) {
+		this.objs = JSON.parse(mbStr);
+		
+		/// |type| could be anything. For now, just throw error if not a BN
+		if (this.objs.type !== "BN")  throw new Error("Unknown file type: "+this.objs.type);
+		
+		this.evidenceSets = this.objs.evidenceSets;
+		this.subItems = this.objs.subItems.map(item => new TextBox({...item, net:this}));
+		this.nodeDisplayStyle = this.objs.nodeDisplayStyle;
+		this.comment = this.objs.comment;
+		
+		let hasPos = false;
+		if (this.objs.nodes) {
+			for (let i=0; i<this.objs.nodes.length; i++) {
+				let nodeInfo = this.objs.nodes[i];
+				let opts = {};
+				for (let prop of ["label","parents","format"]) {
+					if (prop in nodeInfo) {
+						opts[prop] = nodeInfo[prop];
+					}
+				}
+				if (nodeInfo.def) {
+					opts.def = new NodeDefinitions[nodeInfo.def.type](null, nodeInfo.def.content);
+				}
+				if (nodeInfo.position) {
+					hasPos = true;
+					opts.pos = {x: nodeInfo.position[0], y: nodeInfo.position[1]};
+				}
+				this.addNode(nodeInfo.id, nodeInfo.states, opts);
+			}
+		}
+		
+		/// Update node count, comments, etc. (if present)
+		this.compile(true);
+		this.updateViewer = true;
+		
+		if (!hasPos)  this.doAutoLayout = true;
+	},
+	save_mb() {
+		let objs = {type: "BN"};
+		
+		if (this.nodes.length) {
+			objs.nodes = [];
+		}
+		
+		for (let i=0; i<this.nodes.length; i++) {
+			let node = this.nodes[i];
+			let nodeInfo = {
+				id: node.id,
+				label: node.label ? node.label : undefined,
+				states: node.states ? node.states.map(s => s.id) : undefined,
+				parents: node.parents ? node.parents.map(p => p.id) : undefined,
+				format: node.format ? node.format : undefined,
+			};
 
-		if (o.outputEl) {
-			this.outputEl = $(o.outputEl);
-			this.display();
+			if (node.def) {
+				nodeInfo.def = {
+					type: node.def.type,
+					content: node.def.getContent(),
+				};
+			}
+			if (node.pos) {
+				nodeInfo.position = [node.pos.x, node.pos.y];
+			}
+			objs.nodes.push(nodeInfo);
 		}
+		
+		objs.evidenceSets = this.evidenceSets;
+		objs.subItems = this.subItems.map(item => {
+			return {
+				text: item.text,
+				format: item.format,
+				pos: item.pos,
+				size: item.size,
+			};
+		});
+		objs.nodeDisplayStyle = this.nodeDisplayStyle;
+		objs.comment = this.comment;
+		
+		return JSON.stringify(objs, null, 2);
+	},
+	loadXml(text) {
+		let objs = null;
+		
+		/** XXX: This is a hack that should be changed at some point! Reasons for this approach:
+			- If I leave the namespace as XHTML, it interprets <caption> in a weird way,
+			  and removes it from the DOM. The SVG namespace doesn't cause those problems (perhaps
+			  others, but haven't encountered any so far).
+			- If I parse as XML, it's *way* too fickle/fragile, and throws fatal errors for non-issues
+			  like '&nbsp;' not being defined in XML.
+			- There's no browser functionality to do a generic HTML-like markup -> DOM,
+			  without applying HTML semantics.
+		*/
+		text = text.replace(/<(\/?)caption>/g, '<$1tempcaption>');
+		try {
+			/// 2020-10-27: If there's a problem with loading, check this.
+			//objs = $($.parseXML(text));
+			objs = $(text);
+		}
+		catch (e) {
+			let div = document.createElementNS('http://www.w3.org/1999/xhtml/', 'div');
+			//let div = document.createElementNS('http://www.w3.org/2000/svg', 'div');
+			//let div = document.createElement('div');
+			div.innerHTML = text;
+			objs = $(div);
+		}
+		//console.log(this.objs);
+		
+		return objs;
 	},
 	/// All load/save functions for different formats have the format 'load_<format>' or
 	/// 'save_<format>'.
 	load_xdsl: function(xdsl) {
-		this.objs = $(xdsl);
-		//console.log(this.objs);
-
+		/// 2018-03-1 I used to have .find('smile') inside loadXml. I don't seem to need it now...
+		this.objs = this.loadXml(xdsl);
+	
 		var bn = this;
 		this.nodes = [];
 		this._utilityNodes = [];
@@ -1848,6 +2704,10 @@ BN.prototype = {
 			/// This has been copied from the equivalent code in makeNodeFromXdsl. Need to merge them.
 			var $extInfo = $(this);
 			var format = {};
+			let label = null;
+			if ($extInfo.find("> name")) {
+				label = $extInfo.find("> name").text();
+			}
 			if ($extInfo.find("> interior")) {
 				format.backgroundColor = '#'+$extInfo.find("> interior").attr("color");
 			}
@@ -1872,6 +2732,7 @@ BN.prototype = {
 			}
 			parSubmodel.submodelsById[$(this).attr("id")] = new Submodel({
 				id: $(this).attr("id"),
+				label: label,
 				submodelPath: submodelPars,
 				net: bn,
 				subNodes: [],
@@ -1883,7 +2744,7 @@ BN.prototype = {
 		});
 
 		/// Handle all the nodes
-		this.objs.find("> nodes cpt, > nodes deterministic, > nodes decision, > nodes utility, > nodes equation").each(function() {
+		this.objs.find("> nodes cpt, > nodes deterministic, > nodes decision, > nodes utility, > nodes equation, > nodes noisymax").each(function() {
 			var node = Node.makeNodeFromXdslEl(this, bn.objs, {net: bn});
 			//node.moveToSubmodel(node.submodelPath);
 			//bn.nodes.push(node);
@@ -1901,13 +2762,16 @@ BN.prototype = {
 		this.objs.find("> extensions textbox").each(function() {
 			var submodelPars = $(this).parents('submodel').map(function(){ return $(this).attr("id") }).toArray().reverse();
 			var posInfo = $(this).find("position").text().split(/\s+/);
+			let text = $(this).find("tempcaption")[0].textContent ?? '';
+			text = text.replace(/\\n/g, '\n');
+			console.log("textbox", text);
 			var textBox = new TextBox({
 				net: bn,
 				pos: {x: Number(posInfo[0]), y: Number(posInfo[1])},
 				size: {width: Number(posInfo[2])-Number(posInfo[0]), height: Number(posInfo[3])-Number(posInfo[1])},
 				submodelPath: submodelPars,
 				/// The parse interprets the <caption> element in a unique way, converting it to a text node...
-				text: this.childNodes[0].textContent,
+				text,
 			});
 			var format = textBox.format;
 			var $font = $(this).find("font");
@@ -1940,8 +2804,8 @@ BN.prototype = {
 		this.objs.find("> dynamic").each(function() {
 			var $dyn = $(this);
 			numSlices = $dyn.attr("numslices");
-			///Override with 10
-			numSlices = 10;
+			///Override with 10 (why did I have this here?)
+			//numSlices = 10;
 			var sliceNum = 1;
 
 			for (; sliceNum<numSlices; sliceNum++) {
@@ -2003,7 +2867,7 @@ BN.prototype = {
 				node.dynamicParents.push( [bn.nodesById[parentNames[pi]], Number($(this).find("cpt").attr("order")) ] );
 			}
 		});
-		
+
 		/// Get stored scenarios
 		this.objs.find("> extensions > make-believe > evidence-sets > evidence").each(function() {
 			bn.evidenceSets.push(JSON.parse($(this).text()));
@@ -2036,7 +2900,7 @@ BN.prototype = {
 		console.time('searching');
 		//onsole.log(om);
 		var bnet = om._findObject({type: 'BLOCK_STATEMENT', children: {0: 'bnet'}});
-		var comment = bnet._findObject({children: {0: "comment", 2: {children: {0: OBJECTVALUE}}}});
+		var comment = bnet._findObject({children: {0: "comment", 2: {children: {0: OBJECTVALUE}}}}, {recursive: false});
 		if (comment) {
 			/// Strip out all end of line slashes (plus following whitespace)
 			comment = comment.replace(/\\\r?\n\s*/g, '');
@@ -2052,10 +2916,11 @@ BN.prototype = {
 		console.log(nodes);
 		//var nodes = JSON.search(bnet, '//*[type="BLOCK_STATEMENT"][children[1]="node"]');
 		for (var ni=0; ni<nodes.length; ni++) {
+			let size = {width: 80, height: 30};
 			var omNode = nodes[ni];
 			var nodeId = omNode.children[1];
 			var isTextNode = false;
-			console.log(omNode);
+			console.log(nodeId, omNode);
 			/// ASSUME represents a text node?
 			/// I didn't save a test case for this, and can't replicate.
 			var skipNode = false;
@@ -2074,8 +2939,18 @@ BN.prototype = {
 			}
 			catch (e) {}
 			var states = omNode._findObject({children: {0: "states", 2: {children: {0: OBJECTVALUE}}}});
-			if (states) {
-				states = states.replace(/[\(\)\s]/g, '')._splitNotEmpty(/,/);
+			var stateTitles = omNode._findObject({children: {0: "statetitles", 2: {children: {0: OBJECTVALUE}}}});
+			if (states || stateTitles) {
+				/// Make-believe doesn't currently support state labels (although, it's
+				/// almost the very next thing to go in)
+				if (states) {
+					states = states.replace(/[\(\)\s]/g, '')._splitNotEmpty(/,/);
+				}
+				else if (stateTitles) {
+					states = [];
+					stateTitles.replace(/"((?:\\.|[^"])*)"/g, (m,p1) => states.push(p1.replace(/\\(.)/g, '$1')));
+					//states = stateTitles.replace(/[\(\)\s]/g, '')._splitNotEmpty(/,/);
+				}
 			}
 			else {
 				var levels = omNode._findObject({children: {0: "levels", 2: {children: {0: OBJECTVALUE}}}});
@@ -2096,16 +2971,30 @@ BN.prototype = {
 			if (!isTextNode) {
 				states = states.map(function(x,i){ return new State({id: x, index: i}) });
 				var cpt = null;
+				var funcTable = null;
 				try {
 					var cptStr = omNode._findObject({children: {0: "probs", 2: {children: {0: OBJECTVALUE}}}});
-					//var cptStr = JSON.search(omNode, '//*[children[1]="probs"]/children[3]/children')[0];
-					/// defiantjs converts all new lines to &#13;, presumably for xpath compatibility
-					cptStr = cptStr.replace(/&#13;/g, '\n');
-					/// Remove all comments
-					cptStr = cptStr.replace(/\/\/.*/g, '');
-					/// XXX Need to do more to support the various types of .dne 'probs' formats
-					//onsole.log( cptStr );
-					cpt = cptStr.replace(/[\(\)\s\n\r]|&[^&;]+;/g, '')._splitNotEmpty(/,/);
+					if (cptStr) {
+						//var cptStr = JSON.search(omNode, '//*[children[1]="probs"]/children[3]/children')[0];
+						/// defiantjs converts all new lines to &#13;, presumably for xpath compatibility
+						cptStr = cptStr.replace(/&#13;/g, '\n');
+						/// Remove all comments
+						cptStr = cptStr.replace(/\/\/.*/g, '');
+						/// XXX Need to do more to support the various types of .dne 'probs' formats
+						//onsole.log( cptStr );
+						cpt = cptStr.replace(/[\(\)\s\n\r]|&[^&;]+;/g, '')._splitNotEmpty(/,/);
+					}
+					else {
+						var funcTableStr = omNode._findObject({children: {0: "functable", 2: {children: {0: OBJECTVALUE}}}});
+						if (funcTableStr) {
+							/// Remove all comments
+							funcTableStr = funcTableStr.replace(/\/\/.*/g, '');
+							/// XXX Need to do more to support the various types of .dne 'probs' formats
+							//onsole.log( funcTableStr );
+							funcTable = funcTableStr.replace(/[\(\)\s\n\r]|&[^&;]+;/g, '')._splitNotEmpty(/,/);
+							funcTable = funcTable.map(stateName => states.findIndex(s => s.id==stateName));
+						}
+					}
 				}
 				catch (e) {}
 				var comment = null;
@@ -2115,10 +3004,20 @@ BN.prototype = {
 				}
 				catch (e) {}
 			}
+			/// Font
+			let fontStatement = omNode._findObject({type: 'ASSIGN_STATEMENT', children:{0:'font'}});
+			let format = {};
+			if (fontStatement) {
+				let fontFamily = fontStatement._findObject({0:'shape', 2:{children:{0:OBJECTVALUE}}});
+				let fontSize = fontStatement._findObject({0:'size', 2:{children:{0:OBJECTVALUE}}});
+				format.fontFamily = fontFamily;
+				format.fontSize = fontSize;
+			}
 			var label = null;
 			try {
 				//label = JSON.search(omNode, '//*[children[1]="title"]/children[3]/children')[0];
 				label = omNode._findObject({children: {0: "title", 2: {children: {0: OBJECTVALUE}}}});
+				label = label.replace(/\\n/g, '\n').replace(/\\\\/g, '\\');
 			}
 			catch (e) {}
 			//onsole.log("TITLE:", label);
@@ -2129,11 +3028,17 @@ BN.prototype = {
 					text: label,
 					pos: {x: Number(centerPos[0]), y: Number(centerPos[1])},
 					/// Netica comments have no width property.
-					size: {width: -1, height: 30},
+					size: {width: null, height: 30},
 				});
 			}
 			else {
-				var def = new CPT(null, cpt);
+				let def = null;
+				if (funcTable !== null) {
+					def = new CDT(null, funcTable);
+				}
+				else {
+					def = new CPT(null, cpt);
+				}
 				var node = new Node({
 					net: this,
 					id: nodeId,
@@ -2143,11 +3048,30 @@ BN.prototype = {
 					states: states,
 					def: def,
 					pos: {x: Number(centerPos[0]), y: Number(centerPos[1])},
-					size: {width: 80, height: 30},
+					size: size,
+					format: format,
 					comment: comment,
 				});
 				/// Check for any empty CPTs, and set to a useful initial
-				if (!cpt)  node.def.setInitial();
+				//if (!cpt)  node.def.setInitial();
+			}
+		}
+		/// Colour in the nodes
+		let bnVisual = bnet._findObject({type: 'BLOCK_STATEMENT', children: {0:'visual'}});
+		let nodeSets = bnet._findObjects({type: 'BLOCK_STATEMENT', children: {0:'NodeSet'}}).filter(o => o._findObject({0:'Nodes'}));
+		for (let nodeSet of nodeSets) {
+			let nodeSetName = nodeSet.children[1];
+			let nodeList = nodeSet._findObject({type: 'ASSIGN_STATEMENT', children: {0:'Nodes'}});
+			let nodeListStr = nodeList.children[2].children[0];
+			if (nodeListStr!='()') {
+				let nodeIds = nodeListStr.replace(/\(|\)/g, '').split(/\s*,\s*/);
+				let nodeColorInfo = bnVisual._findObject({type: 'BLOCK_STATEMENT', children: {0:'NodeSet', 1:nodeSetName, 2:OBJECTVALUE}});
+				let color = nodeColorInfo._findObject({type: 'ASSIGN_STATEMENT', children:{0:'Color',2:{children:{0:OBJECTVALUE}}}});
+				for (let nodeId of nodeIds) {
+					console.log(nodeId);
+					if (nodeId)  bn.find(nodeId).format.backgroundColor = color.replace(/^0x00/, '#');
+				}
+				console.log(color);
 			}
 		}
 		console.timeEnd('searching');
@@ -2157,16 +3081,314 @@ BN.prototype = {
 
 		/// Update node count, comments, etc. (if present)
 		bn.updateViewer = true;
+		
+		let hasPos = false;
+		for (let node of bn.nodes) {
+			hasPos = hasPos || node.pos.x!=0 || node.pos.y!=0;
+			console.log(hasPos, node.pos.x, node.pos.y);
+			if (hasPos)  break;
+		}
+		if (!hasPos)  bn.doAutoLayout = true;
 	},
-	/** After basic loading, need to run various cleanups, replace named objects with object points,
-		store things in more optimised form, etc.
+	save_dne() {
+		let nodesStr = '';
+		
+		function encodeDneString(inStr) {
+			let hasSpecial = false;
+			for (let i=0; i<inStr.length; i++) {
+				if (inStr[i].codePointAt(0) >= 256) {
+					hasSpecial = true;
+					break;
+				}
+			}
+			if (!hasSpecial)  return inStr;
+			
+			let str = '\\FF\\FE';
+			
+			function handle16Bit(code) {
+				let str = "";
+				if (code < 256) {
+					str = '\\'+code.toString(16).toUpperCase()+'\\00';
+				}
+				else if (code < 65536) {
+					str = code.toString(16).replace(/(..)(..)/, '\\$2\\$1').toUpperCase();
+				}
+				return str;
+			}
+			
+			for (let i=0; i<inStr.length; i++) {
+				let code = inStr[i].codePointAt(0);
+				if (code < 65536) {
+					str += handle16Bit(code);
+				}
+				else {
+					/// Netica handles 32 bit unicode a little oddly, I think.
+					let code1 = inStr[0].charCodeAt(0);
+					let code2 = inStr[0].charCodeAt(1);
+					str += handle16Bit(code2);
+					str += handle16Bit(code1);
+				}
+			}
+			
+			return str;
+		}
+		
+		let nodeIds = {};
+		function uniqueNodeId(id) {
+			let newId = makeValidId(id);
+			while (newId in nodeIds) {
+				let m = newId.match(/_(\d+)/);
+				if (!m) {
+					newId = newId.substring(0,28)+'_1';
+				}
+				else {
+					newId = newId.substring(0,30-m[0].length)+'_'+(Number(m[1])+1);
+				}
+			}
+			nodeIds[newId] = true;
+			return newId;
+		}
+		
+		let nodeIdMap = {};
+		for (let node of this.nodes) {
+			nodeIdMap[node.id] = uniqueNodeId(node.id);
+		}
+		
+		let maxX = 0;
+		let maxY = 0;
+		for (let node of this.nodes) {
+				let title = node.label ? encodeDneString(node.label) : null;
+				
+				maxX = Math.max(maxX, node.pos.x+node.size.width);
+				maxY = Math.max(maxY, node.pos.y+node.size.height);
+			
+				let s = '';
+				s += `\tkind = ${node.type.toUpperCase()};\n`;
+				s += `\tdiscrete = TRUE;\n`;
+				s += `\tchance = ${node.def.type=="CPT" ? "CHANCE" : "DETERMIN"};\n`;
+				s += `\tstates = (${node.states.map(s => makeValidId(s.id)).join(',')});\n`;
+				s += `\tstatetitles = (${node.states.map(s => '"'+encodeDneString(s.id)+'"').join(',')});\n`;
+				s += `\tparents = (${node.parents.map(p => nodeIdMap[p.id]).join(',')});\n`;
+				if (node.def.type == 'CPT') {
+					let tempDef = new CPT(node.def);
+					/// We want normal JS numbers, rather than float32s
+					tempDef.cpt = [...tempDef.cpt];
+					tempDef.normalize(6);
+					s += `\tprobs = (${tempDef.cpt.join(",")});\n`;
+				}
+				else if (node.def.type == 'CDT') {
+					s += `\tfunctable = (${[...node.def.funcTable].map(v => '#'+v).join(",")});\n`;
+					console.log(`\tfunctable = (${node.def.funcTable.map(v => '#'+v).join(",")});\n`);
+				}
+				if (title)  s += `\ttitle = "${title}";\n`;
+				
+				let visual = '\tvisual V1 {\n';
+				visual += `\t\tcenter = (${Math.round(node.pos.x)},${Math.round(node.pos.y)});\n`;
+				visual += '\t};\n';
+			
+				let nodeStr = `node ${nodeIdMap[node.id]} {\n${s}\n${visual}\n};\n\n`;
+				
+				nodesStr += nodeStr;
+		}
+		
+		
+		let fullStr = `// ~->[DNET-1]->~
 
-		This is now basically a compile function. Update: Hence why it's now called 'compile'. :)
-		**/
-	compile: function(force) {
-		if (!force && !this.needsCompile)  return;
-		console.log('Compiling...');
+// File created by user using Make-Believe on ${new Date()}.
 
+bnet ${makeValidId(this.fileName.replace(/\.[^.]*$/, ''))} {
+	
+visual V1 {
+	drawingbounds = (${Math.round(maxX)},${Math.round(maxY)});
+};
+
+${nodesStr}
+
+};
+`;
+		return fullStr;
+	},
+	async load_cmp(cmpText) {
+		let jsZip = new JSZip();
+		let zip = await jsZip.loadAsync(cmpText);
+		let contents = null;
+		
+		for (let file of Object.values(zip.files)) {
+			if (file.name.search(/_model\.xml$/)!=-1) {
+				contents = await file.async("string");
+				break;
+			}
+		}
+		
+		/// Now we have the model contents, extract the model(s)
+		this.objs = this.loadXml(contents);
+		
+		let ebn = this.objs.find('extendedBN').eq(0);
+		let ebnId = ebn.attr('id');
+		let eNodes = ebn.find('extended_node');
+		let coreFn = ebn.find('conn_core_filename').eq(0).text();
+		let diagramFn = coreFn.replace(/\.cor$/, '.dgm');
+		
+		let nodes = [];
+		let nodesByAgenaId = {};
+		let nodesById = {};
+		for (let eNode of eNodes) {
+			let node = new Node({
+				net: this,
+				id: $(eNode).find('conn_node_id').eq(0).text(),
+				label: $(eNode).find('> name > short_description').eq(0).text(),
+			});
+			nodes.push(node);
+			nodesById[node.id] = node;
+			nodesByAgenaId[$(eNode).attr('id')] = node;
+		}
+		console.log(nodes.map(n => n.id));
+		
+		/// Now we need to update the nodes with visual information, which is in another file
+		/// in a relatively cryptic format
+		/// Won't have the same index as the .cor file. No, that would
+		/// be way too easy.
+		//contents = await zip.file(diagramFn).async("string");
+		for (let file of Object.values(zip.files)) {
+			if (file.name.search(/\.dgm$/)!=-1) {
+				console.log(file.name);
+				contents = await file.async("string");
+				let m = contents.match(/^uk\.co\.agena\.minerva\.model\.extendedbn\.ExtendedBN=([\d\w]+)/m);
+				console.log(m,ebnId);
+				/// We found the right file, so break
+				if (m && m[1]==ebnId) {
+					console.log('found');
+					break;
+				}
+				contents = '';
+			}
+		}
+		
+		console.log(contents);
+		
+		/// contents contains the visual information. Extract.
+		// /^uk\.co\.agena\.minerva\.guicomponents\.diagramcanvas\.CanvassLabel.*(?:LabelledEN|BooleanEN)=(\d+)[^~]*\d+=([\d.]+),([\d.]+)/gm
+		contents.replace(/^uk\.co\.agena\.minerva\.guicomponents\.diagramcanvas\.CanvassLabel.*(?:LabelledEN|BooleanEN)=(\d+)[^~]*~\d+=([\d.]+),([\d.]+)/gm, function(m, id, x, y) {
+			console.log('xxxxxxxxxxxxx',m, id, x, y);
+			nodesByAgenaId[id].pos.x = Number(x);
+			nodesByAgenaId[id].pos.y = Number(y);
+			return m;
+		});
+		
+		/*for (let file of Object.values(zip.files)) {
+			if (file.name.search(/.cor$/)!=-1) {
+				console.log(file.name);
+				contents = await file.async("string");
+			}
+		}*/
+		
+		contents = await zip.file(coreFn).async("uint8array");
+		//console.log(contents);
+		let gunz = new Zlib.Gunzip(contents);
+		contents = gunz.decompress();
+		console.log(contents);
+		contents = new buffer.Buffer(contents);
+		let jdContents = new JavaDeserializer(contents).contents;
+		
+		let jNodes = jdContents[0].nodeList['@'].slice(1);
+		for (let jNode of jNodes) {
+			let node = nodesById[jNode.altId];
+			let tableNodes = jNode.nodes4table['@'].slice(1);
+			
+			node.setStates(jNode.stateLabels);
+			/// Add all parents from nodes4Table
+			//let parentEdges = jNode.originalEdges['@'].slice(1).filter(e => e.edgeDirection == 1);
+			for (let tNode of tableNodes) {
+				if (tNode.altId == jNode.altId)  continue;
+				node.addParents([nodesById[tNode.altId]]);
+			}
+			let oldCpt = jNode.condProbsLinear;
+			/// grr num 2. CPTs can be 'compressed' (basically, sparse CPTs).
+			/// missing entries are 0
+			
+			if (jNode.condProbIsCompressed) {
+				oldCpt = new Float32Array(new ArrayBuffer(4*jNode.totalNumberOfConditionalProbabilities));
+				for (let entry of jNode.condProbCompressedIndexVal) {
+					let index = entry[0];
+					let prob = entry[1];
+					oldCpt[index] = prob;
+				}
+			}
+			let fixedCpt = new Float32Array(new ArrayBuffer(4*oldCpt.length));
+			let numStates = node.states.length;
+			let numRows = oldCpt.length/numStates;
+			/// grr, the table is not formatted in the order of entry. It's formatted like a factor,
+			/// with the current node in a seemingly arbitrary column position
+			let currentNodeFound = false;
+			let nodesToLeftSize = 1;
+			let nodesToRightSize = 1;
+			for (let tNode of tableNodes) {
+				if (currentNodeFound) {
+					nodesToRightSize *= tNode.stateLabels.length;
+				}
+				else {
+					if (tNode.altId == jNode.altId) {
+						currentNodeFound = true;
+					}
+					else {
+						nodesToLeftSize *= tNode.stateLabels.length;
+					}
+				}
+			}
+			
+			for (let i=0; i<oldCpt.length; i++) {
+				let leftGroup = Math.floor(i/(numStates*nodesToRightSize));
+				let leftGroupI = leftGroup*(numStates*nodesToRightSize);
+				let state = Math.floor(i/nodesToRightSize)%numStates;
+				let rightGroupOffset = i%(nodesToRightSize)*numStates;
+				newI = leftGroupI + rightGroupOffset + state;
+				fixedCpt[newI] = oldCpt[i];
+			}
+			
+			/*for (let r=0; r<numRows; r++) {
+				for (let s=0; s<numStates; s++) {
+					s*nodesToRightSize
+					fixedCpt[r*numStates + s] = oldCpt[s*numRows + r];
+				}
+			}*/
+			let cpt = new CPT(node, fixedCpt);
+			/// Normalise
+			cpt.normalize();
+			
+			//debugger;
+			node.def = cpt;
+		}
+		
+		/// Fix node ids
+		for (let node of this.nodes) {
+			node.rename(node.id.replace(/\s/g, '_'));
+		}
+		
+		this.compile(true);
+		this.updateViewer = true;
+	},
+	load_claimsCsv(text) {
+		let claims = readCsv(text);
+		console.log(claims);
+		let sources = [];
+		let values = {}
+		for (let claim of claims) {
+			/// Carry forward empty values
+			Object.assign(values, Object.fromEntries(Object.entries(claim).filter(([k,v]) => v)));
+			if (claim.Source)  sources.push(claim.Source);
+			if (values.Relationship == '->') {
+				let v1 = makeValidId(values.Variable1);
+				let v2 = makeValidId(values.Variable2);
+				if (!currentBn.nodesById[v1])  currentBn.addNode(v1, null, {label: values.Variable1});
+				if (!currentBn.nodesById[v2])  currentBn.addNode(v2, null, {label: values.Variable2});
+				currentBn.nodesById[v1].addChildren([v2], {noUpdate:true});
+			}
+		}
+		currentBn.addTextBox(sources.join('\n'), {pos: [20, 20]});
+		currentBn.display();
+		app?.autoLayout?.();
+	},
+	updateNodeReferences() {
 		var bn = this;
 		/// Replace references to parent ids, with references to node cache
 		/// and index each node''s children
@@ -2179,128 +3401,34 @@ BN.prototype = {
 			var node = bn.nodes[i];
 			/// For fast referencing (without going to a dict lookup)
 			node.intId = i;
-			for (var j in node.parents) {
+			for (var j=0; j<node.parents.length; j++) {
 				if (typeof(node.parents[j])==="string") {
-					console.log(node.parents, j, node.parents[j]);
+					//onsole.log(node.parents, j, node.parents[j]);
 					node.parents[j] = bn.nodesById[node.parents[j]];
 					node.parents[j].children.push(node);
 				}
 			}
 			node.statesById = {};
-			for (var j in node.states) {
+			for (var j=0; j<node.states.length; j++) {
 				node.statesById[node.states[j].id] = node.states[j];
 			}
-			console.log(node._name, node);
+			//onsole.log(node._name, node);
 		}
-		/// Set uniform CPTs for decision nodes
-		/*for (var i in bn.nodes) {
-			var node = bn.nodes[i];
-			/// For some reason, I was checking for the asbence of node.cpt here
-			/// But, I think, I just want to test if it's a decision node
-			if (node.type == "decision") { // || !node.cpt) {
-				var len = node.numParentCombinations()*node.states.length;
-				var cpt = [];
-				for (var j=0; j<len; j++) {
-					cpt.push(1/node.states.length);
-				}
-				node.cpt = cpt;
-			}
-		}
-		/// Replace ordinary CPT arrays with typed arrays
-		for (var i in bn.nodes) {
-			var node = bn.nodes[i];
-			if (ArrayBuffer) {
-				if (node.cpt) {
-					var cptBuf = new ArrayBuffer(node.cpt.length*4);
-					var newCpt = new Float32Array(cptBuf);
-					for (var i=0; i<node.cpt.length; i++) {
-						newCpt[i] = node.cpt[i];
-					}
-					node.cpt = newCpt;
-				}
-				else if (node.funcTable) {
-					var ftBuf = new ArrayBuffer(node.funcTable.length*4);
-					var newFt = new Int32Array(ftBuf);
-					for (var i=0; i<node.funcTable.length; i++) {
-						newFt[i] = node.funcTable[i];
-					}
-					node.funcTable = newFt;
-				}
-			}
-		}*/
+	},
+	/** After basic loading, need to run various cleanups, replace named objects with object points,
+		store things in more optimised form, etc.
 
+		This is now basically a compile function. Update: Hence why it's now called 'compile'. :)
+		**/
+	compile(force) {
+		if (!force && !this.needsCompile)  return;
+		console.log('Compiling...');
+
+		var bn = this;
+		
+		this.updateNodeReferences();
 		this.updateRootNodes();
 		this.updateNodeOrdering();
-
-		if (this.useWorkers) {
-			console.log('Using workers');
-			/// XXX Redo the compile so that the worker-ready BN is built from scratch (to avoid
-			/// hassles passing in data to the workers)
-			/// Extract the key parts of the BN needed to do the inference
-			var bnToPass = {};
-			for (var k in bn) {
-				if (typeof(bn[k])!="function") {
-					bnToPass[k] = bn[k];
-				}
-			}
-			/// Not sure about nulling out net and then restoring it after sent
-			for (var i=0; i<bnToPass.nodes.length; i++) {
-				bnToPass.nodes[i].net = null;
-				//bnToPass.nodes[i].func = null;
-				bnToPass.nodes[i].def.func = null;
-				this.getSubmodel(bnToPass.nodes[i].submodelPath).net = null;
-			}
-			for (var i=0; i<bnToPass.displayItems.length; i++) {
-				bnToPass.displayItems[i].net = null;
-			}
-			bnToPass.objs = null;
-			bnToPass.outputEl = null;
-			bnToPass._workers = null;
-			bnToPass.submodelsById = null;
-			bnToPass.subNodes = null;
-			/// Ack! This caused me much pain
-			bnToPass.net = null;
-			bnToPass.changes = null;
-			/// NOTE: If receive DataCloneError, use following to work out
-			/// where the invalid object is lurking...
-			/*var objsSeen = [];
-			(function checkBn(obj, path){
-				for (var k in obj) {
-					path.push(k);
-					//console.log(path);
-					if (typeof(obj[k]) == "object" && objsSeen.findIndex(function(v) { return v==obj[k]})==-1) {
-						objsSeen.push(obj[k]);
-						checkBn(obj[k], path);
-					}
-					else {
-						if (obj[k] instanceof jQuery || obj[k] instanceof HTMLElement) {
-							console.log("Error: ", path);
-						}
-					}
-					path.pop();
-				}
-			})(bnToPass, ["bnToPass"]);*/
-
-			var numWorkers = this.numWorkers;
-
-			/// Make the workers and store the BN just once
-			if (this._workers.length != numWorkers) {
-				this._workers = new Array(numWorkers);
-			}
-			for (var wi=0; wi<numWorkers; wi++) {
-				if (!this._workers[wi])  this._workers[wi] = new Worker("_/js/beliefUpdate_worker.js");
-				console.log("BNTOPASS:", bnToPass);
-				this._workers[wi].postMessage([0, bnToPass]);
-			}
-
-			for (var i=0; i<bnToPass.nodes.length; i++) {
-				bnToPass.nodes[i].net = this;
-				this.getSubmodel(bnToPass.nodes[i].submodelPath).net = this;
-			}
-			for (var i=0; i<bnToPass.displayItems.length; i++) {
-				bnToPass.displayItems[i].net = this;
-			}
-		}
 
 		/* Compile the definitions (independently of whether workers are being used,
 			just in case we don't use workers. */
@@ -2310,7 +3438,72 @@ BN.prototype = {
 			}
 		}
 
+		/// Determine the update method
+		let updateMethod = this.updateMethod;
+		if (this.updateMethod == 'autoSelect') {
+			updateMethod = this.nodes.some(n => n.def.type != 'CPT' && n.def.type != 'CDT') ? 'likelihoodWeighting' : 'junctionTree';
+		}
+		this.updateMethodActual = updateMethod;
+
+		let compileMethod = 'compile_'+this.updateMethodActual;
+		if (this[compileMethod])  this[compileMethod]();
+
 		this.needsCompile = false;
+	},
+	compile_off() {
+		// pass
+	},
+	compile_likelihoodWeighting() {
+		if (this.useWorkers) {
+			console.log('Using workers');
+			var numWorkers = this.numWorkers;
+
+			/// Make the workers and store the BN just once
+			if (this._workers.length != numWorkers) {
+				this._workers = new Array(numWorkers);
+			}
+			for (var wi=0; wi<numWorkers; wi++) {
+				if (!this._workers[wi])  this._workers[wi] = new Worker("_/js/beliefUpdate_worker.js");
+				let bnToPass = makeBnForUpdates(this, true);
+				try {
+					console.log("BNTOPASS:", bnToPass);
+					//onsole.log(problemWithObjectClone(bnToPass));
+					this._workers[wi].postMessage([0, bnToPass]);
+				}
+				catch (e) {
+					if (e.name == "DataCloneError") {
+						console.log(problemWithObjectClone(bnToPass));
+						throw e;
+					}
+					else { throw e; }
+				}
+			}
+		}
+	},
+	compile_junctionTree() {
+		if (this.useWorkers) {
+			this._workers = [new Worker("_/js/junctionTree_worker.js")];
+			let bnToPass = makeBnForUpdates(this, true);
+			try {
+				//onsole.log("BNTOPASS:", bnToPass);
+				//onsole.log(problemWithObjectClone(bnToPass));
+				this._workers[0].postMessage([0, bnToPass]);
+			}
+			catch (e) {
+				if (e.name == "DataCloneError") {
+					console.log(problemWithObjectClone(bnToPass));
+					throw e;
+				}
+				else { throw e; }
+			}
+		}
+		else {
+			let jtree = new JunctionTree(makeBnForUpdates(this));
+			console.time('compile');
+			jtree.compile();
+			console.timeEnd('compile');
+			this.jtree = jtree;
+		}
 	},
 	updateRootNodes: function() {
 		var bn = this;
@@ -2366,13 +3559,16 @@ BN.prototype = {
 	/// Returns an xdsl string
 	save_xdsl: function() {
 		var bn = this;
+		/// Topological, because GeNIe can be fussy about this
+		var sortedNodes = this.topologicalSort(this.nodes);
+
 		var $smile = $("<smile version='1.0' id='sub0'>")
 			/// XXX Clarify the difference btw numsamples/discsamples
 			.attr("numsamples", this.iterations)
 			.attr("discsamples", this.iterations);
 		$smile.append("<nodes>");
-		for (var i=0; i<this.nodes.length; i++) {
-			var node = this.nodes[i];
+		for (var i=0; i<sortedNodes.length; i++) {
+			var node = sortedNodes[i];
 			if (node.type=="nature") {
 				if (node.def.cpt) {
 					var $el = null;
@@ -2416,6 +3612,23 @@ BN.prototype = {
 					);
 					})();
 				}
+				else if (node.def.type == 'Equation') {
+					let $el = null;
+					$smile.find("> nodes").append(
+						$el = $("<equation>").attr("id", node.id)
+					);
+					(function(){
+					let $parents = $("<parents>");
+					let p = "";
+					for (let i=0; i<node.parents.length; i++) {
+						p += (i!=0?" ":"") + node.parents[i].id;
+					}
+					if (p!=="")  $el.append($parents.text(p));
+					$el.append(
+						$("<definition lower='0' upper='1'>").text(node.def.funcText)
+					);
+					})();
+				}
 			}
 			else if (node.type == "decision") {
 				var $el = null;
@@ -2456,13 +3669,20 @@ BN.prototype = {
 		$smile.append(
 			'<extensions><genie version="1.0" app="GeNIe 2.0.5219.0" name="Sub0" faultnameformat="nodestate"></genie></extensions>'
 		);
-		function formatColor(col) { return !col ? col : col.replace(/#/, ''); }
+		function formatPos(pos, size) { return Math.round(pos.x)+" "+Math.round(pos.y)
+						+" "+Math.round(pos.x+size.width)+" "+Math.round(pos.y+size.height); }
+		function formatColor(col) {
+			if (!col)  return col;
+			col = col.replace(/#/, '');
+			col = col.length == 3 ? col.split().map(v => v+v).join('') : col;
+			return col;
+		}
 		/// If there are submodels, save them
 		function makeSubmodel(submodel) {
 			var $s = $('<submodel>').attr('id', submodel.id);
 			$s
 				.append($('<name>').text(submodel.label ? submodel.label : submodel.id))
-				.append($("<position>").text(submodel.pos.x+" "+submodel.pos.y+" "+(submodel.pos.x+submodel.size.width)+" "+(submodel.pos.y+submodel.size.height)))
+				.append($("<position>").text(formatPos(submodel.pos, submodel.size)))
 				/// GeNIe is awfully fussy (it requires format info, otherwise it breaks)
 				.append($('<interior>').attr('color', formatColor(submodel.format.backgroundColor) || "e5f6f7"))
 				.append($('<outline>').attr('color', formatColor(submodel.format.borderColor) || '0000bb'))
@@ -2470,15 +3690,36 @@ BN.prototype = {
 			for (var mySubmodel of Object.values(submodel.submodelsById)) {
 				$s.append(makeSubmodel(mySubmodel));
 			}
+			if (submodel.subItems.length) {
+				for (let item of submodel.subItems) {
+					makeTextBox(item).appendTo($s);
+				}
+			}
 			return $s;
 		}
-		$smile.find('> extensions > genie').append( Object.values(this.submodelsById).map(s=>makeSubmodel(s)) );
-		for (var i=0; i<this.nodes.length; i++) {
-			var node = this.nodes[i];
+		function makeTextBox(item) {
+			var $caption = $('<caption>').text(item.text);
+			$caption.textContent = item.text;
+			return $('<textbox>').append(
+				$caption,
+				$('<font>').attr({
+					color: formatColor(item.format.fontColor) || '000000',
+					name: item.format.fontFamily || 'Arial',
+					size: item.format.fontSize || 8,
+				}),
+				$('<position>').text(formatPos(item.pos, item.size)),
+			);
+		}
+		$smile.find('> extensions > genie').append(
+			Object.values(this.submodelsById).filter(s=>s.submodelPath.length==0).map(s=>makeSubmodel(s))
+		);
+		for (var i=0; i<sortedNodes.length; i++) {
+			var node = sortedNodes[i];
 			var $node = $("<node>").attr("id", node.id);
+			console.log(node.pos, node.size, formatPos(node.pos, node.size));
 			$node
 				.append($("<name>").text(node.label ? node.label : node.id))
-				.append($("<position>").text(node.pos.x+" "+node.pos.y+" "+(node.pos.x+node.size.width)+" "+(node.pos.y+node.size.height)))
+				.append($("<position>").text(formatPos(node.pos, node.size)))
 				/// GeNIe is awfully fussy (it requires format info, otherwise it breaks)
 				.append($('<interior>').attr('color', formatColor(node.format.backgroundColor) || "e5f6f7"))
 				.append($('<outline>').attr('color', formatColor(node.format.borderColor) || '0000bb'))
@@ -2504,17 +3745,9 @@ BN.prototype = {
 			));
 			$smile.find('> extensions').append($makeBelieve);
 		}
-		if (this.displayItems.length) {
-			for (var item of this.displayItems) {
-				$('<textbox>').append(
-					$('<caption>').text(item.text.trim()),
-					$('<font>').attr({
-						color: formatColor(item.format.fontColor) || '000000',
-						name: item.format.fontFamily || 'Arial',
-						size: item.format.fontSize || 8,
-					}),
-					$('<position>').text(item.pos.x+" "+item.pos.y+" "+(item.pos.x+item.size.width)+" "+(item.pos.y+item.size.height)),
-				).appendTo($smile.find('> extensions > genie'));
+		if (this.subItems.length) {
+			for (let item of this.subItems) {
+				makeTextBox(item).appendTo($smile.find('> extensions > genie'));
 			}
 		}
 		if (this.comment) {
@@ -2522,6 +3755,49 @@ BN.prototype = {
 		}
 		return vkbeautify.xml('<?xml version="1.0"?>' + $smile[0].outerHTML).replace(/\r?\n/g, '\r\n');
 	},
+	/** Creates a new, filtered, BN based on the node subset
+	    Will only preserve direct arcs.
+	**/
+	makeFilteredStructure(nodeSubset) {
+		let bn = new BN();
+		nodeSubset = nodeSubset.map(n => n?.id ?? n);
+		for (let nodeId of nodeSubset) {
+			bn.addNode(nodeId);
+		}
+		for (let nodeId of nodeSubset) {
+			for (let par of this.node[nodeId].parents) {
+				if (nodeSubset.find(nId => nId == par.id)) {
+					bn.node[nodeId].addParents([par.id]);
+				}
+			}
+		}
+		return bn;
+	},
+	/// Slightly shorter names, slightly more consistent with bni
+	get node() {
+		return this.nodesById;
+	},
+	get submodel() {
+		return this.submodelsById;
+	},
+	find(id) {
+		if (!id)  return null;
+		if (id == "..") {
+			if (this.currentSubmodel.length==0)  return null;
+			return this.getSubmodel(this.currentSubmodel.slice(0,-1));
+		}
+		return this.nodesById[id] || this.submodelsById[id]
+			|| this.basicItems.find(i => i.id == id);
+	},
+	findItems: Submodel.prototype.findItems,
+	getItems() {
+		let mySubmodels = Object.values(this.submodelsById).filter(s => s.submodelPath.length==0);
+		return [...this.subNodes,...this.subItems,...mySubmodels];
+	},
+	getAllItems() {
+		return [...this.nodes,...this.basicItems,...Object.values(this.submodelsById)];
+	},
+	getAllNodes: Submodel.prototype.getAllNodes,
 	/**
 	Add a new node to the network. net.addNode(...) is equivalent to |new Node(net, ...)|.
 	*/
@@ -2529,11 +3805,10 @@ BN.prototype = {
 		opts = opts || {};
 		console.log(opts);
 
-		var newNode = new Node($.extend({
-			net: this,
+		var newNode = new Node(Object.assign({
 			id: id,
 			states: states,
-		}, opts));
+		}, opts, {net: this, pathsIn:[], pathsOut:[]}));
 
 		return newNode;
 	},
@@ -2542,23 +3817,83 @@ BN.prototype = {
 	*/
 	addSubmodel: function(id, opts) {
 		opts = opts || {};
-		
+
 		var newSubmodel = new Submodel(Object.assign({
-			net: this,
 			id: id
-		}, opts));
-		
+		}, opts, {net: this, pathsIn:[], pathsOut:[]}));
+
 		return newSubmodel;
 	},
 	addTextBox: function(text, opts) {
+		if (text.id) { this._addTextBoxObject(text); return; }
+
 		opts = opts || {};
-		
+
 		var textBox = new TextBox(Object.assign({
 			text: text,
-			net: this,
-		}, opts));
-		
+		}, opts, {net: this}));
+
 		return textBox;
+	},
+	addImageBox: function(imageUrl, opts) {
+		if (imageUrl.id) { this._addImageBoxObject(imageUrl); return; }
+
+		opts = opts || {};
+
+		var imageBox = new ImageBox(Object.assign({
+			imageUrl,
+		}, opts, {net: this}));
+
+		return imageBox;
+	},
+	_addTextBoxObject(textBox) {
+		textBox.net = this;
+		this.basicItems.push(textBox);
+	},
+	_addImageBoxObject(imageBox) {
+		imageBox.net = this;
+		this.basicItems.push(imageBox);
+	},
+	/** Cut/copy/paste (non-GUI functions) **/
+	copy(items = null) {
+		if (!items)  items = [...this.selected];
+		return items.map(item => item.duplicate());
+	},
+	paste(items, loc = null) {
+		let bn = this;
+		let offset = {x: 10, y: 10};
+		let addedItems = [];
+		let idMap = {};
+		for (let item of this.items) {
+			let dupItem = item.duplicate();
+			let dupI = 1;
+			let newId = null;
+			do {
+				newId = dupItem.id + `_${dupI}`;
+				dupI++;
+			} while(bn.find(newId));
+			dupItem.id = newId;
+			idMap[item.id] = dupItem.id;
+			if (offset) {
+				dupItem.pos.x += offset.x;
+				dupItem.pos.y += offset.y;
+			}
+			if (dupItem.parents) {
+				/// Drop children and parents for now (won't affect node definition)
+				dupItem.children = [];
+				dupItem.parents = [];
+			}
+			if (dupItem.addToNet) {
+				addedItems.push( dupItem.addToNet(bn) );
+			}
+		}
+		/// Wire up the added items correctly
+		for (let [i,item] of addedItems.entries()) {
+			if (item.isGraphItem()) {
+				item.addParents(this.items[i].parents.map(p => idMap[p.id] || p.id));
+				item.addChildren(this.items[i].children.map(c => idMap[c.id] || null).filter(c => c!==null));
+			}
+		}
 	},
 	nodesByKey: function(key) {
 		if (!key)  return this.nodes.reduce((o,n) => { o[n._key] = n; return o }, {});
@@ -2573,7 +3908,7 @@ BN.prototype = {
 	/// when previously I just had Node
 	getItemById: function(id) {
 		if (id in this.nodesById)  return this.nodesById[id];
-		var displayItem = this.displayItems.find(i => i.id == id);
+		var displayItem = this.basicItems.find(i => i.id == id);
 		if (displayItem)  return displayItem;
 
 		var toVisit = [this];
@@ -2584,27 +3919,51 @@ BN.prototype = {
 
 			for (var submodelId in submodel.submodelsById)  toVisit.push(submodel.submodelsById[submodelId]);
 		}
-		
+
 		return null;
 	},
 	getSubmodel: function(submodelPath) {
 		/// XXX: I've obviously got something wrong, if I need to use instanceof/type/etc.,
 		/// rather than structural checking
 		if (submodelPath instanceof Submodel)  return submodelPath;
+		submodelPath = BN.makeSubmodelPath(submodelPath);
+
 		var s = this;
 		for (var i=0; i<submodelPath.length; i++) {
 			s = s.submodelsById[submodelPath[i]];
 		}
 		return s;
 	},
+	getCurrentSubmodel() {
+		return this.getSubmodel(this.currentSubmodel);
+	},
 	setEvidence: function(evidence, o) {
 		o = o || {};
 		o.reset = o.reset || false;
-		
-		if (o.reset)  currentBn.evidence = {};
-		Object.assign(currentBn.evidence, evidence);
+
+		if (o.reset)  this.evidence = {};
+		Object.assign(this.evidence, evidence);
 
 		return this;
+	},
+	addNodes(data) {
+		let bn = this;
+		let attrs = Object.keys(data[0]);
+
+		let stateCounts = {};
+		for (let attr in data[0])  stateCounts[attr] = {};
+		for (let row of data) {
+			for (let attr in row) {
+				attrState = row[attr];
+				if (typeof(stateCounts[attr][attrState])=="undefined")  stateCounts[attr][attrState] = 0;
+				stateCounts[attr][attrState]++;
+			}
+		}
+
+		/// Make all the nodes
+		for (let attr of attrs) {
+			let child = bn.addNode(attr, Object.keys(stateCounts[attr]));
+		}
 	},
 	/// Lot's of limitations: discrete, no auto-discretize, etc.
 	/// XXX: I've just written this without testing it yet!
@@ -2613,9 +3972,9 @@ BN.prototype = {
 		function isNumericArray(value) {
 			return value.length && !isNaN(value[0]);
 		}
-		
+
 		var nodes = Object.keys(data[0]).map(id => this.nodesById[id]).filter(n => n);
-		
+
 		/// Start fresh (everything has a count of 1)
 		for (var node of nodes) {
 			node.def.cptCounts = new Float32Array(new ArrayBuffer(4*node.def.cpt.length));
@@ -2679,7 +4038,7 @@ BN.prototype = {
 					}
 					/// Create weights for all parent states
 					var allParentStateWeights = new Array(allParentStates.length).fill(rowWeight);
-					
+
 					/// Go through parents, mark skip if encounter missing.
 					/// Otherwise, fill in parent states for single-state case parents
 					var missing = !(node.id in row) || row[node.id]==='*';
@@ -2715,7 +4074,7 @@ BN.prototype = {
 						for (var [psi,parentStates] of allParentStates.entries()) {
 							var weight = allParentStateWeights[psi];
 							var value = row[node.id];
-							var rowI = node.getCptRowI(parentStates);
+							var rowI = node.def.getLookupRowI(parentStates);
 							/// Have we got a numeric sequence?
 							if (isNumericArray(value)) {
 								//onsole.log(parentStates, rowI, value);
@@ -2747,16 +4106,16 @@ BN.prototype = {
 	},
 	learnParametersEm: async function(data) {
 		var currentEvidence = this.evidence;
-		
+
 		var iterations = 100;
-		
+
 		var nodes = Object.keys(data[0]).map(id => this.nodesById[id]).filter(n => n);
-		
+
 		/// Make a copy of the data, that we will fill
 		var filledData = new Array(data.length);
 		window.filledData = filledData;
 		for (var rowI=0; rowI<data.length; rowI++)  filledData[rowI] = Object.assign({},data[rowI]);
-		
+
 		var maxIter = 30;
 		var iter = 0;
 		while (1) {
@@ -2765,10 +4124,10 @@ BN.prototype = {
 
 			/// Fill in parameters based on current model (Expectation)
 			/// (In this case, we use distributions rather than most probable state.)
-			
+
 			/// Convergence test (NYI!)
 			if (--maxIter <= 0)  break;
-			
+
 			/// Go through data and fill in missing with our
 			/// newly learned parameters
 			for (var [rowI,row] of data.entries()) {
@@ -2845,16 +4204,16 @@ BN.prototype = {
 			iter++;
 			//break;
 		}
-		
+
 		console.log(filledData);
-		
+
 		this.evidence = currentEvidence;
 	},
 	learnStructureNaiveBayes: function(data, classNode) {
 		var bn = this;
 		var attrs = Object.keys(data[0]);
 		classNode = classNode || attrs[attrs.length-1];
-		
+
 		var stateCounts = {};
 		for (var attr in data[0])  stateCounts[attr] = {};
 		for (var row of data) {
@@ -2864,10 +4223,10 @@ BN.prototype = {
 				stateCounts[attr][attrState]++;
 			}
 		}
-		
+
 		/// Make target node
 		var target = bn.addNode(classNode, Object.keys(stateCounts[classNode]));
-		
+
 		/// Make all the nodes
 		for (var attr of attrs) {
 			if (attr != classNode) {
@@ -2875,10 +4234,10 @@ BN.prototype = {
 				child.addParents([target]);
 			}
 		}
-		
+
 		/// Learn the parameters
 		this.learnParametersCounting(data);
-		
+
 		return this;
 	},
 	sampleData: [
@@ -2898,7 +4257,7 @@ BN.prototype = {
 	maxWeightSpanningTree: function(matrix) {
 		var side = Math.sqrt(matrix.length);
 		if (side - Math.floor(side))  return;
-		
+
 		var forest = [...new Array(side).keys()].map(a => [[a]]);
 
 		var maxI;
@@ -2924,7 +4283,7 @@ BN.prototype = {
 				//onsole.log(JSON.stringify(forest));
 			}
 		}
-		
+
 		return forest[0];
 	},
 	learnStructureTan: function(data, classNode) {
@@ -2935,7 +4294,7 @@ BN.prototype = {
 		var attrs = Object.keys(data[0]);
 		/// Remove class node
 		attrs.splice(attrs.indexOf(classNode),1);
-		
+
 		/// Make adjacency matrix, using conditional MI as entries
 		var matrix = [];
 		for (var i=0; i<attrs.length; i++) {
@@ -2945,12 +4304,12 @@ BN.prototype = {
 				matrix[i*attrs.length + j] = stats.cmis[attrs[i]][attrs[j]];
 			}
 		}
-		
+
 		/// Make maximum weighted spanning tree
 		var tree = this.maxWeightSpanningTree(matrix);
-		
+
 		console.log(JSON.stringify(tree));
-		
+
 		/// Start with random edge
 		var edge = tree.shift();
 		console.log(JSON.stringify(tree));
@@ -2980,13 +4339,13 @@ BN.prototype = {
 				bn.addNode(node1, states, {parents: [node2]});
 			}
 		}
-		
+
 		/// Add the class node
 		bn.addNode(classNode, Object.keys(stats.marginals[classNode]), {children: attrs});
-		
+
 		/// Learn the parameters
 		this.learnParametersCounting(data);
-		
+
 		return this;
 	},
 	calculateMiStats: function(data, classVar) {
@@ -3004,7 +4363,7 @@ BN.prototype = {
 				pairs[v1][v2] = {byClass: {}, pair: {}};
 			}
 		}
-		
+
 		/// Do the counts
 		var cState;
 		for (var row of data) {
@@ -3020,11 +4379,11 @@ BN.prototype = {
 					var s2 = row[v2];
 					var p = pairs[v1][v2].pair;
 					var c = pairs[v1][v2].byClass;
-					
+
 					if (!p[s1])  p[s1] = {};
 					if (!p[s1][s2])  p[s1][s2] = 0;
 					p[s1][s2]++;
-					
+
 					if (classVar) {
 						if (!c[s1])  c[s1] = {};
 						if (!c[s1][s2])  c[s1][s2] = {};
@@ -3034,15 +4393,15 @@ BN.prototype = {
 				}
 			}
 		}
-		
+
 		//onsole.log(marginalCounts);
 		//onsole.log(pairs);
-		
+
 		var marginals = {};
 		var entropies = {};
 		var mis = {};
 		var cmis = {};
-		
+
 		/// Calculate marginal and entropy stats
 		var N = data.length;
 		for (var [attr,stateCounts] of Object.entries(marginalCounts)) {
@@ -3054,15 +4413,15 @@ BN.prototype = {
 				entropies[attr] += m * -Math.log2(m);
 			}
 		}
-		
+
 		//onsole.log(marginals);
 		//onsole.log(entropies);
-		
+
 		var classStates;
 		if (classVar) {
 			classStates = Object.keys(marginalCounts[classVar]);
 		}
-		
+
 		/// Calculate MI and Conditional MI stats (slightly more involved)
 		for (var i=0; i<keys.length; i++) {
 			var v1 = keys[i];
@@ -3126,7 +4485,7 @@ BN.prototype = {
 				cmis[v1][v2] = cmi;
 			}
 		}
-		
+
 		//onsole.log(mis);
 		//onsole.log(cmis);
 		return {marginals, entropies, mis, cmis};
@@ -3138,20 +4497,26 @@ BN.prototype = {
 		FIX: Make local and worker function calls use the same interface. i.e., local
 		should take a callback to notify about completion (even though that
 		happens sequentially). **/
-	setUpdateMethod: function(method) {
-		this.updateBeliefs = this["updateBeliefs_"+method];
+	setUpdateMethod(method) {
+		this.updateMethod = method;
+		this.compile({force:true});
+		//this.updateBeliefs = this["updateBeliefs_"+method];
+		return this;
 	},
 	/// This updates the expected value for the current network,
 	/// given the current evidence.
 	updateExpectedValue: function() {
+				console.log('xxx');
 		/// XXXXXX Calculating net's current expected value
 		if (this._utilityNodes.length) {
 			var totalUtility = 0;
 			for (var i=0; i<this._utilityNodes.length; i++) {
+				console.log('ttt', this._utilityNodes.length, new Date());
 				var uNode = this._utilityNodes[i];
 				var ev = 0;
-				for (var i in uNode.utilities) {
-					ev += uNode.utilities[i]*uNode.beliefs[i];
+				for (var j in uNode.values) {
+				console.log('zzz');
+					ev += uNode.values[j]*uNode.beliefs[j];
 				}
 				totalUtility += ev;
 			}
@@ -3159,16 +4524,85 @@ BN.prototype = {
 		}
 	},
 	/// FIX: I'm pretty sure this needs to be removed
-	updateBeliefs: function(callback, iterations) {
-		console.log('local');
-		this.expectedValue = null;
+	updateBeliefs(callback, iterations) {
+		/// Hack for command line
+		if (!this.updateMethodActual) {
+			this.compile();
+		}
+		let updateMethod = this.updateMethodActual;
+		this.updateMethodActualTitle = BN.updateMethodTitles[updateMethod];
+		console.log('Using method: '+updateMethod+(this.useWorkers?' (workers)':' (local)'));
+		//this.expectedValue = null;
+		let methodToCall = 'updateBeliefs_'+updateMethod+(this.useWorkers?'Worker':'');
+		console.log(methodToCall);
+		this[methodToCall](callback, iterations);
+		//this.updateBeliefs_local(callback, iterations);
+		//this.updateExpectedValue();
+	},
+	updateBeliefs_off(callback, iterations) {
+		for (let i=0; i<this.nodes.length; i++) {
+			let node = this.nodes[i];
+			node.beliefs = newArray(node.beliefs.length, 1/node.beliefs.length);
+		}
+		callback?.(this, null);
+	},
+	updateBeliefs_local(callback, iterations) {
+		this['updateBeliefs_'+this.updateMethod](callback, iterations);
+	},
+	updateBeliefs_worker(callback, iterations) {
+		this['updateBeliefs_'+this.updateMethod+'Worker'](callback, iterations);
+	},
+	updateBeliefs_junctionTree(callback, iterations) {
+		/*let jtree = new JunctionTree(makeBnForUpdates(this));
+		console.time('compile');
+		jtree.compile();
+		console.timeEnd('compile');*/
+		console.time('propagate');
+		let beliefs = this.jtree.propagate(this.evidence);
+		for (let [nodeId,bels] of Object.entries(beliefs)) {
+			this.nodesById[nodeId].beliefs = bels;
+		}
+		console.timeEnd('propagate');
+		
+		if (callback)  callback(this, null);
+	},
+	updateBeliefs_junctionTreeWorker(callback, iterations) {
+		let bn = this;
+		this.compile();
+		
+		/// Convert evidence to array
+		var evidenceArr = new Int32Array(new ArrayBuffer(bn.nodes.length*4));
+		for (var i=0; i<evidenceArr.length; i++)  evidenceArr[i] = -1;
+		for (var i in this.evidence) {
+			if (typeof(this.evidence[i])=="string") {
+				evidenceArr[bn.nodesById[i].intId] = bn.nodesById[i].statesById[this.evidence[i]].index;
+			}
+			else {
+				evidenceArr[bn.nodesById[i].intId] = Number(this.evidence[i]);
+			}
+		}
+		
+		/// Just the 1 worker
+		let w = this._workers[0];
 
-		this.updateBeliefs_local(callback, iterations);
-		this.updateExpectedValue();
+		w.postMessage([1, evidenceArr]);
+		w.onmessage = function(e) {
+			if (e.data[0]==0) {
+				var workerBeliefs = e.data[1];
+				for (var i=0; i<workerBeliefs.length; i++) {
+					bn.nodes[i].beliefs = workerBeliefs[i];
+				}
+				bn.updateExpectedValue();
+				if (callback)  callback(bn, 1);
+			}
+			else if (e.data[0] == 1) {
+				console.log(e.data);
+			}
+		};
 	},
 	/// Run a belief update, using worker threads to
 	/// perform the computations in parallel
-	updateBeliefs_worker: function(callback, iterations) {
+	updateBeliefs_likelihoodWeightingWorker: function(callback, iterations) {
 		console.log('worker');
 		if (!iterations) { iterations = this.iterations; }
 		var bn = this;
@@ -3214,38 +4648,46 @@ BN.prototype = {
 			w.onmessage = function(e) {
 				if (e.data[0]==0) {
 					numComplete++;
-					var workerBeliefs = e.data[1];
-					var workerSamples = e.data[2];
-					var iterationsRun = e.data[3];
+					let nodeResults = e.data[1];
+					let iterationsRun = e.data[2];
 					totalIterationsRun += iterationsRun;
-					for (var i=0; i<workerBeliefs.length; i++) {
+					for (let i=0; i<nodeResults.length; i++) {
+				console.log('ggg');
+						let workerBeliefs = nodeResults[i].beliefs;
+						let workerSamples = nodeResults[i].samples;
+						let workerSampleWeights = nodeResults[i].sampleWeights;
 						//console.log(workerBeliefs, workerSamples);
-						console.log(bn.nodes[i].beliefs, bn.nodes[i].samples);
+						//onsole.log(bn.nodes[i].beliefs, bn.nodes[i].samples);
 						if (numComplete==1) {
-							bn.nodes[i].beliefs = workerBeliefs[i];
-							bn.nodes[i].samples = workerSamples[i];
+							bn.nodes[i].beliefs = workerBeliefs;
+							bn.nodes[i].samples = workerSamples;
+							bn.nodes[i].sampleWeights = workerSampleWeights;
 						}
 						else {
 							var allBeliefs = bn.nodes[i].beliefs;
 							//var allSamples = Array.prototype.slice.call(bn.nodes[i].samples);
 							for (var bi=0; bi<allBeliefs.length; bi++) {
-								allBeliefs[bi] += workerBeliefs[i][bi];
+								allBeliefs[bi] += workerBeliefs[bi];
 								if (numComplete == numWorkers) {
 									allBeliefs[bi] /= numComplete;
 								}
 							}
-							console.log(workerSamples[i]);
+							//onsole.log(workerSamples[i]);
 							bn.nodes[i].beliefs = allBeliefs;
 							bn.nodes[i].samples = new Float32Array([].concat.call(
 								[].slice.call(bn.nodes[i].samples),
-								[].slice.call(workerSamples[i])
+								[].slice.call(workerSamples)
 							));
+							bn.nodes[i].sampleWeights = new Float32Array(
+								bn.nodes[i].sampleWeights.concat(workerSampleWeights)
+							);
 							if (bn.nodes[i].def.type == 'Equation' && numComplete == numWorkers) {
-								bn.nodes[i].discretizeFromSamples();
+								bn.nodes[i].updateDiscretization();
 							}
 						}
 					}
 					if (numComplete == numWorkers) {
+				console.log('fff');
 						bn.updateExpectedValue();
 						if (callback)  callback(bn, totalIterationsRun);
 						// Send to UI
@@ -3262,7 +4704,7 @@ BN.prototype = {
 	/// should typically only be used for debugging, or in some
 	/// specialised cases from the API. (It uses the same functions as the
 	/// worker, but keeps the compuation on the main thread.)
-	updateBeliefs_local: function(callback, iterations) {
+	updateBeliefs_likelihoodWeighting(callback, iterations) {
 		if (!iterations) { iterations = this.iterations; }
 		var bn = this;
 
@@ -3285,7 +4727,7 @@ BN.prototype = {
 		for (var i=0; i<bn.nodes.length; i++) {
 			var node = bn.nodes[i];
 			if (node.def.func) {
-				node.discretizeFromSamples();
+				node.updateDiscretization();
 			}
 			else {
 				for (var j=0; j<node.beliefs.length; j++) {
@@ -3293,8 +4735,10 @@ BN.prototype = {
 				}
 			}
 		}
+		
+		this.updateExpectedValue();
 
-		if (callback)  callback(bn);
+		if (callback)  callback(bn, iterations);
 	},
 	/// This will generate a single case into the 'cas' parameter
 	/// XXX: This needs updating with a pointer to the independent version
@@ -3396,9 +4840,9 @@ BN.prototype = {
 	/** Search through all possible combinations of decisions for the best
 	    choices. This isn't a great thing to run when we have more than a few
 	    decisions to make! **/
-	searchDecisionsAll: function() {
+	async searchDecisionsAll() {
 		var decStates = initialStates(this._decisionNodes);
-		var origEvidence = $.extend({}, this.evidence);
+		var origEvidence = Object.assign({}, this.evidence);
 		var combList = new Array(numNodeStateCombinations(this._decisionNodes));
 		var iterations = 1000;
 		var j = 0;
@@ -3409,7 +4853,7 @@ BN.prototype = {
 				this.evidence[this._decisionNodes[i].id] = decStates[i];
 			}
 			/// Fix: Use the worker version
-			this.updateBeliefs_local(null, iterations);
+			await new Promise(resolve => this.updateBeliefs(resolve, iterations));
 			this.updateExpectedValue();
 			combList[j] = [this.expectedValue,JSON.stringify(decStates)];
 			j++;
@@ -3432,7 +4876,7 @@ BN.prototype = {
 		//onsole.log(combList);
 		return list;
 	},
-	/// XXX: This is not done right. (Should be OK for dec nodes, but not anything else.) Need to fix.
+	/// Sort nodes in directed order
 	topologicalSort: function(nodes) {
 		/// Create a node ordering that can be used to generate cases quickly (from roots down)
 		var q = [];
@@ -3482,17 +4926,17 @@ BN.prototype = {
 		}
 		return q;
 	},
-	searchDecisionsOrdered: function() {
+	async searchDecisionsOrdered() {
 		var decNodes = this.topologicalSort(this._decisionNodes);
 		var decStates = [];
-		var origEvidence = $.extend({}, this.evidence);
+		var origEvidence = Object.assign({}, this.evidence);
 		var iterations = 10000;
 		for (var i=0; i<decNodes.length; i++) {
 			var maxJ = -1;
 			var maxEv = -1;
 			for (var j=0; j<decNodes[i].states.length; j++) {
 				this.evidence[decNodes[i].id] = j;
-				this.updateBeliefs_local(null, iterations);
+				await new Promise(resolve => this.updateBeliefs(resolve, iterations));
 				this.updateExpectedValue();
 				if (this.expectedValue > maxEv) {
 					maxEv = this.expectedValue;
@@ -3502,7 +4946,7 @@ BN.prototype = {
 			decStates[i] = maxJ;
 			this.evidence[decNodes[i].id] = maxJ;
 		}
-		this.updateBeliefs_local(null, iterations);
+		await new Promise(resolve => this.updateBeliefs(resolve, iterations));
 		this.updateExpectedValue();
 		ev = this.expectedValue;
 		this.evidence = origEvidence;
@@ -3539,102 +4983,6 @@ BN.prototype = {
 		}
 		this._trackingArcInfluences = true;
 	},
-	removeTrackArcInfluences: function() {
-		var nodesToRemove = [];
-		for (var i=0; i<this.nodes.length; i++) {
-			if (this.nodes[i].id.search(/^__mutualInfo_/)!=-1) {
-				nodesToRemove.push(this.nodes[i]);
-			}
-		}
-		for (var i=0; i<nodesToRemove.length; i++) {
-			var node = nodesToRemove[i];
-			node.delete();
-		}
-		/// Reset all arcs to width 1
-		$('.dependency').css('stroke-width', '1px');
-
-		this._trackingArcInfluences = false;
-	},
-	displayArcsWithInfluences: function() {
-		var sumMis = {};
-		var sumChildEntropies = {};
-		for (var i=0; i<this.nodes.length; i++) {
-			var node = this.nodes[i];
-			if (node.engineOnly)  continue;
-			for (var j=0; j<node.children.length; j++) {
-				var child = node.children[j];
-				if (child.engineOnly)  continue;
-
-				/// The very objects themselves should be the same, but test by id anyway,
-				/// in case some transformation happens (in a future version).
-				var miNode = node.children[node.children.findIndex(function(v) { return v.id.search(/^__mutualInfo_/)!=-1 && v.parents[0].id==node.id && v.parents[1].id==child.id; })];
-				console.log(miNode);
-				var childEntropy = 0;
-				for (var k=0; k<child.states.length; k++) {
-					childEntropy += -(child.beliefs[k] * Math.log(child.beliefs[k]));
-				}
-				var mi = 0;
-				for (var k=0; k<miNode.states.length; k++) {
-					var Pxy = miNode.beliefs[k];
-					var Px = node.beliefs[Math.floor(k/child.states.length)];
-					var Py = child.beliefs[k % child.states.length];
-					console.log(Pxy, Px, Py);
-
-					if (Pxy==0 || Px==0 || Py==0)  continue;
-
-					var pMi = Pxy * Math.log(Pxy/(Px*Py));
-					mi += pMi;
-				}
-				console.log("MI:", mi, "Entropy of child:", childEntropy);
-
-				/// Find the item (either node or submodel) that is visible in
-				/// the current submodel and corresponds to the current child --- if there is one
-				var item = child;
-				do {
-					if (item.isVisible())  break;
-
-					item = this.net.getSubmodel(item.submodelPath);
-				} while (item.submodelPath.length > 0);
-
-				/// Update the arc with representation of the MI influence
-				/// Find the right arc
-				var arcInfo = node.pathsOut[node.pathsOut.findIndex(function(p) { return p.childItem.id == item.id })];
-				/// If we can't find arcInfo, it's
-				if (arcInfo) {
-					var arc = $("#"+arcInfo.pathId);
-					if (!(arcInfo.pathId in sumMis)) {
-						sumMis[arcInfo.pathId] = 0;
-						sumChildEntropies[arcInfo.pathId] = 0;
-					}
-					/// Update arc width based on MI influence
-					var entropyProportion = 0;
-					sumMis[arcInfo.pathId] += mi;
-					sumChildEntropies[arcInfo.pathId] += childEntropy;
-					if (sumChildEntropies[arcInfo.pathId] > 0) {
-						entropyProportion = sumMis[arcInfo.pathId]/sumChildEntropies[arcInfo.pathId];
-					}
-					var minVal = 0.01;
-					if (entropyProportion > minVal) {
-						//console.log("stroke", (entropyProportion*10)+"px");
-						arc.css('stroke-width', (entropyProportion*10)+"px");
-					}
-					else {
-						//console.log("minStroke", (entropyProportion*10)+"px");
-						arc.css('stroke-width', minVal+"px");
-					}
-				}
-			}
-		}
-	},
-	/// Don't use this function
-	showArcInfluences: function() {
-		var bn = this;
-		this.trackArcInfluences();
-		this.updateBeliefs(function() {
-			bn.displayArcsWithInfluences();
-			/// FIX: Remove arc influences
-		});
-	},
 	calcProbabilityOfEvidence: function(callback) {
 		/// Gather evidence in topological order
 		var bn = this;
@@ -3670,23 +5018,64 @@ BN.prototype = {
 			}
 		})();
 	},
+	async calcMi(targetNode) {
+		targetNode = typeof(targetNode)=='string' ? this.node[targetNode] : targetNode;
+		
+		let savedEvidence = {...this.evidence};
+		await new Promise(res => this.updateBeliefs(res));
+		let origBeliefs = Object.fromEntries(this.nodes.map(n => [n.id,n.beliefs.slice()]));
+		let jointBeliefs = targetNode.states.map(s=>({...origBeliefs}));
+		if (!(targetNode.id in this.evidence)) {
+			let mis = {};
+			
+			for (let state of targetNode.states) {
+				this.evidence[targetNode.id] = state.index;
+				await new Promise(res => this.updateBeliefs(res));
+				let newBeliefs = this.nodes.map(n => [n.id,n.beliefs.slice()]);
+				for (let [id,bel] of newBeliefs) {
+					jointBeliefs[state.index][id] = bel.map(b => b*origBeliefs[targetNode.id][state.index]);
+				}
+			}
+			let maxMi = 0;
+			for (let nodeId of Object.keys(origBeliefs)) {
+				let sum = 0;
+				for (let aState=0; aState<this.node[nodeId].states.length; aState++) {
+					for (let bState=0;bState<targetNode.states.length; bState++) {
+						let ind = 1e-10 + origBeliefs[nodeId][aState]*origBeliefs[targetNode.id][bState];
+						let joint = 1e-10 + jointBeliefs[bState][nodeId][aState];
+						let partial = joint * Math.log(joint/ind);
+						sum += partial;
+					}
+				}
+				mis[nodeId] = {node:nodeId, mi:sum, miPc:0};
+				maxMi = Math.max(maxMi, sum);
+			}
+			Object.entries(mis).forEach(([id,obj]) => obj.miPc = obj.mi/maxMi);
+			this.evidence = {...savedEvidence};
+			return mis;
+		}
+		this.evidence = {...savedEvidence};
+		await new Promise(res => this.updateBeliefs(res));
+		
+	},
 	/** Performance testing functions
 		These all start with the prefix 'perf'. They should probably
 		be broken out into their own file.
-		FIX: break out into on file.
+		FIX: break out into own file.
 	**/
 	perfTest: function() {
 		console.profile("Starting...");
-		this.updateBeliefs_local(null, 1000);
-		console.profileEnd("Stopped.");
-		console.debug(this.nodes);
+		this.updateBeliefs_local(_=> {
+			console.profileEnd("Stopped.");
+			console.debug(this.nodes);
+		}, 1000);
 	},
-	perfCheck: function() {
+	async perfCheck() {
 		console.log('perf check');
 		var t, dt, st = 0;
 		for (var i=0; i<this.perfLoops; i++) {
 			t = performance.now();
-			this.updateBeliefs_local(null, this.perfIterations);
+			await new Promise(resolve => this.updateBeliefs_local(resolve, this.perfIterations));
 			dt = performance.now() - t;
 			st += dt;
 		}
@@ -3736,7 +5125,7 @@ BN.prototype = {
 	/// XXX: What does this function do?
 	setNodeStates: function(nodes, state) {
 		for (var i=0; i<nodes.length; i++) {
-			currentBn.evidence[nodes[i].id] = state;
+			this.evidence[nodes[i].id] = state;
 		}
 	},
 	getDbnBeliefs: function(id) {
@@ -3847,7 +5236,10 @@ BN.prototype = {
 
 		return !pathBlocked;
 	},
-	findAllDConnectedNodes2: function(sourceNode) {
+	findAllDConnectedNodes2: function(sourceNode, o = {}) {
+		o.includeEvidence ??= false;
+		o.stopIf ??= _=>false;
+		o.stopAfter ??= _=>false;
 		var bn = this;
 		if (typeof(sourceNode)=="string")  sourceNode = this.nodesById[sourceNode];
 
@@ -3856,10 +5248,12 @@ BN.prototype = {
 		var toUpVisit = [sourceNode];
 		var toDownVisit = [sourceNode];
 		var connectedNodes = {};
+		var evConnectedNodes = {};
 
 		while (toUpVisit.length || toDownVisit.length) {
 			while (toUpVisit.length) {
 				var nextNode = toUpVisit.shift();
+				if (o.stopIf(nextNode))  continue;
 				//onsole.log("toUpVisit:", nextNode);
 				if (!upVisited[nextNode.id]) {
 					upVisited[nextNode.id] = true;
@@ -3867,19 +5261,27 @@ BN.prototype = {
 					/// Otherwise, can't go up or down any further
 					if (!(nextNode.id in this.evidence)) {
 						connectedNodes[nextNode.id] = true;
-						for (var i=0; i<nextNode.parents.length; i++) {
-							var parent = nextNode.parents[i];
-							toUpVisit.push(parent);
+						if (!o.stopAfter(nextNode)) {
+							for (var i=0; i<nextNode.parents.length; i++) {
+								var parent = nextNode.parents[i];
+								toUpVisit.push(parent);
+							}
+							for (var i=0; i<nextNode.children.length; i++) {
+								var child = nextNode.children[i];
+								toDownVisit.push(child);
+							}
 						}
-						for (var i=0; i<nextNode.children.length; i++) {
-							var child = nextNode.children[i];
-							toDownVisit.push(child);
+					}
+					else {
+						if (o.includeEvidence) {
+							evConnectedNodes[nextNode.id] = true;
 						}
 					}
 				}
 			}
 			while (toDownVisit.length) {
 				var nextNode = toDownVisit.shift();
+				if (o.stopIf(nextNode))  continue;
 				//onsole.log("toDownVisit:", nextNode);
 				if (!downVisited[nextNode.id]) {
 					downVisited[nextNode.id] = true;
@@ -3887,15 +5289,22 @@ BN.prototype = {
 					/// Otherwise, can go up, but not down
 					if (!(nextNode.id in this.evidence)) {
 						connectedNodes[nextNode.id] = true;
-						for (var i=0; i<nextNode.children.length; i++) {
-							var child = nextNode.children[i];
-							toDownVisit.push(child);
+						if (!o.stopAfter(nextNode)) {
+							for (var i=0; i<nextNode.children.length; i++) {
+								var child = nextNode.children[i];
+								toDownVisit.push(child);
+							}
 						}
 					}
 					else {
-						for (var i=0; i<nextNode.parents.length; i++) {
-							var parent = nextNode.parents[i];
-							toUpVisit.push(parent);
+						if (!o.stopAfter(nextNode)) {
+							for (var i=0; i<nextNode.parents.length; i++) {
+								var parent = nextNode.parents[i];
+								toUpVisit.push(parent);
+							}
+						}
+						if (o.includeEvidence) {
+							evConnectedNodes[nextNode.id] = true;
 						}
 					}
 				}
@@ -3906,8 +5315,495 @@ BN.prototype = {
 		for (var nodeId in connectedNodes) {
 			ret.push(this.nodesById[nodeId]);
 		}
+		for (var nodeId in evConnectedNodes) {
+			ret.push(this.nodesById[nodeId]);
+		}
 
 		return ret;
+	},
+	findAllDConnectedPaths2(sourceNode, destNode, o = {}) {
+		o.includeEvidence ??= false;
+		o.stopIf ??= _=>false;
+		o.stopAfter ??= _=>false;
+		var bn = this;
+		if (typeof(sourceNode)=="string")  sourceNode = this.nodesById[sourceNode];
+		if (typeof(destNode)=="string")  destNode = this.nodesById[destNode];
+
+		var upVisited = {};
+		var downVisited = {};
+		var toUpVisit = [sourceNode];
+		var toDownVisit = [sourceNode];
+		var connectedNodes = {};
+		var evConnectedNodes = {};
+		// var searchRoot = {node: sourceNode, from: []};
+		var searchDone = {};
+		var addSearchDone = (node,dir,fromNode,fromDir) => {
+			if (fromDir=='up' && fromNode.hasEvidence())  return;
+			if (fromDir=='down') {
+				if (fromNode.hasEvidence() && dir == 'down')  return;
+				if (!fromNode.hasEvidence() && dir == 'up')  return;
+			}
+			let key = `${node.id}-${dir}`;
+			let newEntry = key in searchDone ? searchDone[key] : (searchDone[key] = {node, dir, from: []});
+			let fromKey = `${fromNode.id}-${fromDir}`;
+			newEntry.from.push(searchDone[fromKey]);
+		};
+		searchDone[`${sourceNode.id}-up`] = {node:sourceNode,dir:'up',from:[]};
+		searchDone[`${sourceNode.id}-down`] = {node:sourceNode,dir:'down',from:[]};
+
+		while (toUpVisit.length || toDownVisit.length) {
+			console.log(toUpVisit.map(n => n.id), toDownVisit.map(n => n.id));
+			while (toUpVisit.length) {
+				// console.log(toUpVisit.map(n => n.id));
+				var nextNode = toUpVisit.shift();
+				if (o.stopIf(nextNode))  continue;
+				//onsole.log("toUpVisit:", nextNode);
+				if (!upVisited[nextNode.id]) {
+					upVisited[nextNode.id] = true;
+					/// If this node has no evidence, can go both up and down
+					/// Otherwise, can't go up or down any further
+					if (!(nextNode.id in this.evidence)) {
+						connectedNodes[nextNode.id] = true;
+						if (!o.stopAfter(nextNode)) {
+							for (var i=0; i<nextNode.parents.length; i++) {
+								var parent = nextNode.parents[i];
+								toUpVisit.push(parent);
+								addSearchDone(parent, 'up', nextNode, 'up');
+							}
+							for (var i=0; i<nextNode.children.length; i++) {
+								var child = nextNode.children[i];
+								toDownVisit.push(child);
+								addSearchDone(child, 'down', nextNode, 'up');
+							}
+						}
+					}
+					else {
+						if (o.includeEvidence) {
+							evConnectedNodes[nextNode.id] = true;
+						}
+					}
+				}
+			}
+			while (toDownVisit.length) {
+				// console.log(toDownVisit.map(n => n.id));
+				var nextNode = toDownVisit.shift();
+				if (o.stopIf(nextNode))  continue;
+				//onsole.log("toDownVisit:", nextNode);
+				if (!downVisited[nextNode.id]) {
+					downVisited[nextNode.id] = true;
+					/// If this node has no evidence, then can go down, but not up
+					/// Otherwise, can go up, but not down
+					if (!(nextNode.id in this.evidence)) {
+						connectedNodes[nextNode.id] = true;
+						if (!o.stopAfter(nextNode)) {
+							for (var i=0; i<nextNode.children.length; i++) {
+								var child = nextNode.children[i];
+								toDownVisit.push(child);
+								addSearchDone(child, 'down', nextNode, 'down');
+							}
+						}
+					}
+					else {
+						if (!o.stopAfter(nextNode)) {
+							for (var i=0; i<nextNode.parents.length; i++) {
+								var parent = nextNode.parents[i];
+								toUpVisit.push(parent);
+								addSearchDone(parent, 'up', nextNode, 'down');
+							}
+						}
+						if (o.includeEvidence) {
+							evConnectedNodes[nextNode.id] = true;
+						}
+					}
+				}
+			}
+		}
+		
+		function findPaths(curNode, visited = new Set()) {
+			visited = new Set(visited).add(curNode);
+			let upFrom = searchDone[`${curNode.id}-up`]?.from ?? [];
+			let downFrom = searchDone[`${curNode.id}-down`]?.from ?? [];
+			let allFrom = upFrom.concat(downFrom);
+			let s = new Set(allFrom.map(entry => entry.node));
+			let nextPaths = [...s].filter(n => !visited.has(n)).map(nextNode => findPaths(nextNode, visited).map(path => [curNode].concat(path))).flat();
+			//console.log(nextPaths);
+			return nextPaths.length ? nextPaths : [[curNode]];
+		}
+		function hasLoop(path) {
+			let visited = new Set();
+			for (let i=0; i<path.length-1; i++) {
+				let key = `${path[i].id}-${path[i+1].id}`;
+				if (visited.has(key)) {
+					return true;
+				}
+				visited.add(key);
+			}
+			return false;
+		}
+		function hasLoop(path) {
+			let visited = new Set();
+			for (let i=0; i<path.length; i++) {
+				let key = `${path[i].id}`;
+				if (visited.has(key)) {
+					return true;
+				}
+				visited.add(key);
+			}
+			return false;
+		}
+		function findPaths(curNode, curPath = []) {
+			let checkUp = true;
+			let checkDown = true;
+			if (curPath.at(-1)) {
+				if (curNode.children.includes(curPath.at(-1))) {
+					checkUp = checkDown = !curNode.hasEvidence();
+				}
+				else {
+					let descEvidence = curNode.getDescendants().map(n => n.hasEvidence()).reduce((a,v)=>a+v,0);
+					checkDown = curNode.hasEvidence() || descEvidence;
+					checkUp = !curNode.hasEvidence();
+				}
+			}
+			let upFrom = searchDone[`${curNode.id}-up`]?.from ?? [];
+			let downFrom = searchDone[`${curNode.id}-down`]?.from ?? [];
+			let allFrom = (checkUp ? upFrom : []).concat(checkDown ? downFrom : []);
+			let s = new Set(allFrom.map(entry => entry.node));
+			curPath = curPath.slice(); curPath.push(curNode);
+			let nextPaths = [];
+			if (hasLoop(curPath)) {
+				return [];
+			}
+			else {
+				nextPaths = [...s].map(nextNode => findPaths(nextNode, curPath).map(path => [curNode].concat(path))).flat();
+			}
+			if (nextPaths.length) {
+				return nextPaths;
+			}
+			else if (curNode == sourceNode) {
+				return [[curNode]];
+			}
+			return [];
+			//console.log(nextPaths);
+			// return nextPaths.length ? nextPaths : [[curNode]];
+		}
+		function hasLoop(path) {
+			let visited = new Set();
+			for (let i=0; i<path.length; i++) {
+				let key = `${path[i].node.id}-${path[i].dir}`;
+				if (visited.has(key)) {
+					return true;
+				}
+				visited.add(key);
+			}
+			return false;
+		}
+		function findPaths(curNodeVisit, curPath = []) {
+			let checkUp = true;
+			let checkDown = true;
+			if (curPath.at(-1)) {
+				if (curNodeVisit.node.children.includes(curPath.at(-1).node)) {
+					checkUp = checkDown = !curNodeVisit.node.hasEvidence();
+				}
+				else {
+					checkDown = curNodeVisit.node.hasEvidence();
+					checkUp = !curNodeVisit.node.hasEvidence();
+				}
+			}
+			let upFrom = searchDone[`${curNodeVisit.node.id}-up`]?.from ?? [];
+			let downFrom = searchDone[`${curNodeVisit.node.id}-down`]?.from ?? [];
+			let allFrom = (checkUp ? upFrom : []).concat(checkDown ? downFrom : []);
+			let s = new Set(allFrom);
+			curPath = curPath.slice(); curPath.push(curNodeVisit);
+			let nextPaths = [];
+			if (hasLoop(curPath)) {
+				return [];
+			}
+			else {
+				nextPaths = [...s].map(nextNode => findPaths(nextNode, curPath).map(path => [curNodeVisit].concat(path))).flat();
+			}
+			if (nextPaths.length) {
+				return nextPaths;
+			}
+			else if (curNodeVisit.node == sourceNode) {
+				return [[curNodeVisit]];
+			}
+			return [];
+			//console.log(nextPaths);
+			// return nextPaths.length ? nextPaths : [[curNode]];
+		}
+		if (searchDone[`${sourceNode.id}-up`])  searchDone[`${sourceNode.id}-up`].from = [];
+		if (searchDone[`${sourceNode.id}-down`])  searchDone[`${sourceNode.id}-down`].from = [];
+		
+		let nv = searchDone[`${destNode.id}-up`] ?? searchDone[`${destNode.id}-down`];
+		let paths = findPaths(nv);
+		console.log(paths);
+		return paths.map(path => path.map(nv => nv.node)); //.filter(path => path.at(-1)==sourceNode);
+
+		var ret = [];
+		for (var nodeId in connectedNodes) {
+			ret.push(this.nodesById[nodeId]);
+		}
+		for (var nodeId in evConnectedNodes) {
+			ret.push(this.nodesById[nodeId]);
+		}
+
+		return ret;
+	},
+	findAllDConnectedPaths3(sourceNode, destNode, o = {}) {
+		if (typeof(sourceNode)=="string")  sourceNode = this.nodesById[sourceNode];
+		if (typeof(destNode)=="string")  destNode = this.nodesById[destNode];
+		
+		let PARENTS = 0b01;
+		let CHILDREN = 0b10;
+		let PARENTSANDCHILDREN = 0b11;
+
+		function hasLoop(path, end) {
+			for (let i=path.length-1; i>=0; i--) {
+				if (end[0] == path[i][0] && (path[i][1]==PARENTSANDCHILDREN || end[1]==path[i][1])) {
+					return true;
+				}
+			}
+			return false;
+		}
+		function hasLoop(path, end) {
+			for (let i=path.length-1; i>=0; i--) {
+				if (end[0] == path[i][0]) {
+					return true;
+				}
+			}
+			return false;
+		}
+		
+		let downstreamEv = Object.fromEntries(this.nodes.map(n => [n.id, n.getDescendants().map(n=>n.hasEvidence()).reduce((a,v)=>a+v,0)]));
+		console.log(downstreamEv);
+
+		let pathsQueue = [[[sourceNode, PARENTSANDCHILDREN]]];
+		let foundPaths = [];
+		while (pathsQueue.length) {
+			let currentPath = pathsQueue.shift();
+			
+			let currentNode = currentPath.at(-1)[0];
+			if (currentNode == destNode) {
+				// foundPaths.push(currentPath.map(entry => entry[0].id).join(' - '));
+				foundPaths.push(currentPath.map(entry => entry[0]));
+			}
+			else {
+				if ((currentPath.at(-1)[1]&PARENTS)==PARENTS) {
+					let nextPaths = currentNode.parents
+						.filter(p => !p.hasEvidence() && !hasLoop(currentPath,[p,PARENTSANDCHILDREN]))
+						.map(p => currentPath.concat([[p,PARENTSANDCHILDREN]]));
+					pathsQueue.push(...nextPaths);
+				}
+				if ((currentPath.at(-1)[1]&CHILDREN)==CHILDREN) {
+					let nextPaths = currentNode.children
+						.filter(c => !hasLoop(currentPath,[c, c.hasEvidence()?PARENTS:(downstreamEv[c.id]?PARENTSANDCHILDREN:CHILDREN)]))
+						.map(c => currentPath.concat([[c, c.hasEvidence()?PARENTS:(downstreamEv[c.id]?PARENTSANDCHILDREN:CHILDREN)]]));
+					pathsQueue.push(...nextPaths);
+				}
+			}
+		}
+		
+		return foundPaths;
+	},
+	findAllDConnectedNodes3(sourceNode, destNode, o = {}) {
+		if (typeof(sourceNode)=="string")  sourceNode = this.nodesById[sourceNode];
+		if (typeof(destNode)=="string")  destNode = this.nodesById[destNode];
+		
+		let PARENTS = 0b01;
+		let CHILDREN = 0b10;
+		let PARENTSANDCHILDREN = 0b11;
+
+		// function hasLoop(path, end) {
+			// for (let i=path.length-1; i>=0; i--) {
+				// if (end[0] == path[i][0] && (path[i][1]==PARENTSANDCHILDREN || end[1]==path[i][1])) {
+					// return true;
+				// }
+			// }
+			// return false;
+		// }
+		// function hasLoop(path, end) {
+			// for (let i=path.length-1; i>=0; i--) {
+				// if (end[0] == path[i][0]) {
+					// return true;
+				// }
+			// }
+			// return false;
+		// }
+		let visited = new Set();
+		function hasLoop(path, end) {
+			return visited.has(`${end[0].id}-${end[1]}`);
+		}
+		
+		let downstreamEv = Object.fromEntries(this.nodes.map(n => [n.id, n.getDescendants().map(n=>n.hasEvidence()).reduce((a,v)=>a+v,0)]));
+		console.log(downstreamEv);
+
+		let nodeDirQueue = [[sourceNode, PARENTS, null],[sourceNode, CHILDREN, null]];
+		let resolved = {};
+		let foundPaths = [];
+		
+		function resolveUp(nodeDir, howResolved) {
+			let nextPrevNodeDir = nodeDir;
+			while (nextPrevNodeDir) {
+				let key = `${nextPrevNodeDir[0].id}-${nextPrevNodeDir[1]}`;
+				//if (resolved[key] !== undefined)  break;
+				resolved[key] = howResolved;
+				nextPrevNodeDir = nextPrevNodeDir[2];
+			}
+		}
+		
+		while (nodeDirQueue.length) {
+			let currentNodeDir = nodeDirQueue.shift();
+			
+			let key = `${currentNodeDir[0].id}-${currentNodeDir[1]}`;
+			if (resolved[key]!==undefined) {
+				resolveUp(currentNodeDir, resolved[key]);
+				continue;
+			}
+			
+			let currentNode = currentNodeDir[0];
+			if (currentNode == destNode) {
+				// foundPaths.push(currentNodeDir.map(entry => entry[0].id).join(' - '));
+				resolveUp(currentNodeDir, true);
+				continue;
+			}
+			
+			if (currentNodeDir[1]==PARENTS) {
+				visited.add(`${currentNodeDir[0].id}-${PARENTS}`);
+				let nextNodeDirs = currentNode.parents
+					.filter(p => !p.hasEvidence() && !visited.has(`${p.id}-${PARENTS}`))
+					.map(p => [p,PARENTS,currentNodeDir]);
+				nodeDirQueue.unshift(...nextNodeDirs);
+				nextNodeDirs = currentNode.parents
+					.filter(p => !p.hasEvidence() && !visited.has(`${p.id}-${CHILDREN}`))
+					.map(p => [p,CHILDREN,currentNodeDir]);
+				nodeDirQueue.unshift(...nextNodeDirs);
+			}
+			if (currentNodeDir[1]==CHILDREN) {
+				visited.add(`${currentNodeDir[0].id}-${CHILDREN}`);
+				let nextNodeDirs = currentNode.children
+					.map(c => [c, c.hasEvidence()?PARENTS:(downstreamEv[c.id]?PARENTSANDCHILDREN:CHILDREN), currentNodeDir]);
+				for (let nodeDir of nextNodeDirs) {
+					if (nodeDir[1]==PARENTSANDCHILDREN) {
+						let parentsNodeDir = nodeDir;
+						let childrenNodeDir = nodeDir.slice();
+						parentsNodeDir[1] = PARENTS;
+						childrenNodeDir[1] = CHILDREN;
+						if (!visited.has(`${parentsNodeDir[0].id}-${parentsNodeDir[1]}`))  nodeDirQueue.unshift(parentsNodeDir);
+						if (!visited.has(`${childrenNodeDir[0].id}-${childrenNodeDir[1]}`))  nodeDirQueue.unshift(childrenNodeDir);
+					}
+					else {
+						nodeDirQueue.unshift(nodeDir);
+					}
+				}
+			}
+		}
+		
+		return Object.entries(resolved).filter(([k,v]) => v).map(([k,v]) => this.node[k.slice(0,-2)]);
+		
+		// return Object.keys;
+	},
+	findAllDConnectedNodes4(sourceNode, destNode, o = {}) {
+		o.arcTraversal ??= false;
+		o.arcs = o.arcTraversal || (o.arcs ?? false);
+		o.noSourceParents ??= false;
+		o.noSourceChildren ??= false;
+		if (typeof(sourceNode)=="string")  sourceNode = this.nodesById[sourceNode];
+		if (typeof(destNode)=="string")  destNode = this.nodesById[destNode];
+		
+		let PARENTS = 0b01;
+		let CHILDREN = 0b10;
+		let PARENTSANDCHILDREN = 0b11;
+
+		function hasLoop(path, end) {
+			for (let i=path.length-1; i>=0; i--) {
+				if (end[0] == path[i][0] && (path[i][1]==PARENTSANDCHILDREN || end[1]==path[i][1])) {
+					return true;
+				}
+			}
+			return false;
+		}
+		function hasLoop(path, end) {
+			for (let i=path.length-1; i>=0; i--) {
+				if (end[0] == path[i][0]) {
+					return true;
+				}
+			}
+			return false;
+		}
+		
+		let downstreamEv = Object.fromEntries(this.nodes.map(n => [n.id, n.getDescendants().map(n=>n.hasEvidence()).reduce((a,v)=>a+v,0)]));
+		console.log(downstreamEv);
+
+		let pathsQueue = [[[sourceNode, PARENTSANDCHILDREN]]];
+		let foundPaths = [];
+		let resolved = {};
+		let arcs = new Set();
+		
+		let nodeDirKey = nodeDir => `${nodeDir[0].id}-${nodeDir[1]}`
+		function resolvePath(path, howResolved = true) {
+			console.log(path);
+			let prevNodeDir = null;
+			for (let currentNodeDir of path) {
+				if (prevNodeDir) {
+					let par = prevNodeDir[0], child = currentNodeDir[0];
+					let swap = child.isParent(par);
+					if (swap)  [par,child] = [child,par];
+					if (o.arcTraversal) {
+						if (!swap)  arcs.add(`${par.id}-${child.id}|down`);
+						else        arcs.add(`${par.id}-${child.id}|up`);
+					}
+					else {
+						arcs.add(`${par.id}-${child.id}`);
+					}
+				}
+				resolved[nodeDirKey(currentNodeDir)] = howResolved ? currentNodeDir[0] : false;
+				prevNodeDir = currentNodeDir;
+			}
+		}
+		function nodeDirIsResolved(nodeDir) {
+			return Boolean(resolved[nodeDirKey(nodeDir)]);
+		}
+		let checkedBefore = 0;
+		let checkedAfter = 0;
+		while (pathsQueue.length) {
+			let currentPath = pathsQueue.shift();
+			
+			checkedBefore++;
+			if (nodeDirIsResolved(currentPath.at(-1))) {
+				resolvePath(currentPath);
+				continue;
+			}
+			checkedAfter++;
+			
+			let currentNode = currentPath.at(-1)[0];
+			if (currentNode == destNode) {
+				// foundPaths.push(currentPath.map(entry => entry[0].id).join(' - '));
+				// foundPaths.push(currentPath.map(entry => entry[0]));
+				resolvePath(currentPath);
+			}
+			else {
+				let checkParents = !currentNode.intervene && (!o.noSourceParents || currentNode != sourceNode);
+				let checkChildren = !o.noSourceChildren || currentNode != sourceNode;
+				if (checkParents && (currentPath.at(-1)[1]&PARENTS)==PARENTS) {
+					let nextPaths = currentNode.parents
+						.filter(p => !p.hasEvidence() && !hasLoop(currentPath,[p,PARENTSANDCHILDREN]))
+						.map(p => currentPath.concat([[p,PARENTSANDCHILDREN]]));
+					pathsQueue.push(...nextPaths);
+				}
+				if (checkChildren && (currentPath.at(-1)[1]&CHILDREN)==CHILDREN) {
+					let nextPaths = currentNode.children
+						.filter(c => !hasLoop(currentPath,[c, c.hasEvidence()?PARENTS:(downstreamEv[c.id]?PARENTSANDCHILDREN:CHILDREN)]))
+						.map(c => currentPath.concat([[c, c.hasEvidence()?PARENTS:(downstreamEv[c.id]?PARENTSANDCHILDREN:CHILDREN)]]));
+					pathsQueue.push(...nextPaths);
+				}
+			}
+		}
+		console.log(checkedBefore, '/', checkedAfter);
+		
+		if (o.arcs) {
+			return [...arcs];
+		}
+		return [...new Set(Object.values(resolved))];
 	},
 	findAllDConnectedNodes: function(sourceNode) {
 		/// To Do
@@ -3934,11 +5830,13 @@ BN.prototype = {
 				//if (directConnectedNodes[currentNode.id+'|'+nextNode.id]) { _dconnectedExits++;  continue; }
 
 				var nextPath = currentPath.concat(nextNode);
+				currentPath.slice
 
 				/// If we don't already know it's connected, check if it is connected
 				if (!(nextNode.id in connectedNodes)) {
 					if (bn.isConnectedPath(nextPath, nextPath.length-1)) {
 						connectedNodes[nextNode.id] = true;
+
 						//directConnectedNodes[currentNode.id+"|"+nextNode.id] = true;
 					}
 					else {
@@ -3967,9 +5865,20 @@ BN.prototype = {
 
 		return ret;
 	},
-	
+
 	checkCycle(from, to) {
 		return from.hasAncestor(to);
+	},
+
+	/// Reference management
+	removeNodeRefs(node) {
+		for (let nodeListType of ['nodes','_rootNodes','_decisionNodes','_utilityNodes','_nodeOrdering']) {
+			let index = this[nodeListType].findIndex(n => n.id == node.id);
+			if (index !== -1)  this[nodeListType].splice(index, 1);
+		}
+		delete this.nodesById[node.id];
+		/// BNs are also submodels
+		Submodel.prototype.removeNodeRefs.call(this, node);
 	},
 };
 addDefaultSetters(BN);

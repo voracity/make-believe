@@ -100,7 +100,7 @@ bn.updateBeliefs();
 console.apilog("Cancer probs:", cancerNode.beliefs);
 //});
 
-console.apilog("Add nodes for Smoker, XRay and Dyspneoa")
+console.apilog("Add nodes for Smoker, XRay and Dyspnoea")
 bn.addNode("Smoker", ["Yes","No"], {cpt: [.3, .7]})
 var xrayNode = bn.addNode("XRay", ["Positive", "Negative"])
 var dyspNode = bn.addNode("Dyspnoea", ["Yes", "No"])

@@ -625,7 +625,8 @@ function matchObject(obj, criteria) {
 }
 
 /* Does not protect against cycles */
-Object.defineProperty(Object.prototype, '_findObject', {value: function(criteria) {
+Object.defineProperty(Object.prototype, '_findObject', {value: function(criteria, o = {}) {
+	o.recursive ??= true;
 	/// Can't make it a quick dict, due to no unique id available :( (and I'm not generating them!)
 	var objsEncountered = [];
 	var maxLoops = 10000;
@@ -642,7 +643,7 @@ Object.defineProperty(Object.prototype, '_findObject', {value: function(criteria
 		}
 		else {
 			/// If can't match against this object, try any sub-objects recursively
-			for (var prop in obj) {
+			if (o.recursive)  for (var prop in obj) {
 				try {
 					if (typeof(obj[prop])=="object" && obj[prop]!==null) {
 						var result = doFind(obj[prop]);

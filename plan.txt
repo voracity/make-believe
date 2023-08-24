@@ -1,31 +1,98 @@
-Current Goals
+JUNCTION TREE PLAN
+- Junction Tree Bug: Setting evidence on something with 0 prob changes prob
+
+Release Plan
+- Each release, I will specify an upcoming set of features/fixes I want in the next release. I should try to size them so that release work takes at least 2 weeks and preferably no more than about 10 weeks. 
+
+Goals for Current Release (R25)
 - A first serious (but basic) version of Make-Believe with editing capabilities
 	- All edits are Undoable
 	- Adding/deleting arcs (GUI + backend)
-	- Inference using junction trees
 	- Compatibility with a wide range of xdsl/dne files (that Make-Believe can support natively)
 	- Data loss protection
+- .mb files support every aspect of Make-Believe
+- Fully customisable/plugginable definitions
 
-Bugs for Current Goals
+Bugs for Current Release (R25)
+- Context Menu changes
+	- States management dialog
+***		- Add state
+		- Delete state
+	- Definitions
+		- Changes to states should update definition, and vice versa
+- States
+	- Use state labels in BN view when have them
+- Clean up utils.js (and any other .js files, etc.)
+- Copy/paste
+	- Initial attempt for nodes only
+	- Make display update correctly
+	- Handle undo/redo correctly
+	- Separate out copy/paste non-GUI logic, and put into BN
+		- e.g. bn.copy() or bn.copy(items) -> returns copy of selected items, bn.paste(items) -> puts in new items
+	- Add cut
+	- Make copy/paste work for everything (except arcs)
+		- TextBox
+		- Submodels
+***	- Testing
+- Undo node changes:
+	- nodeType
+	- defType
+	- funcTable
+	- Node pointers are unstable! Need to replace with node ids
+	- Need to collapse multiple changes from the property box (not clear how --- maybe a startCombined()/endCombined()?)
+		- Implement startCombined/endCombined
+		- Add start/end combined to the properties save dialog
+	- Hitting Ctrl-Z/Ctrl-Y in input/select/contenteditable/etc. should *not* trigger global undo (only the control-local undo) --- Check
+	- startCombined/endCombined needs to handle nesting (works, by flattening everything)
+	- Need to make undo/redo work for TextBox & Submodel add/delete (and gui/addToNet)
+	- Make item references stable
+		- Node add/delete
+		- Submodel add/delete
+		- TextBox add/delete
+		- Node property changes
+	- Submodel property changes
+	- TextBox property changes
+	- Node type
+	- Undo for arc additions/deletions (deletions in particular)
+***	- Testing
 - Fix: In node context menu, changing id (and type and possibly others) doesn't update other tabs
 	- Create node duplicate while in node settings dialog
 	- Fix up submodels to work as well (old submodelPath errors)
-	- Create some automated tests
+***	- Testing
 - Make definition work for decision and utility nodes
+***	- Testing
 - Bugs with zoom + moving
 	- Arcs laid out wrong
 	- Alignment/snapping completely wrong
-- Create a Definition class, with CPT, CDT and Equation as subclasses (and then remove all the if-else-if statements)
-- UNDO system
-	- node id renames (non-GUI partly works. GUI version doesn't work at all.)
-		- Does this work now? (Probably not when node display type is different)
-	- Hitting Ctrl-Z/Ctrl-Y in input/select/contenteditable/etc. should *not* trigger global undo (only the control-local undo)
+*** - Testing
+- How to add/delete parents/children in another submodel?
+***	- Testing
+- CPT copy/paste
+	- Add paste
+***	- Add cell selections
+		- Select after paste
+	- Add copy
+
+Goals for Next Release (R26)
+- Inference using junction trees
+- Better compilation
+
+Bugs for Next Release (R26)
+- Junction Tree option
+	- Make sure all parents connected (I think this *also* has the effect triangulating the graph, but need to check)
+		(It does, but it probably won't be optimal in terms of treewidth.)
+	- OK, have now done a proper triangulation. (Eliminate all simplicial, then connect smallest family and repeat until no more nodes.)
+	- Create join tree (i.e. cliques and sepsets) from triangulated graph
+***	- Belief propagation
+- Fix BNTOPASS creation (duplicate, not modify)
 
 
-Bug Backlog
+Bug Backlog (RFuture)
 - CREATE A PRE-RELEASE CHECKLIST
 - Submodel issues:
 	- 'item' refers to node and submodel items. Should I move to more generic 'node' for both? Without affecting inference...
+- Arcs are not currently first class citizens --- there are .parents/.children, .pathsIn/.pathsOut and ArcSelector, plus
+	custom logic scattered about; make an |Arc| class that has both API and GUI functions
 - Parse equations and manually compile to JS (no pass-through, to minimise security issues)
 - Need to create a RegEx for things like node ids (instead of rewriting definition everywhere)
 - Move the visible graph creation logic out of the display() function
@@ -71,15 +138,13 @@ STORMY
 DBNs
 - DBN support very broken. Need to fix. (And preferably clean things up at the same time.)
 ***DEFINITIONS
+- Shift to stable object references everywhere (currently just Net and DisplayItems (Node, Submodel, Textbox) are considered stable)
+- Inline edits
+	- Would be really nice to have on-canvas CPT editing...
+
 
 Features
 - Continuous evidence...
-- Junction Tree option
-	- Make sure all parents connected (I think this *also* has the effect triangulating the graph, but need to check)
-		(It does, but it probably won't be optimal in terms of treewidth.)
-	- OK, have now done a proper triangulation. (Eliminate all simplicial, then connect smallest family and repeat until no more nodes.)
-	- Create join tree (i.e. cliques and sepsets) from triangulated graph
-***	- Belief propagation
 
 BNs to test/check/fix
 - Dugong.dne

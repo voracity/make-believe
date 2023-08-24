@@ -1,20 +1,36 @@
-$(window).ready(function() {
+let scriptSrc = document.currentScript.src;
+window.addEventListener('DOMContentLoaded', function() {
 	/// Clicking anywhere not in a menu clears all active menu items
-	$(document).on("click", function(evt) {
-		if ($(evt.target).closest(".menu").length==0) {
+	document.addEventListener("click", function(evt) {
+		if (!evt.target.closest(".menu")) {
 			dismissActiveMenus();
 		}
 	});
+	
+	/// Add style menu style
+	let link = document.createElement('link');
+	link.setAttribute('type', 'text/css');
+	link.setAttribute('rel', 'stylesheet');
+	let menuDir = scriptSrc.replace(/\/?[^\/]*$/, '');
+	link.setAttribute('href', menuDir + '/menu_styles.css');
+	document.head.prepend(link);
 });
 
 function dismissActiveMenus() {
-	$(".menu.active, .menu .active").removeClass("active");
+	[...document.querySelectorAll(".menu.active, .menu .active")].map(el => el.classList.remove("active"));
 }
 
-function clearActiveSiblings($el) {
+function closeMenus() {
+	[...document.querySelectorAll('.menu')].forEach(el => el.remove());
+}
+
+function clearActiveSiblings(el) {
 	/// Remove any active status from siblings
-	$el.parent().closest(".menu").find(".active").removeClass("active");
-	return $el;
+	let menu = el.parentElement.closest(".menu");
+	if (menu) {
+		[...menu.querySelectorAll(".active")].forEach(el => el.classList.remove("active"));
+	}
+	return el;
 }
 
 /**
@@ -34,54 +50,99 @@ function Menu(o) {
 	this.label = o.label || "";
 	this.items = o.items || [];
 	this.type = o.type || "";
+	this.listeners = new Listeners(['show']);
+	this.listeners.add('show', o.on_show);
 	
-	this._$lastMenu = null;
+	this._lastMenu = null;
 	
 	return this;
 }
 Menu.prototype = {
 	make: function() {
 		/// Default method to make menu
-		var $menu = $("<div class='menu "+this.type+"'>");
+		var menu = n('div', {class: 'menu '+this.type});
 
-		$menu.append(
-			$("<div class=header>").append(this.label).on("click", function() {
+		menu.append(
+			n('div.header', html(this.label), {on: {click() {
 				/// Mark this menu active
-				clearActiveSiblings($(this).closest(".menu")).addClass("active");
-			})
+				let menu = this.closest(".menu");
+				menu.classList.add("active");
+				clearActiveSiblings(menu);
+			}}})
 		);
 
-		var $itemList = $("<div class=itemList>");
-		$menu.append($itemList);
+		var itemList = n('div.itemList');
+		menu.append(itemList);
 
+		this.listeners.remove('.handleForItem');
 		for (var i in this.items) {
-			$itemList.append(this.items[i].make());
+			if (this.items[i]) {
+				let item = this.items[i].make();
+				itemList.append(...(item.jquery ? item.toArray() : [item]));
+				if (this.items[i].on_show)  this.listeners.add('show.handleForItem', this.items[i].on_show);
+			}
 		}
 
-		return $menu;
+		this._lastMenu = menu;
+		menu.$$menus19203$$ = this;
+
+		return menu;
+	},
+	
+	append(item) {
+		this._lastMenu.querySelector('.itemList').append(item.make ? item.make() : item);
 	},
 	
 	popup: function(o) {
-		var $menu = this.make();
-		$menu
-			.css({left: o.left, top: o.top})
-			.appendTo('body');
-		$(document).on('click', function(event) {
-			if (!$(event.target).closest('.contextMenu').length) {
-				$menu.remove();
+		function isAncestor(thisEl, ancestorEl) {
+			while (thisEl != null) {
+				thisEl = thisEl.parentNode;
+				if (thisEl == ancestorEl) {
+					return true;
+				}
 			}
-		});
-		this._$lastMenu = $menu;
+			return false;
+		}
+		
+		if (o.getBoundingClientRect) {
+			let rect = o.getBoundingClientRect();
+			o = {left: rect.left, top: rect.bottom};
+		}
+		
+		var menu = this.make();
+		menu.style.left = o.left+'px';
+		menu.style.top = o.top+'px';
+		document.body.append(menu);
+		if (menu.getBoundingClientRect().right > document.documentElement.clientWidth) {
+			menu.style.left = '';
+			menu.style.right = 0;
+		}
+		if (menu.getBoundingClientRect().bottom > document.documentElement.clientHeight) {
+			menu.style.top = '';
+			menu.style.bottom = 0;
+		}
+		/// Not in this event loop (there's a better way to do this,
+		/// that's neither setTimeout nor requestAnimationFrame, but I've forgotten)
+		setTimeout(_=> {
+			document.addEventListener('click', function clickEvent(event) {
+				if (!isAncestor(event.target, menu)) {
+					menu.remove();
+					document.removeEventListener('click', clickEvent);
+				}
+			});
+		}, 0);
+		
+		this.listeners.get('show').forEach(l => l.func(menu));
 	},
 	
 	dismiss: function() {
-		this._$lastMenu.remove();
+		this._lastMenu.remove();
 	},
 	
 	collectShortcuts: function() {
-		var shortcuts = {};
-		for (var item of this.items) {
-			$.extend(shortcuts, item.collectShortcuts());
+		let shortcuts = {};
+		for (let item of this.items) {
+			Object.assign(shortcuts, item.collectShortcuts());
 		}
 		return shortcuts;
 	},
@@ -96,35 +157,48 @@ Menu.prototype = {
 */
 function MenuAction(label, action, o) {
 	if (!(this instanceof MenuAction))  return MenuAction.apply(Object.create(MenuAction.prototype), arguments);
-	o = o || {};
-	this.label = label;
-	this.action = action ? action : function() {};
-	this.type = o.type || "";
-	this.shortcut = o.shortcut || null;
+	o = o ?? {};
+	o = (typeof(label)=='object' && !(label.jquery || label instanceof HTMLElement)) ? label : typeof(action)=='object' ? action : o;
+	this.label = label ?? o.label;
+	this.action = action ?? o.action ?? function() {};
+	this.type = o.type ?? "";
+	this.shortcut = o.shortcut ?? null;
+	this.closeAfter = o.closeAfter ?? false;
+	this.on_show = o.on_show ?? null;
 	return this;
 }
 MenuAction.prototype = {
 	make: function() {
-		var $item = $("<div class='menuAction "+this.type+"' tabindex='0'>");
+		var item = n('div', {class: 'menuAction '+this.type, tabindex: '0'});
 		/// I don't know if I want this nbsp substitution
-		$item.append($('<div class="label">').html(this.label));
+		item.append(n('div.label', html(this.label)));
 		if (this.shortcut) {
-			$item.append($('<div class="shortcut">').text(this.shortcut));
+			item.append(n('div.shortcut', this.shortcut));
 		}
-		$item.on("click", this.action).on("mouseenter", function(evt) {
-			clearActiveSiblings($(evt.target)).addClass("active").focus();
-		}).on("mouseleave", function(evt) {
-			$(evt.target).removeClass("active");
-		}).on("keypress", function(evt) {
-			if (evt.keyCode == KeyEvent.DOM_VK_RETURN) {
-				$(this).click();
+		item.addEventListener('click', event => {
+			if (typeof(this.action)=='function')  this.action(event);
+			if (this.closeAfter) {
+				closeMenus();
+			}
+		});
+		item.addEventListener('mouseenter', function(evt) {
+			//onsole.log(evt.target);
+			clearActiveSiblings(evt.target.closest('.menuAction')).classList.add("active");//.focus();
+		});
+		item.addEventListener('mouseleave', function(evt) {
+			evt.target.closest('.menuAction').classList.remove("active");
+		});
+		item.addEventListener('keypress', function(evt) {
+			if (evt.key == "Enter") {
+				this.click();
 			}
 		});
 
-		return $item;
+		return item;
 	},
 	
 	collectShortcuts: function() {
 		return this.shortcut ? {[this.shortcut]: {action: this.action, label: this.label}} : {};
 	},
 }
+MenuItem = MenuAction;

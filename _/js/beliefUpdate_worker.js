@@ -1,6 +1,15 @@
 bn = null;
 timeLimit = null;
 
+if (typeof(exports)!='undefined') {
+	importScripts = function(filename){
+		var fs = require('fs');
+		var vm = require('vm');
+		var code = fs.readFileSync('./_/js/'+filename, 'utf-8');
+		vm.runInThisContext(code, filename);
+	}
+}
+
 if (typeof(importScripts)!="undefined") {
 	importScripts('definitions.js');
 	importScripts('equationFunctions.js');
@@ -20,19 +29,25 @@ onmessage = function(e) {
 		var iterations = e.data[2];
 		//postMessage([1,evidenceArr,iterations]);
 		var iterationsRun = updateBeliefs_local(bn, evidenceArr, iterations);
-		var allBeliefs = [];
-		var allSamples = [];
+		var nodeResults = [];
+		//var allBeliefs = [];
+		//var allSamples = [];
 		for (var i=0; i<bn.nodes.length; i++) {
-			allBeliefs.push(bn.nodes[i].beliefs);
-			allSamples.push(bn.nodes[i].samples);
+			//allBeliefs.push(bn.nodes[i].beliefs);
+			//allSamples.push(bn.nodes[i].samples);
+			nodeResults.push({
+				beliefs: bn.nodes[i].beliefs,
+				samples: bn.nodes[i].samples,
+				sampleWeights: bn.nodes[i].sampleWeights,
+			});
 		}
-		postMessage([0,allBeliefs, allSamples, iterationsRun]);
+		postMessage([0, nodeResults, iterationsRun]);
 		//postMessage([0,[0,1]]);
 	}
 	// Set a time limit for updating beliefs
 	else if (e.data[0]==2) {
 		timeLimit = e.data[1];
-		console.log("timeLimit", timeLimit);
+		//onsole.log("timeLimit", timeLimit);
 	}
 }
 
@@ -71,6 +86,17 @@ function updateBeliefs_local(bn, evidenceArr, iterations) {
 			/// XXX Just to test it out. This is way slower than an Int32Array (about 3 times slower)
 			if (i==0)  cas = new Float32Array(new ArrayBuffer(bn.nodes.length*4));
 			node.samples = new Float32Array(new ArrayBuffer(iterations*4));
+			node.sampleWeights = new Float32Array(new ArrayBuffer(iterations*4));
+		}
+		else {
+			if (['categorical','ordered'].includes(node.stateSpace.type)) {
+				console.log('CASE TYPE: STATE');
+				caseTypes[i] = CASE_STATE;
+			}
+			else if (['interval','continuous'].includes(node.stateSpace.type)) {
+				console.log('CASE TYPE: INTERVAL');
+				caseTypes[i] = CASE_INTERVAL;
+			}
 		}
 	}
 
@@ -100,6 +126,7 @@ function updateBeliefs_local(bn, evidenceArr, iterations) {
 			var node = bn.nodes[intId];
 			if (node.def.type == 'Equation') {
 				node.samples[iterI] = caseReal[intId];
+				node.sampleWeights[iterI] = weight;
 			}
 			else {
 				//node.counts[cas[v]] += 1;
@@ -107,9 +134,10 @@ function updateBeliefs_local(bn, evidenceArr, iterations) {
 				// Do likelihood weighting instead
 				node.counts[cas[intId]] += weight;
 				node.seen += weight;
-				//onsole.log(node.counts, node.seen, weight);
+				//console.log(node.counts, node.seen, weight);
 			}
 		}
+		//onsole.log(node.counts, node.seen);
 		
 		if (timeLimit && (Date.now() - startTime > timeLimit)) {
 			break;

@@ -1,4 +1,4 @@
-.menu { z-index: 10; font-size: 10pt; }
+.menu { z-index: 10; font-size: 10pt; user-select: none; }
 .menu > .itemList { display: none; border: solid 1px black;  background: white; }
 .menu > .header:hover { color: #999; }
 .menu:not(.bar) .menu > .header { background-image: url(menu-right.svg);
@@ -11,8 +11,8 @@
 .menu.active > .itemList { display: block; }
 .menu > .itemList { box-shadow: 2px 2px 2px rgba(0,0,0,0.3); }
 
-.menu.bar { background: #eee; }
-.menu.bar > .itemList { border: none; box-shadow: none; }
+.menu.bar { background: #eee; padding-bottom: 1px; }
+.menu.bar > .itemList { border: none; box-shadow: none; width: 100%; }
 .menu.bar > .itemList > .menu > .header { padding: 1px 5px; }
 .menu.bar .menu.active .itemList { position: absolute; }
 .menu.bar > .itemList { display: inline-block; }
@@ -23,7 +23,8 @@
 .menu .menu > .itemList { min-width: 8em; }
 .menuAction { display: flex; align-items: center; }
 .menuAction .label { flex: 1; }
-.menuAction .shortcut { font-size: 0.7em; color: #aaa; }
+.menuAction .label > * { vertical-align: middle; }
+.menuAction .shortcut { font-size: 0.7em; color: #aaa; padding-left: 10px; }
 .menuAction.active .shortcut { color: white; }
 
 /** Embedded menus are just part of the current block. e.g. in a tab, or on a page **/
@@ -35,6 +36,7 @@
 .menu.embedded > .itemList > * { display: block; }
 
 /** Context menus **/
+.contextMenu { position: fixed; }
 .contextMenu > .itemList { display: block; }
 .contextMenu > .itemList { border-top: none; }
 .contextMenu > .header { border: solid 1px black; box-shadow: 2px 2px 2px rgba(0,0,0,0.3);

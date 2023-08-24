@@ -134,3 +134,36 @@ var testing = {
 		console.log('Tests finished. '+numPassed+'/'+testing.tests.length+' tests passed.');
 	},
 }
+
+function testHtm() {
+	var i = 0;
+	var iters = 10000;
+
+	var startTime = performance.now();
+	for (i=0; i<iters; i++) {
+		let node = qnode('div', 'xxx', {'class': 'gary'});
+	}
+	console.log(performance.now() - startTime);
+
+	startTime = performance.now();
+	for (i=0; i<iters; i++) {
+		let node = document.createElement('div');
+		node.appendChild( document.createTextNode('xxx') );
+		node.className = 'gary';
+	}
+	console.log(performance.now() - startTime);
+
+	var startTime = performance.now();
+	for (i=0; i<iters; i++) {
+		let node = qnode('div', 'xxx', {'class': 'gary'});
+	}
+	console.log(performance.now() - startTime);
+
+	startTime = performance.now();
+	for (i=0; i<iters; i++) {
+		let node = document.createElement('div');
+		node.appendChild( document.createTextNode('xxx') );
+		node.className = 'gary';
+	}
+	console.log(performance.now() - startTime);
+}

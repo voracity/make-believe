@@ -15,13 +15,422 @@ if (typeof(console)=="undefined") {
 	};
 }
 
-class UndoChange {
-	constructor() {
+var counters = {
+	newFactor: 0,
+	make: 0,
+	moveVarToStart: 0,
+	reduce: 0,
+	multiplyFaster: 0,
+	marginalize: 0,
+	marginalize1: 0,
+	reset() {
+		for (let i in this) {
+			this[i] = 0;
+		}
+	},
+	log(label = 'counters') {
+		console.log(label);
+		for (let [i,val] of Object.entries(this)) {
+			console.log(i, val);
+		}
+	}
+}
+Object.defineProperty(counters, 'reset', {configurable:true,writable:true,enumerable:false,value:counters.reset});
+Object.defineProperty(counters, 'log', {configurable:true,writable:true,enumerable:false,value:counters.log});
+function allocFloat32(length) {
+	return new Float32Array(new ArrayBuffer(4*length));
+}
+
+function pick(o, ...props) {
+    return Object.assign({}, ...props.map(prop => typeof(o[prop])!=="undefined" ? {[prop]: o[prop]} : {}));
+}
+
+function zip(...rows) {
+	return rows[0].map((_,i) => rows.map(row => row[i]));
+}
+
+function defaultGet(val, defaultValue) {
+	return val===null || val===undefined ? defaultValue : val;
+}
+
+/// This will replace a method with a method with listener hooks, and add the listener requested.
+/// Will work with any non-locked down object, but it obviously assumes well-behaved methods.
+/// And this still has lots of issues! (Like no async method support.)
+function addMethodListener(obj, method, func, o = {}) {
+	o.when ??= 'end';
 	
+	/// Get existing methodListener, or otherwise set it up
+	let methodListener = obj[method]?.__methodListener ?? {
+		start: [],
+		end: [],
+		originalFunction: obj[method],
+	};
+	
+	/// Re-hook the method with our custom listener handler, but only
+	/// if not already setup
+	if (!obj[method]?._methodListener) {
+		obj[method] = function ml(...args) {
+			for (let listener of ml._methodListener.start) {
+				listener.apply(obj, args);
+			}
+			let ret = ml._methodListener.originalFunction.apply(obj, args);
+			for (let listener of ml._methodListener.end) {
+				listener.apply(obj, args);
+			}
+			return ret;
+		};
+		obj[method]._methodListener = methodListener;
+	}
+	
+	/// Now add our listener
+	methodListener[o.when].push(func);
+}
+
+/// Check if element is visible (from jQuery)
+function isVisible(elem) {
+    return !!( elem.offsetWidth || elem.offsetHeight || elem.getClientRects().length );
+}
+
+/// Check if element is in the viewport
+function isElementInViewport (el) {
+
+    // Special bonus for those using jQuery
+    if (typeof jQuery === "function" && el instanceof jQuery) {
+        el = el[0];
+    }
+
+    var rect = el.getBoundingClientRect();
+
+    return (
+        rect.top >= 0 &&
+        rect.left >= 0 &&
+        rect.bottom <= (window.innerHeight || document.documentElement.clientHeight) && /* or $(window).height() */
+        rect.right <= (window.innerWidth || document.documentElement.clientWidth) /* or $(window).width() */
+    );
+}
+
+/* innerText, etc., Firefox/Chrome, wow, much hurt. */
+function getContenteditableText(el) {
+	let qel = q(el).cloneNode(true).rootNew.qa('br:only-child').forEach(el => el.replaceWith('\n')).root;
+	qel.qa('br:last-child').forEach(el => el.remove());
+	qel.qa('br').forEach(el => el.replaceWith('\n'));
+	qel.qa('div').forEach(div => !div.textContent.trim() ? '' :div.append('\n'));
+	// console.log(qel.raw);
+	return qel.innerText;
+}
+
+function setContenteditableText(el, text) {
+	el.textContent = text;
+	el.innerHTML = el.innerHTML.replace(/\r\n/g, '\n').replace(/(.{0,0}|.+)\n/g, (m,p1)=>`<div>${p1?p1:'<br>'}</div>`);
+}
+if (typeof(HTMLElement)!=='undefined') {
+	Object.defineProperty(HTMLElement.prototype, 'innerTextTEMPFIX', {
+		get() {
+			return getContenteditableText(this);
+		},
+		set(text) {
+			setContenteditableText(this, text);
+		},
+	});
+}
+
+/// The range/selection stuff is super verbose
+function selectContents(el) {
+	let range = document.createRange();
+	range.selectNodeContents(el);
+	let sel = window.getSelection();
+	sel.removeAllRanges();
+	sel.addRange(range);
+}
+
+function setCaretEnd(el) {
+	let range = document.createRange();
+	range.selectNodeContents(el);
+	range.setStart(range.endContainer, range.endOffset);
+	let sel = window.getSelection();
+	sel.removeAllRanges();
+	sel.addRange(range);
+}
+
+function copyTextToClipboard(text) {
+	let ta = document.createElement('textarea');
+	ta.value = text;
+	document.body.append(ta);
+	ta.focus();
+	ta.select();
+	document.execCommand('copy');
+	ta.remove();
+}
+
+/// Remove classes that match. `matches` is a function className => true/false.
+function removeMatchingClasses(node, matches) {
+	let cl = node.classList;
+	for (let i=cl.length-1;i>=0;i--) {
+		if (matches(cl[i])) {
+			cl.remove(cl[i]);
+		}
+	}
+}
+
+
+// https://stackoverflow.com/a/34192073/2094226
+function copyHtmlToClipboard(html) {
+  // Create container for the HTML
+  // [1]
+  var container = document.createElement('div')
+  container.innerHTML = html
+
+  // Hide element
+  // [2]
+  container.style.position = 'fixed'
+  container.style.pointerEvents = 'none'
+  container.style.opacity = 0
+
+  // Detect all style sheets of the page
+  var activeSheets = Array.prototype.slice.call(document.styleSheets)
+    .filter(function (sheet) {
+      return !sheet.disabled
+    })
+
+  // Mount the container to the DOM to make `contentWindow` available
+  // [3]
+  document.body.appendChild(container)
+
+  // Copy to clipboard
+  // [4]
+  window.getSelection().removeAllRanges()
+
+  var range = document.createRange()
+  range.selectNode(container)
+  window.getSelection().addRange(range)
+
+  // [5.1]
+  document.execCommand('copy')
+
+  // [5.2]
+  for (var i = 0; i < activeSheets.length; i++) activeSheets[i].disabled = true
+
+  // [5.3]
+  document.execCommand('copy')
+
+  // [5.4]
+  for (var i = 0; i < activeSheets.length; i++) activeSheets[i].disabled = false
+
+  // Remove the container
+  // [6]
+  document.body.removeChild(container)
+}
+
+/// From https://stackoverflow.com/a/7478420/2094226
+function getCaretPosition(el) {
+    var atStart = false, atEnd = false;
+    var selRange, testRange;
+	var sel = window.getSelection();
+	if (sel.rangeCount) {
+		selRange = sel.getRangeAt(0);
+		/// Only for caret, NOT selections
+		if (selRange.toString().length == 0) {
+			testRange = selRange.cloneRange();
+
+			testRange.selectNodeContents(el);
+			testRange.setEnd(selRange.startContainer, selRange.startOffset);
+			atStart = (testRange.toString() == "");
+
+			testRange.selectNodeContents(el);
+			testRange.setStart(selRange.endContainer, selRange.endOffset);
+			atEnd = (testRange.toString() == "");
+		}
+	}
+    return { atStart, atEnd };
+}
+
+function problemWithObjectClone(obj) {
+	let objsSeen = new Set();
+	let problemPaths = [];
+	(function canBeCloned(obj, path){
+		for (var k in obj) {
+			let val = obj[k];
+			path.push(k);
+			//onsole.log(path, val);
+			/*if (typeof(obj[k]) == "object" && !objsSeen.has(obj[k])) {
+				objsSeen.add(obj[k]);
+				if (doCheckObj(obj[k], path)==="done")  return "done";
+			}
+			else {
+				if (obj[k] instanceof jQuery || obj[k] instanceof HTMLElement) {
+					console.log("Error: ", path, '["'+path.join('"]["')+'"]');
+					return "done";
+				}
+			}*/
+			let result = true;
+			if (typeof(val) == "object" && val !== null && !objsSeen.has(val)) {
+				objsSeen.add(val);
+				switch({}.toString.call(val).slice(8,-1)) { // Class
+					case 'Boolean':     case 'Number':      case 'String':      case 'Date':
+					case 'RegExp':      case 'Blob':        case 'FileList':
+					case 'ImageData':   case 'ImageBitmap': case 'ArrayBuffer':
+					case 'Float32Array': case 'Int32Array':
+						result = true;
+						break;
+					case 'Array':       case 'Object':
+						result = canBeCloned(val, path);
+						break;
+					case 'Map':
+						result = [...val.keys()].every(v => canBeCloned(v, path))
+							&& [...val.values()].every(v => canBeCloned(v, path));
+						break;
+					case 'Set':
+						result = [...val.keys()].every(v => canBeCloned(v, path));
+						break;
+					default:
+						problemPaths.push({path: path.slice(), value: val});
+						result = false;
+				}
+			}
+			path.pop();
+			if (!result)  return false;
+		}
+		return true;
+	})(obj, []);
+	return problemPaths.length ? problemPaths : false;
+}
+
+function readCsv(text, o = {}) {
+	o.sep = o.sep || /\s*,\s*/;
+	var lines = text.replace(/^\s*|\s*$/g, '').split(/\r?\n/);
+	var data = [];
+	for (var ent of lines.entries()) {
+		var i = ent[0], line = ent[1];
+		lines[i] = line.split(o.sep);
+		if (i>0) {
+			var row = {};
+			for (var ent of lines[0].entries()) { var hi=ent[0],header=ent[1]; row[header] = lines[i][hi]; }
+			data.push(row);
+		}
+	}
+	return data;
+}
+
+function rgb2Hex(rgbStr) {
+	let m = rgbStr.match(/\s*rgb\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)\s*\)\s*/);
+	if (m) {
+		return '#'+m.slice(1).map(n => Number(n).toString(16)).join('');
+	}
+	return null;
+}
+
+/**
+	Normalise a pseudo-probability vector to a probability vector.
+*/
+function normalize(vec) {
+	var sum = 0;
+	for (var i=0; i<vec.length; i++)  if (vec[i]>0)  sum += vec[i];
+
+	var newVec = new Array(vec.length);
+	if (sum>0) {
+		for (var i=0; i<vec.length; i++)  newVec[i] = vec[i]>0 ? vec[i]/sum : 0;
+	}
+	else {
+		for (var i=0; i<vec.length; i++)  newVec[i] = 1/vec.length;
+	}
+
+	return newVec;
+}
+
+// ECMAScript 5 polyfill
+Object.defineProperty(Array.prototype, 'stableSort', {
+	configurable: true,
+	writable: true,
+	value: function stableSort (compareFunction) {
+	  'use strict'
+  
+	  var length = this.length
+	  var entries = Array(length)
+	  var index
+  
+	  // wrap values with initial indices
+	  for (index = 0; index < length; index++) {
+		entries[index] = [index, this[index]]
+	  }
+  
+	  // sort with fallback based on initial indices
+	  entries.sort(function (a, b) {
+		var comparison = Number(this(a[1], b[1]))
+		return comparison || a[0] - b[0]
+	  }.bind(compareFunction))
+  
+	  // re-map original array to stable sorted values
+	  for (index = 0; index < length; index++) {
+		this[index] = entries[index][1]
+	  }
+	  
+	  return this
+	}
+  });
+
+/**
+Generic (and very simple) listener handling, with arbitrary names. (Based on intent, not declaration.)
+*/
+class Listeners {
+	constructor(declared = []) {
+		this.listeners = [];
+		this.declared = declared; /// Declared types. If empty, never throws error. If non-empty, checks this list before doing anything
+		// this.groups = {};
+	}
+	
+	declare(declared = []) {
+		this.declared.push(...declared);
+	}
+	
+	add(typeGroup, func) {
+		if (!func)  return;
+		/// XXX: Make listener indexing more efficient? Is it worthwhile?
+		let [type,group='$$default$$'] = typeGroup.split(/\./);
+		if (!this.declared.includes(type))  { console.error(`${type} not a recognised listener in |Listener.add|.`); return; }
+		// if (!(type in this.listeners))  this.listeners[type] = [];
+		// if (!(group in this.groups))  this.groups[group] = [];
+		let entry = {type, group, func};
+		// this.listeners[type].push(entry);
+		// this.groups[group].push(entry);
+		this.listeners.push(entry);
+	}
+	
+	get(typeGroup, func) {
+		let [type,group='$$default$$'] = typeGroup.split(/\./);
+		if (type && !this.declared.includes(type))  { console.error(`${type} not a recognised listener |Listener.get|.`); }
+		let predList = [];
+		if (group!='$$default$$') {
+			predList.push(l => l.group == group);
+		}
+		if (type) {
+			predList.push(l => l.type == type);
+		}
+		if (func) {
+			predList.push(l => l.func == func);
+		}
+		return this.listeners.filter(l => predList.reduce((a,p) => a && p(l), true));
+	}
+	
+	remove(typeGroup, func) {
+		let [type,group='$$default$$'] = typeGroup.split(/\./);
+		if (type && !this.declared.includes(type))  { console.error(`${type} not a recognised listener |Listener.remove|.`); }
+		let predList = [];
+		if (group!='$$default$$') {
+			predList.push(l => l.group == group);
+		}
+		if (type) {
+			predList.push(l => l.type == type);
+		}
+		if (func) {
+			predList.push(l => l.func == func);
+		}
+		this.listeners = this.listeners.filter(l => !predList.reduce((a,p) => a && p(l), true));
 	}
 }
 
 /** 
+    2017-10-01 NOTE: Every undo entry is now a chain (possibly only of length 1)
+	
     Notes on saving state in a |change| object. We should save the state that we need as properties of |change|.
 	Must keep things that don't change for a given state (like string IDs) rather than
 	things that can (like object references), because (for instance) we might delete a node, in which
@@ -34,35 +443,168 @@ class UndoList {
 		this.list = [];
 		this.index = 0;
 		this.revisionInProgress = false;
+		this.combiningFromIndex = [];
+		this.undoListeners = [];
+	}
+	
+	runUndoListeners(event) {
+		event.undoList = this;
+		this.undoListeners.forEach(listener => listener(event));
+	}
+	
+	/// Throws an error if list is empty
+	last() {
+		return this.list[this.list.length-1];
+	}
+	
+	/// Return the very last action (which might be nested deeply in some chains)
+	lastAction() {
+		let chain = this.list?.[this.list.length-1];
+		if (!chain)  return null;
+		while (chain.chain)  chain = chain.chain;
+		
+		return chain[chain.length-1];
 	}
 	
 	/**
 		|change| should be an object of the following form:
 		
 		{name: <name of change>, undo: <undo function>, redo: <redo function>}
+		
+		OR
+		
+		{name: <name of change>, new: <the new state>, old: <the old state>, exec(current): <func that takes current state>}
+		
+		Add |withPrevious: true| for a chain of actions that need to be undone/redone together.
 	*/
 	add(change) {
 		if (!this.revisionInProgress) {
-			this.list[this.index] = change;
-			this.index++;
-			/// Any new change, truncates the undo list
-			this.list.length = this.index;
+			let doAdd = true;
+			if (change.withPrevious && this.list.length) {
+				let lastItem = this.list[this.list.length-1];
+				if (lastItem.type == 'combined') {
+					lastItem.chain.push(change);
+					doAdd = false;
+				}
+				else {
+					change = this.makeCombined(lastItem, change);
+					this.index--;
+				}
+			}
+			else {
+				/// 2017-10-01 Every undo entry is now a chain (possibly only of length 1)
+				change = this.makeCombined(change);
+			}
+			if (doAdd) {
+				this.list[this.index] = change;
+				this.index++;
+				/// Any new change, truncates the undo list
+				this.list.length = this.index;
+				/// Fire change listeners
+				this.runUndoListeners({type: 'add'});
+			}
 		}
 	}
 	
 	addAndDo(change) {
+		if (typeof(change.old)!="undefined" && typeof(change.new)!="undefined" && typeof(change.exec)!="undefined") {
+			if (!change.redo)  change.redo = function() { this.exec(this.new, this.old); }
+			if (!change.undo)  change.undo = function() { this.exec(this.old, this.new); }
+		}
 		this.add(change);
 		change.redo();
+	}
+
+	addFinallyAndDo(action) {
+		this.last().addFinallyAndDo(action);
+	}
+
+	addFinally(action) {
+		this.last().addFinally(action);
+	}
+	
+	/**
+	Make a undo item that executes several actions at once. The |finally| property is a list
+	of actions that will always get executed at the end (whether undoing or redoing).
+	*/
+	makeCombined(...changes) {
+		return {
+			type: 'combined',
+			chain: changes,
+			finally: [],
+			undo() {
+				for (var action of this.chain.slice().reverse())  action.undo();
+				for (var action of this.finally)  action();
+			},
+			redo() {
+				for (var action of this.chain)  action.redo();
+				for (var action of this.finally)  action();
+			},
+			addFinally(action) {
+				this.finally.push(action);
+			},
+			addFinallyAndDo(action) {
+				this.addFinally(action);
+				action();
+			},
+		};
+	}
+	
+	doCombined(func) {
+		this.startCombined();
+		func();
+		this.endCombined();
+	}
+	
+	startCombined(startI = this.index) {
+		this.combiningFromIndex.push( Math.max(0,startI) );
+	}
+	
+	endCombined(endI = this.index-1) {
+		console.log("combining:", this.combiningFromIndex, this.combiningFromIndex[this.combiningFromIndex.length-1], endI);
+		let startI = this.combiningFromIndex.pop();
+		let n = (endI - startI)+1;
+		//if (typeof(startI)=="undefined")  throw new Error("endCombined called without startCombined");
+		if (n==0 || typeof(startI)=="undefined")  return;
+		
+		let combined = this.list.slice(startI, startI+n).reduce((a,v) => {
+			a.chain = a.chain.concat(v.chain);
+			a.finally = a.finally.concat(v.finally);
+			return a;
+		});
+		
+		this.list.splice(startI, n, combined);
+		this.index -= (n-1);
+	}
+	
+	linkToPrevious(index = this.list.length-1) {
+		if (index-1 >= 0) {
+			let lastItem = this.list[index-1];
+			if (lastItem.type == 'combined') {
+				lastItem.chain.push(this.list[index]);
+			}
+			else {
+				let change = this.makeCombined(lastItem, this.list[index]);
+				this.list[index-1] = change;
+			}
+			this.list.splice(index, 1);
+			if (this.index >= index) {
+				this.index--;
+			}
+		}
 	}
 	
 	undo() {
 		if (this.index > 0) {
-			this.index--;
 			this.revisionInProgress = true;
 			try {
-				this.list[this.index].undo();
+				do {
+					this.index--;
+					this.list[this.index].undo();
+				} while (this.list[this.index].withPrevious);
 			}
 			finally {
+				this.runUndoListeners({type:'undo'});
 				this.revisionInProgress = false;
 			}
 		}
@@ -72,12 +614,15 @@ class UndoList {
 		if (this.index < this.list.length) {
 			this.revisionInProgress = true;
 			try {
-				this.list[this.index].redo();
+				do {
+					this.list[this.index].redo();
+					this.index++;
+				} while (this.list[this.index] && this.list[this.index].withPrevious);
 			}
 			finally {
+				this.runUndoListeners({type:'redo'});
 				this.revisionInProgress = false;
 			}
-			this.index++;
 		}
 	}
 	
@@ -104,7 +649,38 @@ function makeSimpleBn(str) {
 	return bn;
 }
 
-(function($, undefined) {
+function changeQsUrl(url, nameValues) {
+    url = url.replace(/^&|&$/g, "");
+    var found = url.match(/^([^?]*\??)(.*)/);
+    if (found) {
+    	if (found[1].charAt(found[1].length-1)!='?') {
+    		found[1] += '?';
+    	}
+		var newQs = changeQs(nameValues, found[2]);
+		if (newQs) {
+			return found[1]+newQs;
+		}
+		return found[1].slice(0,-1);
+    }
+    return "";
+}
+
+function changeQs(nameValues, qs) {
+	var qs = "&"+qs;
+	for (name in nameValues) {
+		var re = new RegExp("&"+name+"=[^&]*", "gi");
+		qs = qs.replace(re, "");
+		qs = qs.replace(/^&/, "");
+		if (qs!="") { qs += "&"; }
+		if (nameValues[name]!==null) {
+			qs += name + "=" + escape(nameValues[name]);
+		}
+	}
+	qs = qs.replace(/^&/, "");
+	return qs;
+}
+
+if (typeof(jQuery)!="undefined")  (function($, undefined) {
 if (!$.uncamelCase) {
     // Convert camelCase to dashed
     $.uncamelCase = function(string) {
@@ -150,6 +726,91 @@ $(function() {
 });
 
 })(jQuery);
+
+
+/// I've no idea why these aren't implemented in JS Sets by default
+Set.prototype.isSuperset = function(subset) {
+    for (var elem of subset) {
+        if (!this.has(elem)) {
+            return false;
+        }
+    }
+    return true;
+}
+
+Set.prototype.isSubset = function(subset) {
+    for (var elem of this) {
+        if (!subset.has(elem)) {
+            return false;
+        }
+    }
+    return true;
+}
+
+Set.prototype.union = function(setB) {
+    var union = new Set(this);
+    for (var elem of setB) {
+        union.add(elem);
+    }
+    return union;
+}
+
+Set.prototype.intersection = function(setB) {
+    var intersection = new Set();
+    for (var elem of setB) {
+        if (this.has(elem)) {
+            intersection.add(elem);
+        }
+    }
+    return intersection;
+}
+
+Set.prototype.difference = function(setB) {
+    var difference = new Set(this);
+    for (var elem of setB) {
+        difference.delete(elem);
+    }
+    return difference;
+}
+
+function popupElement(el, parent, eventOrX, offsetOrY = 5, offset = 0) {
+	let parentBounds = parent.getBoundingClientRect();
+	let x = eventOrX;
+	let y = offsetOrY;
+	//let offset = 5;
+	if (typeof(eventOrX)=="object" && eventOrX!==null && 'clientX' in eventOrX) {
+		x = eventOrX.clientX - parentBounds.left;
+		y = eventOrX.clientY - parentBounds.top;
+		offset = offsetOrY;
+	}
+	el.style.top = (y+offset)+"px";
+	el.style.left = (x+offset)+"px";
+	el.style.display = 'block';
+	parent.append(el);
+	
+	/// Adjust if falls out of boundaries
+	let elBounds = el.getBoundingClientRect();
+	let rightOverflow = elBounds.right - parentBounds.right;
+	let bottomOverflow = elBounds.bottom - parentBounds.bottom;
+	if (rightOverflow > 0) {
+		el.style.left = (x - elBounds.width - offset)+'px';
+	}
+	if (bottomOverflow > 0) {
+		el.style.top = (y - elBounds.height - offset)+'px';
+	}
+	let newElBounds = el.getBoundingClientRect();
+	let leftOverflow = -(newElBounds.left - parentBounds.left);
+	let topOverflow = -(newElBounds.top - parentBounds.top);
+	
+	//console.log(parentBounds.bottom, y, newElBounds.height, bottomOverflow, (y - bottomOverflow));
+	
+	if (leftOverflow > 0 && rightOverflow > 0) {
+		el.style.left = (x - rightOverflow)+'px';
+	}
+	if (topOverflow > 0 && bottomOverflow > 0) {
+		el.style.top = (y - bottomOverflow)+'px';
+	}
+}
 
 /***
 	Below, unchecked.
@@ -773,31 +1434,6 @@ function setTransactionJournalDates(frm) {
 	}
 }
 
-function changeQsUrl(url, nameValues) {
-    url = url.replace(/^&|&$/g, "");
-    found = url.match(/^([^?]*\??)(.*)/);
-    if (found) {
-    	if (found[1].charAt(found[1].length-1)!='?') {
-    		found[1] += '?';
-    	}
-    	return found[1]+changeQs(nameValues, found[2]);
-    }
-    return "";
-}
-
-function changeQs(nameValues, qs) {
-	var qs = "&"+qs;
-	for (name in nameValues) {
-		var re = new RegExp("&"+name+"=[^&]*", "gi");
-		qs = qs.replace(re, "");
-		qs = qs.replace(/^&/, "");
-		if (qs!="") { qs += "&"; }
-		qs += name + "=" + escape(nameValues[name]);
-	}
-	qs = qs.replace(/^&/, "");
-	return qs;
-}
-
 ///Just gets first instance of var in qs
 function getFirstQsVar(name, qs) {
 	var qs = "&"+qs;
@@ -871,8 +1507,21 @@ function dismissModalBackground() {
 	document.body.removeChild(gbid("modalBackdrop"));
 }
 
+if (typeof(jQuery)!=="undefined") {
+jQuery.event.special.touchstart = {
+    setup: function( _, ns, handle ) {
+        this.addEventListener("touchstart", handle, { passive: false });
+    }
+};
+jQuery.event.special.touchmove = {
+    setup: function( _, ns, handle ) {
+        this.addEventListener("touchmove", handle, { passive: false });
+    }
+};
+}
+
 /** Pops up a HTML dialog, can be modal **/
-function popupDialog(msg, width, modal, toFocus) {
+/*function popupDialog(msg, width, modal, toFocus) {
 	if (typeof(width)=="object" && width != null) { opts = width; width = null; }
 	else { opts = {}; }
 	var dlg = document.createElement("div");
@@ -903,7 +1552,7 @@ function dismissDialog(id) {
 	if (gbid("modalBackdrop")) {
 		dismissModalBackground();
 	}
-}
+}*/
 
 function labelClick(label) {
 	var forText = label.getAttribute("for");
@@ -1849,4 +2498,10 @@ function getQs() {
 		params[unescape(argInfo[0])] = unescape(argInfo[1]);
 	}
 	return params;
+}
+
+if (typeof(exports)!='undefined') {
+	Object.assign(exports, {
+		counters,
+	});
 }
