@@ -794,21 +794,37 @@ Node.prototype = {
 		return [this.id, ...this.parents.map(p=>p.id)];
 	},
 	/* Rewrite, remove recursion for desc/anc */
-	getDescendants(o = {}, visited = new Set()) {
+	getDescendants(o = {}, visited = new Map()) {
 		o.stopIf ??= _=>false;
 		o.arcs ??= false;
-		let filteredChildren = this.children.filter(c => !o.stopIf(c) && !visited.has(c));
-		let descendants = !o.arcs ? filteredChildren : this.children.map(c => `${this.id}-${c.id}`);
-		filteredChildren.forEach(c => visited.add(c));
-		for (let child of filteredChildren) {
-			descendants.push(...child.getDescendants(o, visited));
+		o.blockOnEvidence ??= false;
+		let imBlocked = false;
+		let descendants = [];
+		if (o.blockOnEvidence && this.hasEvidence()) {
+			imBlocked = true;
 		}
+		else {
+			let filteredChildren = this.children.filter(c => !o.stopIf(c) && !visited.has(c));
+			descendants = !o.arcs ? filteredChildren.slice() : this.children.map(c => `${this.id}-${c.id}`);
+			let descBlocked = true;
+			for (let child of filteredChildren) {
+				let desc = child.getDescendants(o, visited);
+				descBlocked &&= desc.blocked;
+				if (desc.blocked)  descendants.splice(descendants.indexOf(o.arcs ? `${this.id}-${child.id}` : child),1);
+				else               descendants.push(...desc);
+			}
+			let toVisitChildren = this.children.filter(c=>!o.stopIf(c));
+			imBlocked = toVisitChildren.length && toVisitChildren.reduce((a,c)=>a&&visited.get(c).blocked, true);
+		}
+		visited.set(this, {blocked: imBlocked});
+		if (imBlocked)  return Object.assign([], {blocked:true});
 		return [...new Set(descendants)];
 	},
 	getAncestors(o = {}, visited = new Set()) {
 		o.stopIf ??= _=>false;
 		o.arcs ??= false;
-		let filteredParents = this.parents.filter(p => !o.stopIf(p) && !visited.has(p));
+		o.blockOnEvidence ??= false;
+		let filteredParents = this.parents.filter(p => !o.stopIf(p) && !visited.has(p) && (!o.blockOnEvidence || !c.hasEvidence()));
 		let ancestors = !o.arcs ? filteredParents : this.parents.map(p => `${p.id}-${this.id}`);
 		ancestors.forEach(p => visited.add(p));
 		for (let parent of filteredParents) {
@@ -907,8 +923,9 @@ Node.prototype = {
 	/// FIX: Not node specific, move to net
 	getDirected(allNodes, o = {}) {
 		o.arcs ??= false;
+		o.blockOnEvidence ??= false;
 		
-		let nextO = {arcs: o.arcs};
+		let nextO = {arcs: o.arcs, blockOnEvidence: o.blockOnEvidence};
 		let foundNodes = new Set();
 		for (let i=0; i<allNodes.length; i++) {
 			for (let j=0; j<allNodes.length; j++) {
@@ -1593,7 +1610,7 @@ Node.prototype = {
 	node itself).
 	*/
 	getSubmodelPathStr: function() {
-		return this.submodelPath ? '/'+this.submodelPath.concat(['']).join('/') : '';
+		return BN.makeSubmodelPathStr(this.submodelPath);
 	},
 	/// Move this node to the given submodel. |path| is a left-to-right array
 	/// representing the path.
@@ -1975,7 +1992,7 @@ TextBox.prototype = {
 	delete(o = {submodel: true}) {
 		let i = this.net.basicItems.findIndex(item => item.id == this.id);
 		if (i != -1)  this.net.basicItems.splice(i,1);
-
+		
 		/// Remove reference from submodel
 		if (o.submodel) {
 			let submodel = this.net.getSubmodel(this.submodelPath);
@@ -2200,6 +2217,9 @@ Submodel.prototype = {
 	},
 	find(itemId) {
 		if (!itemId)  return undefined;
+		if (itemId == "..") {
+			return this.getSubmodel(this.submodelPath.slice(0,-1));
+		}
 		for (let item of this.getItems()) {
 			if (item.id == itemId)  return item;
 			if (item.find) {
@@ -2493,6 +2513,9 @@ BN.makeSubmodelPath = function(path) {
 
 	return null;
 };
+BN.makeSubmodelPathStr = function(pathArr) {
+	return pathArr ? '/'+pathArr.concat(['']).join('/') : '';
+}
 BN.defaultIterations = mbConfig.iterations;
 BN.updateMethodTitles = {
 	'likelihoodWeighting': 'Likelihood Weighting',
@@ -3780,15 +3803,17 @@ ${nodesStr}
 	get submodel() {
 		return this.submodelsById;
 	},
-	find(id) {
+	/*find(id) {
 		if (!id)  return null;
 		if (id == "..") {
 			if (this.currentSubmodel.length==0)  return null;
 			return this.getSubmodel(this.currentSubmodel.slice(0,-1));
 		}
-		return this.nodesById[id] || this.submodelsById[id]
-			|| this.basicItems.find(i => i.id == id);
-	},
+		// return this.nodesById[id] || this.submodelsById[id]
+			// || this.basicItems.find(i => i.id == id);
+		this.getAllItems().find(i => i.id
+	},*/
+	find: Submodel.prototype.find,
 	findItems: Submodel.prototype.findItems,
 	getItems() {
 		let mySubmodels = Object.values(this.submodelsById).filter(s => s.submodelPath.length==0);
@@ -3942,7 +3967,10 @@ ${nodesStr}
 		o.reset = o.reset || false;
 
 		if (o.reset)  this.evidence = {};
-		Object.assign(this.evidence, evidence);
+		for (let [k,v] of Object.entries(evidence)) {
+			if (v==null)  delete this.evidence[k];
+			else          this.evidence[k] = v;
+		}
 
 		return this;
 	},
