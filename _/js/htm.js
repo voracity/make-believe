@@ -184,11 +184,29 @@
 				}
 				else if (prop === 'set') {
 					/** return function to set things **/
-					return (obj) => {
+					return (obj, o = {}) => {
+						/// null/undefined
+						if (o.null===false) {
+							obj = Object.fromEntries(Object.entries(obj).filter(([k,v]) => v!=null));
+						}
 						Object.assign(target, obj);
 						/// return the proxy
 						return proxy;
 					};
+				}
+				else if (prop === 'listeners') {
+					if (!('htm_listeners' in target)) {
+						if (target instanceof EventTarget) {
+							target.htm_listeners = new DOMListeners(target);
+						}
+						else {
+							target.htm_listeners = new Listeners();
+						}
+						return target.htm_listeners;
+					}
+					else {
+						return target.htm_listeners;
+					}
 				}
 				/** I think .raw is better than unchain() **/
 				else if (prop === 'unchain') {
@@ -199,12 +217,6 @@
 				}
 				
 				/// More experimental:
-				else if (prop === 'forEach') {
-					return func => {
-						target.forEach((element,index,array) => func(chain(element, opts),index,array));
-						return proxy;
-					}
-				}
 				else if (prop === 'toString') {
 					return _=> target;
 				}
@@ -213,6 +225,25 @@
 				}
 				else if (prop === 'qa') {
 					return (...args)=> chain(target.querySelectorAll(...args),opts);
+				}
+				else if (Symbol.iterator in Object(target) &&!(prop in target)) {
+					/* Get all array functions that take a callback as the first argument:
+					   Object.getOwnPropertyNames(Array.prototype).map(name => { let v = null; try { ([1,1,1])[name](_=>{v=name}); } catch(e){}; return v}).filter(v=>v).toSorted(String.localeCompare)
+					 */
+					if (['every','filter','find','findIndex','findLast','findLastIndex','flatMap','forEach','map','reduce','reduceRight','some','sort','toSorted'].includes(prop)) {
+						/*return (callback,...otherArgs) => {
+							return chain([...target][prop]((element,...args) => callback(element instanceof EventTarget ? chain(element, opts) : element,...args),...otherArgs), opts);
+						}*/
+						return (callback,...otherArgs) => {
+							return chain([...target][prop]((...args) => callback(...args),...otherArgs), opts);
+						}
+					}
+					/* otherwise, if in Array.prototype */
+					else if (prop in Array.prototype) {
+						return (...args) => {
+							return chain([...target][prop](...args), opts);
+						}
+					}
 				}
 			}
 			if (!(prop in target))  return undefined;
@@ -275,6 +306,6 @@
 	global.n = n;
 	global.toHtml = toHtml;
 	global.html = html;
-	global.q = str => chain(typeof(str)=='string' ? document.querySelector(str) : str);
-	global.qa = str => chain(typeof(str)=='string' ? document.querySelectorAll(str) : str);
+	global.q = str => chain(typeof(str)=='string' ? document.querySelector(str) : str?.jquery ? str[0] : str);
+	global.qa = str => chain(typeof(str)=='string' ? document.querySelectorAll(str) : str?.jquery ? q(str.toArray()) : str);
 })(window || global);
