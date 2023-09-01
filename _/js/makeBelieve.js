@@ -30,6 +30,63 @@ function getFileTypeInfo(format) {
 	return fileExtInfo;
 }
 
+/// Cloning/duplication/etc.
+function copyTo(from, to, o = {}) {
+	o.existingOnly ??= false;
+	let objs = new Map();
+	let _copyTo = (from,to) =>{
+		objs.set(from,to);
+		for (let [k,v] of Object.entries(from)) {
+			if (o.existingOnly && !(k in to))  continue;
+			/// Never duplicate HTML elements
+			if ((typeof(v)!='object' || v==null) || v instanceof HTMLElement) {
+				to[k] = v;
+			}
+			else {
+				if (objs.has(v)) {
+					to[k] = objs.get(v);
+				}
+				else {
+					if (typeof(to[k])!='object' || to[k]==null)  to[k] = {};
+					_copyTo(v, to[k]);
+				}
+			}
+		}
+	};
+	_copyTo(from,to);
+	return to;
+}
+/// From https://developer.mozilla.org/en-US/docs/Web/Guide/API/DOM/The_structured_clone_algorithm
+function clone(objectToBeCloned) {
+  // Basis.
+  if (!(objectToBeCloned instanceof Object)) {
+	return objectToBeCloned;
+  }
+
+  var objectClone;
+
+  // Filter out special objects.
+  var Constructor = objectToBeCloned.constructor;
+  switch (Constructor) {
+	// Implement other special objects here.
+	case RegExp:
+	  objectClone = new Constructor(objectToBeCloned);
+	  break;
+	case Date:
+	  objectClone = new Constructor(objectToBeCloned.getTime());
+	  break;
+	default:
+	  objectClone = new Constructor();
+  }
+
+  // Clone each property.
+  for (var prop in objectToBeCloned) {
+	objectClone[prop] = clone(objectToBeCloned[prop]);
+  }
+
+  return objectClone;
+}
+
 if (typeof($)=="undefined") {
 	/// XXX Quick hack to suppress ordinary console.logs in the API
 	/// XXX Fix by actually removing unnecessary console.log statements!
@@ -206,36 +263,6 @@ function baseName(fileName) {
 	}
 	return null;
 }
-/// From https://developer.mozilla.org/en-US/docs/Web/Guide/API/DOM/The_structured_clone_algorithm
-function clone(objectToBeCloned) {
-  // Basis.
-  if (!(objectToBeCloned instanceof Object)) {
-	return objectToBeCloned;
-  }
-
-  var objectClone;
-
-  // Filter out special objects.
-  var Constructor = objectToBeCloned.constructor;
-  switch (Constructor) {
-	// Implement other special objects here.
-	case RegExp:
-	  objectClone = new Constructor(objectToBeCloned);
-	  break;
-	case Date:
-	  objectClone = new Constructor(objectToBeCloned.getTime());
-	  break;
-	default:
-	  objectClone = new Constructor();
-  }
-
-  // Clone each property.
-  for (var prop in objectToBeCloned) {
-	objectClone[prop] = clone(objectToBeCloned[prop]);
-  }
-
-  return objectClone;
-}
 
 /// Create a new JS array of the given |size|, with all entries set to the |initial| value
 function newArray(size, initial) {
@@ -292,31 +319,31 @@ function makeValidId(str) {
    future, once I add support for ordinal nodes in some way. Other elements may
    also be added to state in future (like, for example, values and intervals).
 **/
-function State(o) {
-	/// The state's ID (as per GeNIe)
-	this.id = null;
-	/// An optional label for the state
-	this.label = null;
-	/// The state's index in the node state list
-	this.index = null;
-	/// An optional value for the state
-	this.value = null;
-	/// An optional minimum/maximum, if this state specifies a range
-	this.minimum = null;
-	this.maximum = null;
+var State = class {
+	constructor(o = {}) {
+		/// The state's ID (as per GeNIe)
+		this.id = null;
+		/// An optional label for the state
+		this.label = null;
+		/// The state's index in the node state list
+		this.index = null;
+		/// An optional value for the state
+		this.value = null;
+		/// An optional minimum/maximum, if this state specifies a range
+		this.minimum = null;
+		this.maximum = null;
 
-	/// Set options based on constructor args
-	for (var i in o) {
-		this[i] = o[i];
+		/// Set options based on constructor args
+		for (var i in o) {
+			this[i] = o[i];
+		}
+		addDefaultSetters(this);
+		addObjectLinks(this);
 	}
-	addDefaultSetters(this);
-	addObjectLinks(this);
 }
 
-/// You would not normally create this object directly.
-function DisplayItem(o) {
-	o = o || {};
-
+/// DisplayItem MIXIN
+function DisplayItem(o = {}) {
 	this.pos = {x: 0, y: 0};
 	this.size = {width: null, height: null};
 	/// Formatting (all at their defaults)
@@ -343,11 +370,13 @@ DisplayItem.prototype = {
 		this.pos.x = x;
 		this.pos.y = y;
 	},
+	
 	isGraphItem() {
 		/// XXX Not sure this is best way to detect whether we're working with
 		/// a graph item.
 		return Boolean(this.parents || this.subNodes);
 	},
+	
 	/// This only works for graph items
 	/// This will remove path entries in *other* items only (not this item)
 	cleanPathsInOut() {
@@ -360,6 +389,7 @@ DisplayItem.prototype = {
 			pathOut.childItem.pathsIn.splice(i,1);
 		}
 	},
+	
 	removePathRefs(item) {
 		/// Can't be in/out multiple times.
 		for (let itemListType of ['pathsIn','pathsOut']) {
@@ -370,136 +400,129 @@ DisplayItem.prototype = {
 	},
 };
 
-/// Adds mix-in AND updates prototype if needed
-function addMixin(o, mixin, ...args) {
-	mixin.apply(o, args);
-	if (!o.__mixins)  o.__mixins = new Set();
-
-	if (!o.__mixins.has(mixin)) {
-		/// Using name in lieu of the function, because it's less problematic
-		/// for cloning, etc.
-		o.__mixins.add(mixin.name);
-		let proto = Object.getPrototypeOf(o);
-		Object.assign(Object.getPrototypeOf(o), mixin.prototype);
-		/*for (let k in mixin.prototype) {
-			if (!(k in proto)) {
-				proto[k] = mixin.prototype[k];
-			}
-		}*/
-	}
+/// Adds mix-in to a classObj/constructor AND updates prototype
+function addMixin(classObj, mixin) {
+	Object.assign(classObj.prototype, mixin.prototype);
+	return (thisObj, ...args) => mixin.apply(thisObj, args);
 }
 
 /** To create a node, call new Node({opt1:...,opt2:...}) **/
-function Node(o) {
-	o = o || {};
+var Node = class {
+	static DisplayItem = addMixin(this, DisplayItem);
+	constructor(o = {}) {
+		/*
+			Member vars and their defaults
+		*/
+		this._type = "Node";
+		/// Every node receives a unique key (that should not be altered by
+		/// the user, lest they want things to go awry!)
+		Object.defineProperty(this, '_key', {value: genPass(10)});
+		/// The net to which the node belongs
+		this.net = null;
+		/// The node's ID (as per GeNIe)
+		this.id = null;
+		/// The node's label (equivalent to Netica's 'title', or GeNIe's 'name')
+		this.label = null;
+		/// Type of node: nature, decision, utility
+		this.type = "nature";
+		this.stateSpace = {
+			/// The type of the state space: categorical, ordered, point, interval or continuous
+			/// The first 4 are discrete, the last continuous (of course)
+			type: "categorical",
+			/// For continuous nodes, whether we also have a discretized set of states
+			discretized: false,
+			/// If discretized continuous, is the discretization just for children
+			forChildrenOnly: false,
+		};
+		/// A list of states (state objects {id: _, index: _}) XXX
+		this.states = [];
+		/// A map of state ids -> position in states array
+		this.statesById = {};
+		/// Pointers to the parents of this node
+		this.parents = [];
+		/// Cache of parent state values
+		this.parentStates = [];
+		/// Pointers to the children of this node
+		this.children = [];
+		/// The def defines (appropriately enough) how this node interacts
+		/// with the rest of the network, and to some extent the user.
+		this.def = null;
+		/// The values (potentially utilities) associated with this node's states (TO REMOVE)
+		this.values = [];
+		/// The current beliefs for this node (net must have been updated separately)
+		this.beliefs = null;
+		/// 'counts' (per state) and 'seen' (for the whole node) are generated
+		/// during simulation belief update. A little bit
+		/// like 'experience' in Netica, but not really.
+		this.counts = null;
+		this.seen = 0;
+		/// 'samples' are for continuous nodes, and are a list of all the samples
+		/// created for this node.
+		/// Coupled with the samples, are the sample weights, which is the weight
+		/// of the case in which the sample was generated
+		this.samples = [];
+		this.sampleWeights = [];
+		/// In a DBN, the time-dependent version of the CPT/funcTable (e.g. t=0, t=1, etc. within a CPT in GeNIe)
+		this.dbnOrder = 0;
+		/// In a DBN, what temporal step this node falls into
+		this.slice = 0;
+		/// Whether this node is a dynamic node
+		this.dynamic = false;
+		/// Parents of nodes in slices t>0. Each parent should be specified as [<parent>,<order>]
+		this.dynamicParents = [];
+		/// Whether this node should be visible to the engine only, and not the user
+		this.engineOnly = false;
+		/// The path (left-to-right array) through the submodels to this node. An empty array means the node
+		/// is in the root model.
+		this.submodelPath = [];
+		/// A comment or description describing or documenting the node
+		this.comment = "";
+		
+		/// Does the display need updating?
+		this._updateDisplay = false;
 
-	/*
-		Member vars and their defaults
-	*/
-	this._type = "Node";
-	/// Every node receives a unique key (that should not be altered by
-	/// the user, lest they want things to go awry!)
-	Object.defineProperty(this, '_key', {value: genPass(10)});
-	/// The net to which the node belongs
-	this.net = null;
-	/// The node's ID (as per GeNIe)
-	this.id = null;
-	/// The node's label (equivalent to Netica's 'title', or GeNIe's 'name')
-	this.label = null;
-	/// Type of node: nature, decision, utility
-	this.type = "nature";
-	this.stateSpace = {
-		/// The type of the state space: categorical, ordered, point, interval or continuous
-		/// The first 4 are discrete, the last continuous (of course)
-		type: "categorical",
-		/// For continuous nodes, whether we also have a discretized set of states
-		discretized: false,
-		/// If discretized continuous, is the discretization just for children
-		forChildrenOnly: false,
-	};
-	/// A list of states (state objects {id: _, index: _}) XXX
-	this.states = [];
-	/// A map of state ids -> position in states array
-	this.statesById = {};
-	/// Pointers to the parents of this node
-	this.parents = [];
-	/// Cache of parent state values
-	this.parentStates = [];
-	/// Pointers to the children of this node
-	this.children = [];
-	/// The def defines (appropriately enough) how this node interacts
-	/// with the rest of the network, and to some extent the user.
-	this.def = null;
-	/// The values (potentially utilities) associated with this node's states (TO REMOVE)
-	this.values = [];
-	/// The current beliefs for this node (net must have been updated separately)
-	this.beliefs = null;
-	/// 'counts' (per state) and 'seen' (for the whole node) are generated
-	/// during simulation belief update. A little bit
-	/// like 'experience' in Netica, but not really.
-	this.counts = null;
-	this.seen = 0;
-	/// 'samples' are for continuous nodes, and are a list of all the samples
-	/// created for this node.
-	/// Coupled with the samples, are the sample weights, which is the weight
-	/// of the case in which the sample was generated
-	this.samples = [];
-	this.sampleWeights = [];
-	/// In a DBN, the time-dependent version of the CPT/funcTable (e.g. t=0, t=1, etc. within a CPT in GeNIe)
-	this.dbnOrder = 0;
-	/// In a DBN, what temporal step this node falls into
-	this.slice = 0;
-	/// Whether this node is a dynamic node
-	this.dynamic = false;
-	/// Parents of nodes in slices t>0. Each parent should be specified as [<parent>,<order>]
-	this.dynamicParents = [];
-	/// Whether this node should be visible to the engine only, and not the user
-	this.engineOnly = false;
-	/// The path (left-to-right array) through the submodels to this node. An empty array means the node
-	/// is in the root model.
-	this.submodelPath = [];
-	/// A comment or description describing or documenting the node
-	this.comment = "";
+		/// For arc drawing/updating
+		this.pathsIn = [];
+		this.pathsOut = [];
+
+		/// Visual properties
+		this.constructor.DisplayItem(this, {size: {width: 110, height: 50}});
+
+		/// Set options based on constructor args
+		Object.assign(this, o);
+		/// These specific properties are copied, everything else has its pointer saved
+		this.parents = this.parents.slice();
+		this.children = this.children.slice();
+		this.submodelPath = this.submodelPath.slice();
+		/// These are more convenient ways of setting the definitions
+		if (this.cpt) {
+			this.def = new CPT(this, this.cpt);
+			delete this.cpt;
+		}
+		else if (this.cdt || this.funcTable) {
+			this.def = new CDT(this, this.cdt || this.funcTable);
+			delete this.cdt;
+			delete this.funcTable;
+		}
+		else if (this.equation || this.funcText) {
+			this.def = new Equation(this, this.equation || this.funcText);
+			delete this.equation;
+			delete this.funcText;
+		}
+		/// This could be expensive in some marginal cases
+		else if (this.def) {
+			this.def = this.def.duplicate({node: this});
+		}
+
+		addDefaultSetters(this);
+		addObjectLinks(this);
+		// if (!o.__noinit && new.target)  this.init({addToCanvas: o.addToCanvas, submodelPath: o.submodelPath});
+		if (!o.__noinit)  this.init({addToCanvas: o.addToCanvas, submodelPath: o.submodelPath});
+	}
 	
-	/// Does the display need updating?
-	this._updateDisplay = false;
-
-	/// For arc drawing/updating
-	this.pathsIn = [];
-	this.pathsOut = [];
-
-	/// Visual properties
-	addMixin(this, DisplayItem, {size: {width: 110, height: 50}});
-
-	/// Set options based on constructor args
-	Object.assign(this, o);
-	/// These specific properties are copied, everything else has its pointer saved
-	this.parents = this.parents.slice();
-	this.children = this.children.slice();
-	this.submodelPath = this.submodelPath.slice();
-	/// These are more convenient ways of setting the definitions
-	if (this.cpt) {
-		this.def = new CPT(this, this.cpt);
-		delete this.cpt;
-	}
-	else if (this.cdt || this.funcTable) {
-		this.def = new CDT(this, this.cdt || this.funcTable);
-		delete this.cdt;
-		delete this.funcTable;
-	}
-	else if (this.equation || this.funcText) {
-		this.def = new Equation(this, this.equation || this.funcText);
-		delete this.equation;
-		delete this.funcText;
-	}
-	/// This could be expensive in some marginal cases
-	else if (this.def) {
-		this.def = this.def.duplicate({node: this});
-	}
-
-	addDefaultSetters(this);
-	addObjectLinks(this);
-	if (!o.__noinit && new.target)  this.init({addToCanvas: o.addToCanvas, submodelPath: o.submodelPath});
+	get state() {
+		return this.statesById;
+	}	
 }
 Node.__fieldCopyTypes = {parents: 'shallow', children: 'shallow', submodelPath: 'deep'};
 /// Use this if the node hasn't been set up yet. Otherwise,
@@ -644,7 +667,7 @@ Node.makeNodeFromXdslEl = function (el, $xdsl, opts) {
 
 	return node;
 }
-Node.prototype = {
+Object.assign(Node.prototype, {
 	/// Most of this function involves introducing the new Node to the rest
 	/// of the world
 	init: function(o) {
@@ -784,43 +807,53 @@ Node.prototype = {
 		}
 	},
 
-	get state() {
-		return this.statesById;
-	},
-	
 	/// The domain is the set of variables involved in the node's local
 	/// relationship. i.e. The node and its parents.
 	getDomain() {
 		return [this.id, ...this.parents.map(p=>p.id)];
 	},
-	/* Rewrite, remove recursion for desc/anc */
-	getDescendants(o = {}, visited = new Map()) {
+	/* Rewrite, remove recursion for desc/anc
+	dir = 0: parents/children, 1: parents, 2: children
+	
+	I have no idea why I implemented circleVisited...
+	*/
+	getNeighbors(o = {}, dir = 0, visited = new Map(), circleVisited = new Set()) {
 		o.stopIf ??= _=>false;
+		o.stopAfter ??= _=>false;
 		o.arcs ??= false;
-		o.blockOnEvidence ??= false;
+		o.blockOn ??= false;
+		o.dropBlockedPath ??= true;
 		let imBlocked = false;
 		let descendants = [];
-		if (o.blockOnEvidence && this.hasEvidence()) {
-			imBlocked = true;
-		}
+		if (circleVisited)  circleVisited.add(this);
+		if (o.blockOn && o.blockOn(this)) { imBlocked = true; }
 		else {
-			let filteredChildren = this.children.filter(c => !o.stopIf(c) && !visited.has(c));
-			descendants = !o.arcs ? filteredChildren.slice() : this.children.map(c => `${this.id}-${c.id}`);
-			let descBlocked = true;
-			for (let child of filteredChildren) {
-				let desc = child.getDescendants(o, visited);
-				descBlocked &&= desc.blocked;
-				if (desc.blocked)  descendants.splice(descendants.indexOf(o.arcs ? `${this.id}-${child.id}` : child),1);
-				else               descendants.push(...desc);
+			if (!o.stopAfter(this)) {
+				let arcDir = (a,b) => a.isParent(b) ? `${a.id}-${b.id}` : `${b.id}-${a.id}`;
+				let neighbors = dir == 0 ? this.parents.concat(this.children) : dir == 1 ? this.parents : this.children;
+				let filteredChildren = neighbors.filter(c => !o.stopIf(c) && !visited.has(c) && (!circleVisited || !circleVisited.has(c)));
+				descendants = !o.arcs ? filteredChildren.slice() : neighbors.map(c => arcDir(this,c));
+				for (let child of filteredChildren) {
+					descendants.push(...child.getNeighbors(o, dir, visited, circleVisited ? new Set(circleVisited) : null));
+					if (o.dropBlockedPath && visited.get(child).blocked)  descendants.splice(descendants.indexOf(o.arcs ? arcDir(this,child) : child), 1);
+				}
+				if (o.blockOn) {
+					let toVisitChildren = neighbors.filter(c=>!o.stopIf(c) && (!circleVisited || !circleVisited.has(c)));
+					imBlocked = toVisitChildren.length && toVisitChildren.reduce((a,c)=>a&&visited.get(c).blocked, true);
+				}
 			}
-			let toVisitChildren = this.children.filter(c=>!o.stopIf(c));
-			imBlocked = toVisitChildren.length && toVisitChildren.reduce((a,c)=>a&&visited.get(c).blocked, true);
 		}
 		visited.set(this, {blocked: imBlocked});
 		if (imBlocked)  return Object.assign([], {blocked:true});
 		return [...new Set(descendants)];
 	},
-	getAncestors(o = {}, visited = new Set()) {
+	getDescendants(o = {}) {
+		return this.getNeighbors(o, 2, new Map(), null);
+	},
+	getAncestors(o = {}) {
+		return this.getNeighbors(o, 1, new Map(), null);
+	},
+	/*getAncestors(o = {}, visited = new Set()) {
 		o.stopIf ??= _=>false;
 		o.arcs ??= false;
 		o.blockOnEvidence ??= false;
@@ -831,7 +864,7 @@ Node.prototype = {
 			ancestors.push(...parent.getAncestors(o, visited));
 		}
 		return [...new Set(ancestors)];
-	},
+	},*/
 	wouldBeCycleIfParent(parent) {
 		if (this == parent)  return true;
 		/// XXX Rewrite for better perf
@@ -923,9 +956,9 @@ Node.prototype = {
 	/// FIX: Not node specific, move to net
 	getDirected(allNodes, o = {}) {
 		o.arcs ??= false;
-		o.blockOnEvidence ??= false;
+		o.blockOn ??= false;
 		
-		let nextO = {arcs: o.arcs, blockOnEvidence: o.blockOnEvidence};
+		let nextO = {arcs: o.arcs, blockOn: o.blockOn};
 		let foundNodes = new Set();
 		for (let i=0; i<allNodes.length; i++) {
 			for (let j=0; j<allNodes.length; j++) {
@@ -935,7 +968,7 @@ Node.prototype = {
 					foundNodes = foundNodes.union(nodes);
 				}
 				else {
-					let arcs = new Set(allNodes[i].getDescendants(nextO)).intersection(allNodes[j].getAncestors(nextO));
+					let arcs = new Set(allNodes[i].getDescendants({...nextO,stopAfter:n=>n==allNodes[j]})).intersection(allNodes[j].getAncestors({...nextO,stopAfter:n=>n==allNodes[i]}));
 					foundNodes = foundNodes.union(arcs);
 				}
 			}
@@ -952,7 +985,7 @@ Node.prototype = {
 			let cause = allNodes[1].hasAncestor(allNodes[0]) ? allNodes[0] : allNodes[0].hasAncestor(allNodes[1]) ? allNodes[1] : allNodes[0];
 			let effect = allNodes[0]== cause ? allNodes[1] : allNodes[0];
 			let dc = new Set(this.net.findAllDConnectedNodes4(cause, effect, {arcs:true, ...o}));
-			let directed = this.getDirected(allNodes, {arcs:true});
+			let directed = this.getDirected(allNodes, {arcs:true,blockOn:n=>n.hasEvidence()});
 			let indirect = dc.difference(directed);
 			let onPathNodes = new Set();
 			let directedNodes = new Set(arcsToPaths([...directed]).flat());
@@ -961,7 +994,7 @@ Node.prototype = {
 				if (node==effect)  continue;
 				for (let neighbor of node.children.concat(node.parents)) {
 					if (!allNodes.includes(neighbor) && indirectNodes.has(neighbor)) {
-						onPathNodes = onPathNodes.union(this.getDirected([node, cause],{arcs:true}));
+						onPathNodes = onPathNodes.union(this.getDirected([node, cause],{arcs:true,blockOn:n=>n.hasEvidence()}));
 					}
 				}
 			}
@@ -1668,7 +1701,7 @@ Node.prototype = {
 		/// there's no ref. to this node from the net, only a ref to the net from this node)
 		var propsToDuplicate = {label:1,parents:1,children:1,def:1,values:1,
 			dbnOrder:1,dynamic:1,dynamicParents:1,engineOnly:1,comment:1,format:1,type:1,
-			states:1,/*statesById:1,*/submodelPath:1,net:1,pos:1,size:1};
+			states:1,/*statesById:1,*/submodelPath:1,/*net:1,*/pos:1,size:1};
 		//var propsToDuplicate = {parents:1,cpt:1};
 		for (var i in this) {
 			if (i in propsToDuplicate) {
@@ -1715,6 +1748,7 @@ Node.prototype = {
 				}
 			}
 		}
+		node.net = this.net;
 		if (extraProps) {
 			for (var i in extraProps) {
 				node[i] = extraProps[i];
@@ -1930,33 +1964,32 @@ Node.prototype = {
 	hasEvidence() {
 		return this.id in this.net.evidence;
 	},
-};
+});
 
-function TextBox(o) {
-	o = o || {};
+var TextBox = class {
+	static DisplayItem = addMixin(this, DisplayItem);
+	constructor(o = {}) {
+		this._type = "TextBox";
 
-	this._type = "TextBox";
+		/// Defaults
+		this.id = genPass(10);
+		this.submodelPath = [];
 
-	/// Defaults
-	this.id = genPass(10);
-	this.submodelPath = [];
+		/// Visual properties
+		this.constructor.DisplayItem(this);
+		this.pos = {x: 0, y: 0};
 
-	/// Visual properties
-	addMixin(this, DisplayItem);
-	this.pos = {x: 0, y: 0};
+		this.text = '';
 
-	this.text = '';
+		/// Set options based on constructor args
+		Object.assign(this, o);
 
-	/// Set options based on constructor args
-	for (var i in o) {
-		this[i] = o[i];
+		this.init(o);
+		addDefaultSetters(this);
+		addObjectLinks(this);
 	}
-
-	this.init(o);
-	addDefaultSetters(this);
-	addObjectLinks(this);
 }
-TextBox.prototype = {
+Object.assign(TextBox.prototype, {
 	init: function(o) {
 		o = o || {};
 
@@ -2033,33 +2066,34 @@ TextBox.prototype = {
 		this.id = makeValidId(nId);
 	},
 	renameToUnique: Node.prototype.renameToUnique,
-};
+});
 
-function ImageBox(o) {
-	o = o || {};
+var ImageBox = class {
+	static DisplayItem = addMixin(this, DisplayItem);
+	constructor(o = {}) {
+		this._type = "ImageBox";
 
-	this._type = "ImageBox";
+		/// Defaults
+		this.id = genPass(10);
+		this.submodelPath = [];
 
-	/// Defaults
-	this.id = genPass(10);
-	this.submodelPath = [];
+		/// Visual properties
+		this.constructor.DisplayItem(this);
+		this.pos = {x: 0, y: 0};
 
-	/// Visual properties
-	addMixin(this, DisplayItem);
-	this.pos = {x: 0, y: 0};
+		this.imageUrl = '';
 
-	this.imageUrl = '';
+		/// Set options based on constructor args
+		for (var i in o) {
+			this[i] = o[i];
+		}
 
-	/// Set options based on constructor args
-	for (var i in o) {
-		this[i] = o[i];
+		this.init(o);
+		addDefaultSetters(this);
 	}
-
-	this.init(o);
-	addDefaultSetters(this);
 }
 /// Almost all the methods are the same as TextBox. Need to refactor
-ImageBox.prototype = Object.assign({}, TextBox.prototype, {
+Object.assign(ImageBox.prototype, TextBox.prototype, {
 	init: function(o) {
 		o = o || {};
 
@@ -2077,35 +2111,41 @@ ImageBox.prototype = Object.assign({}, TextBox.prototype, {
 	},
 });
 
-function Submodel(o) {
-	o = o || {};
+var Submodel = class {
+	static DisplayItem = addMixin(this, DisplayItem);
+	constructor(o = {}) {
+		this._type = "Submodel";
 
-	this._type = "Submodel";
+		/// Defaults
+		this.id = null;
+		this.submodelPath = [];
+		this.subNodes = [];
+		this.submodelsById = {};
+		this.subItems = []; /// Any other items
+		this.comment = "";
 
-	/// Defaults
-	this.id = null;
-	this.submodelPath = [];
-	this.subNodes = [];
-	this.submodelsById = {};
-	this.subItems = []; /// Any other items
-	this.comment = "";
+		/// Visual properties
+		this.constructor.DisplayItem(this);
+		/// For arc drawing/updating
+		this.pathsIn = [];
+		this.pathsOut = [];
 
-	/// Visual properties
-	addMixin(this, DisplayItem);
-	/// For arc drawing/updating
-	this.pathsIn = [];
-	this.pathsOut = [];
-
-	/// Set options based on constructor args
-	Object.assign(this, o);
-
-	/// XXX: Implement addToCanvas
-	if (!o.__noinit && new.target)  this.init({addToCanvas: o.addToCanvas});
+		/// Set options based on constructor args
+		if (o instanceof Submodel) {
+			this.duplicateFrom(o);
+		}
+		else {
+			Object.assign(this, o);
+			
+			/// XXX: Implement addToCanvas
+			/// XXX: I can't recall what new.target was for
+			// if (!o.__noinit && new.target)  this.init({addToCanvas: o.addToCanvas});
+			if (!o.__noinit)  this.init({addToCanvas: o.addToCanvas});
+		}
+	}
 }
-Submodel.prototype = {
-	init: function(o) {
-		o = o || {};
-
+Object.assign(Submodel.prototype, {
+	init(o = {}) {
 		if (this.net) {
 			if (!this.id) {
 				var i = 0;
@@ -2117,7 +2157,8 @@ Submodel.prototype = {
 			this.net.submodelsById[this.id] = this;
 			/// Add to parent submodel
 			if (this.submodelPath.length) {
-				this.net.getSubmodel(this.submodelPath).submodelsById[this.id] = this;
+				//this.net.getSubmodel(this.submodelPath).submodelsById[this.id] = this;
+				this.moveToSubmodel(this.submodelPath);
 			}
 		}
 
@@ -2125,33 +2166,31 @@ Submodel.prototype = {
 			this.id = genPass(10);
 		}
 	},
-	duplicate(extraProps = {},) {
-		theClass = this instanceof BN ? BN : Submodel;
-		let newSubmodel = new theClass();
+	duplicate(extraProps = {}) {
+		let obj = new this.constructor();
+		obj.duplicateFrom(this, extraProps);
+		return obj;
+	},
+	duplicateFrom(obj, extraProps = {}) {
+		let newSubmodel = this;
 
-		Object.assign(newSubmodel, this, {
-			id: genPass(10),
-			net: null,
-			size: clone(this.size),
-			pos: clone(this.pos),
-			format: clone(this.format),
-		}, pick(extraProps, ...Object.keys(this)));
+		Object.assign(newSubmodel, {
+				id: genPass(10),
+				net: null,
+			}, /// New
+			clone(pick(obj, 'size', 'pos', 'format', 'submodelPath')), /// Clone
+			pick(obj, 'comment'),  /// Copy
+			pick(extraProps, ...Object.keys(obj))); /// Extra
 
 		if (!extraProps.addToNet) {
 			/// Retain id, if we're not adding back into this net
-			newSubmodel.id = this.id;
+			newSubmodel.id = obj.id;
 		}
-
-		newSubmodel.submodelsById = {};
-		newSubmodel.subNodes = [];
-		newSubmodel.subItems = [];
-		newSubmodel.pathsIn = [];
-		newSubmodel.pathsOut = [];
 
 		/// Duplicate all the directly contained items (which may include submodels)
 		let newItems = [];
-		for (let item of this.getItems()) {
-			let newItem = item.duplicate({submodelPath: [...this.submodelPath, newSubmodel.id], notFinal: true, ...pick(extraProps,['addToNet'])});
+		for (let item of obj.getItems()) {
+			let newItem = item.duplicate({submodelPath: [...obj.submodelPath, newSubmodel.id], notFinal: true, ...pick(extraProps,['addToNet'])});
 			if (newItem instanceof Submodel) {
 				newSubmodel.submodelsById[newItem.id] = newItem;
 			}
@@ -2169,7 +2208,7 @@ Submodel.prototype = {
 		if (!extraProps.notFinal) {
 			/// Get all items from the *original* hierarchy (for checking)
 			let newItems = newSubmodel.getAllItems();
-			let originalItems = this.getAllItems();
+			let originalItems = obj.getAllItems();
 		
 			for (let item of newItems) {
 				if (item.children) {
@@ -2200,7 +2239,7 @@ Submodel.prototype = {
 
 
 		if (extraProps.addToNet) {
-			this.net.addSubmodel(newSubmodel);
+			obj.net.addSubmodel(newSubmodel);
 		}
 
 		return newSubmodel;		
@@ -2424,64 +2463,74 @@ Submodel.prototype = {
 		let index = this.subNodes.findIndex(n => n.id == node.id);
 		if (index != -1)  this.subNodes.splice(index, 1);
 	},
-};
+});
 
 /// An index for naming new BNs
 var __newBnIndex = 1;
 
 /// A BN is also a submodel (of course...)
-function BN(o) {
-	console.log("BNINDEX", __newBnIndex);
-	o = o || {};
-	/// This implements the 'submodel' interface ({id/node/submodels/pos/size})
-	Submodel.apply(this);
+var BN = class extends Submodel {
+	constructor(o = {}) {
+		console.log("BNINDEX", __newBnIndex);
+		/// This implements the 'submodel' interface ({id/node/submodels/pos/size})
+		//Submodel.apply(this);
+		super(Object.assign({},o,{__noinit:true}));
 
-	/// Format is either 1) specified, 2) given in the file name, or 3) assumed to be an xdsl
-	o.format = o.format ?? (o.fileName ? getFileType(o.fileName) : null) ?? "xdsl";
+		/// Format is either 1) specified, 2) given in the file name, or 3) assumed to be an xdsl
+		o.format = o.format ?? (o.fileName ? getFileType(o.fileName) : null) ?? "xdsl";
 
-	this.fileName = o.fileName || null;
-	this.source = o.source;
-	this.sourceFormat = o.format;
+		this.fileName = o.fileName || null;
+		this.source = o.source;
+		this.sourceFormat = o.format;
 
-	/// Use worker threads to do belief updating?
-	this.updateMethod = mbConfig.updateMethod;
-	this.useWorkers = mbConfig.useWorkers;
-	this._workers = [];
-	this.numWorkers = mbConfig.numWorkers;
+		/// Use worker threads to do belief updating?
+		this.updateMethod = mbConfig.updateMethod;
+		this.useWorkers = mbConfig.useWorkers;
+		this._workers = [];
+		this.numWorkers = mbConfig.numWorkers;
 
-	this.evidence = {};
-	/// This is just saved sets of evidence (or saved scenarios)
-	this.evidenceSets = [];
+		this.evidence = {};
+		/// This is just saved sets of evidence (or saved scenarios)
+		this.evidenceSets = [];
 
-	this.selected = new Set();
+		this.selected = new Set();
 
-	/// Does the cache information need updating?
-	this.needsCompile = false;
-	/// (To update the net, call the modification functions
-	/// (once they're all written!) or change this.objs and then set this.needsCompile.)
-	this.nodes = [];
-	this.nodesById = {};
-	this.basicItems = [];
+		/// Does the cache information need updating?
+		this.needsCompile = false;
+		/// (To update the net, call the modification functions
+		/// (once they're all written!) or change this.objs and then set this.needsCompile.)
+		this.nodes = [];
+		this.nodesById = {};
+		this.basicItems = [];
 
-	/// Various cached information
-	this._utilityNodes = [];
-	this._decisionNodes = [];
-	this._rootNodes = [];
-	this._nodeOrdering = [];
+		/// Various cached information
+		this._utilityNodes = [];
+		this._decisionNodes = [];
+		this._rootNodes = [];
+		this._nodeOrdering = [];
 
-	/// GUI-oriented properties
-	this.outputEl = null;
+		/// GUI-oriented properties
+		this.outputEl = null;
 
-	this.currentSubmodel = []; //["Orchard","Tree"];
+		this.currentSubmodel = []; //["Orchard","Tree"];
 
-	this.getRowIInts = new Int32Array(new ArrayBuffer(2*4));
+		this.getRowIInts = new Int32Array(new ArrayBuffer(2*4));
 
-	this._trackingArcInfluences = false;
+		this._trackingArcInfluences = false;
 
-	//if (!o.__noinit && new.target)  this.init(o);
-	if (!o.__noinit)  this.init(o);
-	addDefaultSetters(this);
-	addObjectLinks(this);
+		//if (!o.__noinit && new.target)  this.init(o);
+		if (!o.__noinit)  this.init(o);
+		addDefaultSetters(this);
+		addObjectLinks(this);
+	}
+	
+	get node() {
+		return this.nodesById;
+	}
+	
+	get submodel() {
+		return this.submodelsById;
+	}
 }
 /**
 The arguments can be: a single string id, a single item object (e.g. Node, Submodel, etc.),
@@ -2552,10 +2601,8 @@ BN.sortItems = function(items, sortType) {
 	}
 	return sortedItems;
 }
-BN.prototype = {
-	init: function(o) {
-		o = o || {};
-
+Object.assign(BN.prototype, {
+	init: function(o = {}) {
 		this.iterations = BN.defaultIterations;
 		this.timeLimit = null;
 		this.updateViewer = true;
@@ -3797,12 +3844,6 @@ ${nodesStr}
 		return bn;
 	},
 	/// Slightly shorter names, slightly more consistent with bni
-	get node() {
-		return this.nodesById;
-	},
-	get submodel() {
-		return this.submodelsById;
-	},
 	/*find(id) {
 		if (!id)  return null;
 		if (id == "..") {
@@ -5908,7 +5949,7 @@ ${nodesStr}
 		/// BNs are also submodels
 		Submodel.prototype.removeNodeRefs.call(this, node);
 	},
-};
+});
 addDefaultSetters(BN);
 addDefaultSetters(Node);
 addDefaultSetters(State);

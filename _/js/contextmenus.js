@@ -1,28 +1,24 @@
-class TextContextMenu {
+class DisplayItemContextMenu {
 	constructor(textBox) {
 		this.textBox = textBox;
-		
-		addObjectLinks(this);
-		this.textShadow = addObjectLinks({});
-		this.bindObject(this.textShadow, 'out-only');
-		this.bindObject(this.textBox, 'in-only');
+		this.events = new ListenerGroup();
+		this.events.add(this.textBox, 'update', msg => this.updateView(msg));
 	}
 	
 	close() {
-		this.unbindObject(this.textShadow);
-		this.unbindObject(this.textBox);
+		this.events.remove();
+		this.rootEl?.remove?.();
 	}
 	
 	make() {
-		this.menu = n('div.contextMenu.textMenu.dialog',
-		);
+		this.rootEl = n('div.contextMenu.textMenu.dialog');
 		
 		let options = n('div.options',
 			n('div.editControls',
 				n('button.delete', 'Delete', {on: {click: event => {
 					/// Actually, I need to do this as a message
 					this.textBox.guiDelete();
-					this.menu.remove();
+					this.rootEl.remove();
 				}}}),
 			),
 			n('div.fields',
@@ -48,6 +44,7 @@ class TextContextMenu {
 					n('option', 'Verdana'),
 				)),
 				n('div.field', n('label', 'Font Size:'), n('input', {type:'text', name:'fontSize', dataObject: 'format'})),
+				n('div.field', n('label', 'Padding:'), n('input', {type:'text', name:'padding', dataObject: 'format'})),
 			),
 		);
 		
@@ -56,31 +53,133 @@ class TextContextMenu {
 			{id: 'format', label: 'Format', content: format},
 		]).$tabs[0];
 
-		this.menu.append(
+		this.rootEl.append(
 			tabs,
 			n('div.controls',
 				n('button', {name: 'pin'}, 'Pin'),
-				n('button', {name: 'save'}, 'Save'),
+				n('button', {name: 'save', on_click:_=>this.save()}, 'Save'),
 			),
 		);
 	}
 	
+	updateView(m) {
+		if (m.size?.width!==undefined) {
+			q(this.rootEl).q('[name=width]').set({value: m.size.width});
+		}
+		if (m.size?.height!==undefined) {
+			q(this.rootEl).q('[name=height]').set({value: m.size.height});
+		}
+		if (m.id!==undefined) {
+			q(this.rootEl).q('[name=id]').set({value: m.id});
+		}
+		if (m.format) {
+			for (let [k,value] of Object.entries(m.format)) {
+				q(this.rootEl).q(`[name=${k}]`)?.set?.({value});
+			}
+		}
+	}
+	
+	save(m = {}) {
+		m.size ??= {};
+		m.size.width = q(this.rootEl).q('[name=width]').value || null;
+		m.size.height = q(this.rootEl).q('[name=height]').value || null;
+		m.id = q(this.rootEl).q('[name=id]').value || null;
+		m.format = Object.fromEntries(q(this.rootEl).qa('[data-object=format]').filter(el=>el.dataset.updated=='true').map(el => [el.name,el.value]));
+		this.textBox.update(m);
+	}
+	
 	popup(o) {
 		this.make();
-		popupElement(this.menu, document.body, o.left, o.top);
+		this.updateView(this.textBox);
+		popupElement(this.rootEl, document.body, o.left, o.top);
 		if (jscolor)  jscolor.installByClassName('jscolor');
-		let clickEvent = null;
-		document.addEventListener('click', clickEvent = event => {
-			if (event.target.closest('.contextMenu') != this.menu) {
-				this.menu.remove();
+		this.eventHandlers();
+	}
+	
+	eventHandlers() {
+		this.events.add(q(this.rootEl).q('.format'), 'input change', event => {
+			event.target.dataset.updated = 'true';
+		});
+		// prevent jscolor from trying to update the input on blur
+		q(this.rootEl).q('.format').listeners.add(['blur',this.events], event => {
+			if (event.target.matches('.jscolor') && event.target.value.trim()=='') {
+				event.target.style.background = '';
+				event.stopPropagation();
+			}
+		},{capture:true});
+		
+		
+		/// Closing/Pinning
+		this.events.add(document, 'click.clickOut', event => {
+			if (event.target.closest('.contextMenu') != this.rootEl && !event.target.closest('.jscolorPicker')) {
 				this.close();
-				document.removeEventListener('click', clickEvent);
+			}
+		});
+		this.events.add(q(this.rootEl).q('button[name=pin]'), 'click', event => {
+			this.events.remove(document, 'click.clickOut');
+			event.target.replaceWith(n('button', {name:'close', on_click: _=> this.close()}, 'Close'));
+		});
+		
+		this.eventHandlers_move();
+	}
+	
+	eventHandlers_move() {
+		this.events.add(this.rootEl, 'mousedown', event => {
+			if (event.target.matches('button.active')) {
+				let origElRect = this.rootEl.getBoundingClientRect();
+				let origEvent = event;
+				this.events.add(document, 'mousemove.moving', event => {
+					let moveX = event.clientX - origEvent.clientX;
+					let moveY = event.clientY - origEvent.clientY;
+					
+					this.rootEl.style.left = (origElRect.left + moveX)+"px";
+					this.rootEl.style.top = (origElRect.top + moveY)+"px";
+				});
+				this.events.add(document, 'mouseup.moving', event => {
+					this.events.remove('.moving');
+				});
 			}
 		});
 	}
+}
+
+class TextContextMenu extends DisplayItemContextMenu {}
+
+class SubmodelContextMenu extends DisplayItemContextMenu {
+	make() {
+		super.make();
+		q(this.rootEl).q('.main .options .fields').replaceWith(n('div.fields',
+			n('div.field', n('label', 'Submodel ID:'), n('input', {type: 'text', name: 'id'})),
+			n('div.field', n('label', 'Label:'), n('input', {type: 'text', name: 'label'})),
+			// n('div.field', n('label', 'Type:'), typeSel),
+			n('div.field', n('label', 'Submodel:'), n('input', {type: 'text', name: 'submodel'})),
+			// n('div.field', n('label', 'Intervene:'), n('input', {type: 'checkbox', name: 'intervene'})),
+			n('div.field', n('label', 'Dimensions:'), n('span',
+				'W:', n('input', {type: 'text', name: 'width', class: 'width dimension'}),
+				' H:', n('input', {type: 'text', name: 'height', class: 'height dimension'}),
+			)),
+			n('div.field.wide', n('label', 'Comment:'), n('textarea', {name: 'comment'})),
+		));
+	}
 	
-	handleEvents() {
-		
+	updateView(m) {
+		super.updateView(m);
+		if (m.label!==undefined) {
+			q(this.rootEl).q('[name=label]').value = m.label;
+		}
+		if (m.comment!==undefined) {
+			q(this.rootEl).q('[name=comment]').textContent = m.comment;
+		}
+		if (m.submodelPath!==undefined) {
+			q(this.rootEl).q('[name=submodel]').value = BN.makeSubmodelPathStr(m.submodelPath);
+		}
+	}
+	
+	save(m = {}) {
+		m.label = q(this.rootEl).q('[name=label]').value;
+		m.comment = q(this.rootEl).q('[name=comment]').value;
+		m.submodelPath = BN.makeSubmodelPath(q(this.rootEl).q('[name=submodel]').value);
+		super.save(m);
 	}
 }
 
@@ -148,6 +247,7 @@ class NodeContextMenu {
 				n('div.field', n('label', 'Type:'), typeSel),
 				n('div.field', n('label', 'Submodel:'), n('input', {type: 'text', name: 'submodel'})),
 				n('div.field', n('label', 'Intervene:'), n('input', {type: 'checkbox', name: 'intervene'})),
+				n('div.field', n('label', 'Evidence:'), n('span.evidenceInput', n('select', {name: 'evidence'}))),
 				n('div.field.wide', n('label', 'Comment:'), n('textarea', {name: 'comment'})),
 			),
 		);
@@ -299,6 +399,7 @@ class NodeContextMenu {
 		let menuEl = this.menu;
 		[...menuEl.querySelectorAll('input[name], textarea[name], select[name]')].forEach(inp => inp.addEventListener('input', event => {
 			let field = event.target.getAttribute('name');
+			if (field == 'evidence')  return;
 			let objName = event.target.getAttribute('data-object');
 			console.log(objName, field);
 			let value = event.target.value;
@@ -390,7 +491,9 @@ class NodeContextMenu {
 				/// XXX: This will send the update back through this context menu (since Node -> Context)
 				/// Can generate an updateId to prevent that (which I should do eventually), but it's
 				/// useful for debugging to get immediate feedback on whether the node updated properly.
+				this.nodeShadow._menuUpdate = true;
 				this.node.updateObject(this.nodeShadow);
+				delete this.nodeShadow._menuUpdate;
 				/// Since the node is now synced:
 				/// - eliminate states changes
 				/// - eliminate old definition editors
@@ -399,6 +502,8 @@ class NodeContextMenu {
 			}
 			/// eliminate |def|, because it's shadowed separately (not necessary, but to avoid confusion)
 			delete this.nodeShadow.def;
+			
+			this.node.net.setEvidence({[this.node.id]: (v=>v=="0"?0:Number(v)||null)(q(menuEl).q('[name=evidence]').value)});
 			
 			this.node.net.notifyDefinitionsChanged();
 		});
@@ -477,8 +582,10 @@ class NodeContextMenu {
 		console.log(states, _statesChanges);
 		return {states, _statesChanges};
 	}
-		
-	handleObjectUpdate(m, updateId = null) {
+	
+	handleObjectUpdate(m, updateId = null) { this.updateView(m, updateId); }
+	
+	updateView(m, updateId = null) {
 		/// Make sure the message is consistent. Fix if not.
 		/// If the message was managed by its own class, that class would make sure the message
 		/// was consistent...
@@ -633,6 +740,13 @@ class NodeContextMenu {
 			stateList.append(n('tr.maximum',
 				n('td.blank'), n('td.blank'),n('td.blank'),n('td.minimum', {contenteditable: ''}, lastState.maximum),
 			));
+			let opts = q(menuEl).qa('[name=evidence] option').slice(1);
+			let changedStates = !m.states.reduce((a,v,i)=>a && v.id==opts[i]?.dataset.id, true);
+			if (changedStates) {
+				q(menuEl).q('[name=evidence]').set({innerHTML:''})
+					.append(n('option'))
+					.append(...m.states.map((s,i) => n('option', {value:i,dataId:s.id}, s.label || s.id)));
+			}
 		}
 		if (m.stateSpace) {
 			if (m.stateSpace.type || m.stateSpace.discretized !== undefined) {
@@ -711,6 +825,8 @@ class NodeContextMenu {
 				this.bindObject(this.definitionEditor);
 			}
 		}
+		/// Unconditionally update the evidence selector
+		if(!m._menuUpdate)  menuEl.querySelector('select[name=evidence]').value = this.node.net.evidence[this.node.id];
 		/// if (m.def) --- not handled here
 		/*/// If the definition has been updated, pass it through to the editor (but
 		/// only if it's already been setup)

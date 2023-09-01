@@ -153,8 +153,8 @@
 	.node.ds_labelStates .state:last-of-type .stateName { padding-bottom: 2px;}
 	/** Bare label view (i.e. labels and no boxes) **/
 	.node.ds_bareLabel .state { display: none; }
-	.node.ds_bareLabel { border-radius: 50px; padding: 0.2em; background: none !important; color: black !important; border: none; }
-	.node.ds_bareLabel.hasEvidence { border: solid 2px black !important; border-radius: 0; }
+	.node.ds_bareLabel { border-radius: 0px; padding: 0.2em; background: none !important; color: black !important; border: solid 2px transparent !important; }
+	.node.ds_bareLabel.hasEvidence { border: solid 2px black !important; }
 	.node.ds_bareLabel .controlBar { border-bottom: none; }
 	.node.ds_bareLabel h6 { overflow: visible; white-space: normal; }
 	/*.node.ds_bareLabel .hotSpotParent { display: none; }*/
@@ -211,7 +211,7 @@
 	.CPT th .move { position: absolute; top: -2px; left: 0; height: 5px; width: 100%;
 		cursor: grab; }
 	.CPT td, .CPT th { padding: 3px; text-align: center; border: solid 1px #aaa; position: relative; }
-	.CPT th.stateLabel { width: 30px; max-width: 30px; }
+	.CPT th.stateLabel { width: 60px; max-width: 60px; }
 	.CPT th.stateLabel span { width: 100%; overflow: hidden; display: inline-block; white-space: pre; }
 	.CPT td { background-repeat: no-repeat; text-align: center; cursor: text; }
 	.CPT tr.invalid td { background: red !important; }

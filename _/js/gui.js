@@ -770,7 +770,8 @@ function popupEditDialog($content, opts) {
 /////////////////////////////////////////////////////
 /// Add display capabilities to the BN, nodes, etc.
 /////////////////////////////////////////////////////
-DisplayItem.prototype = Object.assign(DisplayItem.prototype, {
+Object.assign(DisplayItem.prototype, {
+	__revisedMixin: true,
 	/// Every DisplayItem in the GUI is associated with an element somewhere.
 	/// The |displayItem| method is responsible for setting this.
 	/// This will only return something valid if the element is visible!
@@ -969,6 +970,21 @@ DisplayItem.prototype = Object.assign(DisplayItem.prototype, {
 		return child.getPathIn(this);
 	},
 	
+	guiMoveToSubmodelVisual() {
+		/// If the item has disappeared from the current view
+		if (!this.isVisible()) {
+			this.removePaths();
+			this.el().remove();
+			this.net.updateArcs(this.net.getSubmodel(this.submodelPath));
+		}
+		/// If the this has appeared in the current view
+		else {
+			this.displayItem();
+			if (this.displayBeliefs)  setTimeout(_=> this.displayBeliefs(), 0);
+			this.net.updateArcs(this);
+		}
+	},
+	
 	guiMoveToSubmodel(pathOrSubmodel) {
 		let path = pathOrSubmodel;
 		if (pathOrSubmodel instanceof Submodel) {
@@ -984,8 +1000,9 @@ DisplayItem.prototype = Object.assign(DisplayItem.prototype, {
 				let item = this.net.find(this.itemId);
 				
 				item.moveToSubmodel(current);
+				item.guiMoveToSubmodelVisual();
 				/// If the item has disappeared from the current view
-				if (!item.isVisible()) {
+				/*if (!item.isVisible()) {
 					item.removePaths();
 					item.el().remove();
 					this.net.updateArcs(this.net.getSubmodel(current));
@@ -995,7 +1012,7 @@ DisplayItem.prototype = Object.assign(DisplayItem.prototype, {
 					item.displayItem();
 					if (item.displayBeliefs)  setTimeout(_=> item.displayBeliefs(), 0);
 					this.net.updateArcs(item);
-				}
+				}*/
 				//this.net.display();
 				//this.net.displayBeliefs();
 			},
@@ -1006,13 +1023,33 @@ DisplayItem.prototype = Object.assign(DisplayItem.prototype, {
 /// You can't replace a constructor (called by 'new') by overwriting
 /// the 'constructor' property on the prototype.
 /// You have to rebind the variable name to something new.
-var apiBN = BN;
+BN = class extends BN {
+	static DisplayItem = addMixin(this, DisplayItem);
+	constructor(...args) {
+		super(...args);
+		this.saveListeners = [];
+		
+		/// Meeting point for any type of listener on this object
+		this.listeners = new Listeners();
+		
+		/// Whether to show related nodes when selected a node (and what type of related nodes)
+		/// parent|child|etc. and anything supported by |getRelated|
+		this.showRelationType = null;
+
+		/// Track changes to the BN
+		this.changes = new UndoList();
+		this.unsavedChanges = false;
+		/// Make this much less hacky (if it's in the prototype, the "addMixin" call will override it)
+		this.el = function() { return document.querySelector('.bnview'); }
+	}
+}
+/*var apiBN = BN;
 BN = function(...args) {
 	apiBN.call(this, ...args);
 	this.saveListeners = [];
 	
 	/// Meeting point for any type of listener on this object
-	this.listeners = {};
+	this.listeners = new Listeners();
 	
 	/// Whether to show related nodes when selected a node (and what type of related nodes)
 	/// parent|child|etc. and anything supported by |getRelated|
@@ -1025,7 +1062,7 @@ BN = function(...args) {
 	this.el = function() { return document.querySelector('.bnview'); }
 };
 Object.assign(BN, apiBN);
-BN.prototype = apiBN.prototype;
+BN.prototype = apiBN.prototype;*/
 Object.assign(BN.prototype, {
 	/// Make this less hacky
 	//el() { return document.querySelector('.bnview'); },
@@ -1780,37 +1817,36 @@ Object.assign(BN.prototype, {
 		});
 	},
 	addListener(type, func) {
-		if (!this.listeners[type])  this.listeners[type] = [];
+		/*if (!this.listeners[type])  this.listeners[type] = [];
 		/// Can only add func once?
-		this.listeners[type].push(func);
+		this.listeners[type].push(func);*/
+		return this.listeners.add(type, func);
 	},
 	getListeners(type) {
-		return this.listeners[type] ?? [];
+		//return this.listeners[type] ?? [];
+		return this.listeners.get(type);
 	},
 	removeListener(type, func) {
-		if (!this.listeners[type])  return;
-		this.listeners[type].splice(this.listeners[type].indexOf(func),1);
+		/*if (!this.listeners[type])  return;
+		this.listeners[type].splice(this.listeners[type].indexOf(func),1);*/
+		this.listeners.remove(type, func);
 	},
 	notifyEvidenceChanged(o = {}) {
 		this.updateShowRelated();
-		this.getListeners('evidenceChange').forEach(func => func(o));
-		this.getListeners('change').forEach(func => func(o));
+		this.listeners.notify('evidenceChange change');
 	},
 	notifyStructureChanged(o = {}) {
 		this.updateShowRelated();
-		this.getListeners('structureChange').forEach(func => func(o));
-		this.getListeners('change').forEach(func => func(o));
+		this.listeners.notify('structureChange change');
 	},
 	notifyDefinitionsChanged(o = {}) {
 		this.updateAndDisplayBeliefs();
 		this.updateShowRelated(o);
-		this.getListeners('definitionsChange').forEach(func => func(o));
-		this.getListeners('change').forEach(func => func(o));
+		this.listeners.notify('definitionsChange change');
 	},
 	notifySelectionChanged(o = {}) {
 		this.updateShowRelated(o);
-		this.getListeners('selectionChange').forEach(func => func(o));
-		this.getListeners('change').forEach(func => func(o));
+		this.listeners.notify('selectionChange change');
 	},
 	updateShowRelated(o = {}) {
 		o.forceClear ??= false;
@@ -2078,13 +2114,15 @@ Object.assign(BN.prototype, {
 	},
 	/// random name. I should be using proper prototypal inheritance...
 	_suhfac_SetEvidence: BN.prototype.setEvidence,
-	setEvidence: function(evidence, o, callback) {
+	setEvidence: function(evidence, o = {}, callback = null) {
+		o.reset ??= false;
 		this._suhfac_SetEvidence(evidence, o);
 		
 		/// Update GUI
-		$('.bnview .hasEvidence').removeClass('hasEvidence');
+		if (o.reset)  $('.bnview .hasEvidence').removeClass('hasEvidence');
 		for (var node in evidence) {
-			$(`.bnview #display_${node}`).addClass('hasEvidence');
+			if (evidence[node]==null)  $(`.bnview #display_${node}`).removeClass('hasEvidence');
+			else                       $(`.bnview #display_${node}`).addClass('hasEvidence');
 		}
 		currentBn.updateAndDisplayBeliefs(null, callback);
 		currentBn.notifyEvidenceChanged();
@@ -2110,7 +2148,98 @@ Object.assign(BN.prototype, {
 		return gen;
 	}
 });
-Submodel.prototype = Object.assign(Submodel.prototype, {
+/*var apiBN = BN;
+BN = function(...args) {
+	apiBN.call(this, ...args);
+	this.saveListeners = [];
+	
+	/// Meeting point for any type of listener on this object
+	this.listeners = {};
+	
+	/// Whether to show related nodes when selected a node (and what type of related nodes)
+	/// parent|child|etc. and anything supported by |getRelated|
+	this.showRelationType = null;
+
+	/// Track changes to the BN
+	this.changes = new UndoList();
+	this.unsavedChanges = false;
+	/// Make this much less hacky (if it's in the prototype, the "addMixin" call will override it)
+	this.el = function() { return document.querySelector('.bnview'); }
+};
+Object.assign(BN, apiBN);
+BN.prototype = apiBN.prototype;*/
+/*var apiSubmodel = Submodel;
+Submodel = function(...args) {
+	apiSubmodel.call(this, ...args);
+	this.listeners = new Listeners();
+	this.listeners.add('update', (msg,extraMsg)=>this.updateView(msg,extraMsg));
+};
+Object.assign(Submodel, apiSubmodel);
+Submodel.prototype = apiSubmodel.prototype;*/
+Submodel = class extends Submodel {
+	static DisplayItem = addMixin(this, DisplayItem);
+	constructor(...args) {
+		super(...args);
+		this.listeners = new Listeners();
+		this.listeners.add('update', (msg,extraMsg)=>this.updateView(msg,extraMsg));
+	}
+}
+Object.assign(Submodel.prototype, {
+	update(m, o = {}) {
+		o.withPrevious ??= false;
+		this.net.changes.addAndDo({
+			old: copyTo(this, copyTo(m,{}), {existingOnly:true}),
+			new: m,
+			withPrevious: o.withPrevious,
+			exec: cur => {
+				let extraMsg = {};
+				if (cur.id && cur.id != this.id) {
+					this.rename(cur.id);
+				}
+				if (cur.submodelPath && cur.submodelPath != this.submodelPath) {
+					this.moveToSubmodel(cur.submodelPath);
+					extraMsg.submodelPathChanged = true;
+				}
+				copyTo(cur, this);
+				this.listeners.notify('update', cur, extraMsg);
+			}
+		});
+	},
+	
+	updateView(m, extraMsg = {}) {
+		console.log('updateView');
+		let el = q(this.el());
+		if (m.size?.width!=null) {
+			el.style.width = m.size.width+'px';
+		}
+		if (m.size?.height!=null) {
+			el.style.height = m.size.height+'px';
+		}
+		if (m.id!=null) {
+			el.id = 'display_'+this.id;
+			el.q('h6').textContent = this.net.headerFormat(m.id, m.label ?? this.label);
+		}
+		if (m.label!=null) {
+			el.q('h6').textContent = this.net.headerFormat(m.id ?? this.id, m.label);
+		}
+		if (extraMsg.submodelPathChanged!=null) {
+			this.guiMoveToSubmodelVisual();
+		}
+		if (m.format!=null) {
+			el.style.set({
+					background: m.format.backgroundColor,
+					border: m.format.borderColor && m.format.borderColor+' 1px solid',
+					color: m.format.fontColor,
+					fontFamily: m.format.fontFamily,
+					fontSize: m.format.fontSize,
+					fontWeight: m.format.bold,
+					fontStyle: m.format.italic,
+					textAlign: m.format.align,
+					padding: m.format.padding,
+			}, {null:false});
+		}
+	},
+
 	displayItem: function(outputEl, $displayItem, force = false) {
 		if (this.isHidden() && !force)  return null;
 		if (!outputEl && this.net)  outputEl = this.net.outputEl;
@@ -2138,7 +2267,11 @@ Submodel.prototype = Object.assign(Submodel.prototype, {
 
 		return $displayItem;
 	},
-	contextMenu: function() {
+	contextMenu(event) {
+		let menu = new SubmodelContextMenu(this);
+		menu.popup({left: event.clientX, top: event.clientY});
+	},
+	contextMenuOld: function() {
 		var node = this;
 		let submodel = this;
 		let net = this.net;
@@ -2307,6 +2440,7 @@ Submodel.prototype = Object.assign(Submodel.prototype, {
 	guiDelete(o = {}) {
 		o = {
 			prompt: false,
+			display: true,
 			...o
 		};
 		
@@ -2314,8 +2448,9 @@ Submodel.prototype = Object.assign(Submodel.prototype, {
 			let items = this.getItems();
 			
 			this.net.changes.doCombined(_=>{
+				
 				for (let item of items) {
-					item.guiDelete();
+					item.guiDelete({display: false});
 				}
 				
 				this.net.changes.addAndDo({
@@ -2359,11 +2494,12 @@ Submodel.prototype = Object.assign(Submodel.prototype, {
 		}
 		else {
 			doDelete();
+			if (o.display)  this.net.guiUpdateAndDisplayForLast();
 		}
 	},
 });
 //var oldNodeInit = Node.prototype.init;
-Node.prototype = Object.assign(Node.prototype, {
+Object.assign(Node.prototype, DisplayItem.prototype, {
 	/*init(...args) {
 		oldNodeInit.apply(this, args);
 		if (this.net)  this.bindUndo(this.net.changes);
@@ -2401,7 +2537,7 @@ Node.prototype = Object.assign(Node.prototype, {
 			};
 		}
 		let newOb = {_source: 'node'};
-		this.copyObject.call(newOb, o, null, toOmit, null, {_statesChanges: true, _moveParents: true});
+		this.copyObject.call(newOb, o, null, toOmit, null, {_statesChanges: true, _moveParents: true, _menuUpdate: true});
 		console.log('old and new', old, newOb);
 		this.changes().addAndDo({
 			old: old,
@@ -3527,6 +3663,7 @@ Node.prototype = Object.assign(Node.prototype, {
 	guiDelete: function(o = {}) {
 		o = {
 			prompt: false,
+			display: true,
 			...o
 		};
 
@@ -3591,7 +3728,7 @@ Node.prototype = Object.assign(Node.prototype, {
 		}
 		else {
 			doDelete();
-			net.guiUpdateAndDisplayForLast();
+			if (o.display)  net.guiUpdateAndDisplayForLast();
 		}
 	},
 	guiAddParents(parents) {
@@ -3995,7 +4132,59 @@ Node.handleEvents = function(bnComponent) {
 	});
 };
 
-TextBox.prototype = Object.assign(TextBox.prototype, {
+TextBox = class extends TextBox {
+	static DisplayItem = addMixin(this, DisplayItem);
+	constructor(...args) {
+		super(...args);
+		this.listeners = new Listeners();
+		this.listeners.add('update', msg=>this.updateView(msg));
+	}
+};
+Object.assign(TextBox.prototype, {
+	update(m, o = {}) {
+		o.withPrevious ??= false;
+		this.net.changes.addAndDo({
+			old: copyTo(this, copyTo(m,{}), {existingOnly:true}),
+			new: m,
+			withPrevious: o.withPrevious,
+			exec: cur => {
+				copyTo(cur, this);
+				this.listeners.notify('update', cur);
+			}
+		});
+	},
+	
+	updateView(m) {
+		console.log('updateView');
+		let el = q(this.el());
+		if (m.text!=null) {
+			el.innerTextTEMPFIX = m.text;
+		}
+		if (m.size?.width!=null) {
+			el.style.width = m.size.width+'px';
+		}
+		if (m.size?.height!=null) {
+			el.style.height = m.size.height+'px';
+		}
+		if (m.id!=null) {
+			el.id = 'display_'+this.id;
+		}
+		if (m.format!=null) {
+			el.style.set({
+					background: m.format.backgroundColor,
+					border: m.format.borderColor && m.format.borderColor+' 1px solid',
+					color: m.format.fontColor,
+					fontFamily: m.format.fontFamily,
+					fontSize: m.format.fontSize,
+					fontWeight: m.format.bold,
+					fontStyle: m.format.italic,
+					textAlign: m.format.align,
+					padding: m.format.padding,
+			}, {null:false});
+		}
+	},
+	
+	/// Like make()
 	displayItem: function(outputEl, $displayNode, force = false) {
 		if (this.isHidden() && !force)  return null;
 		if (!outputEl && this.net)  outputEl = this.net.outputEl;
@@ -4007,25 +4196,9 @@ TextBox.prototype = Object.assign(TextBox.prototype, {
 					width: textBox.size.width==-1 ? null : (textBox.size.width+"px"),
 					height: textBox.size.height==-1 ? null : (textBox.size.height+"px")
 				})
-				/*.append(
-					node.net.headerFormat(toHtml(node.text).replace(/\\n/g, '<br>'))
-				)*/
 				.appendTo(outputEl);
 			this._elCached = $displayNode;
-			$displayNode[0].innerText = textBox.text;
-			if (textBox.format) {
-				if (textBox.format.borderColor) {
-					$displayNode.css('border-color', textBox.format.borderColor);
-					$displayNode.find('h6').css('border-color', textBox.format.borderColor);
-				}
-				if (textBox.format.backgroundColor)  $displayNode.css('background', textBox.format.backgroundColor);
-				if (textBox.format.fontColor)  $displayNode.css('color', textBox.format.fontColor);
-				if (textBox.format.fontFamily)  $displayNode.css('font-family', textBox.format.fontFamily);
-				if (textBox.format.fontSize)  $displayNode.css('font-size', textBox.format.fontSize+'pt');
-				if (textBox.format.bold)  $displayNode.css('font-weight', 'bold');
-				if (textBox.format.italic)  $displayNode.css('font-style', 'italic');
-				if (textBox.format.align)  $displayNode.css('text-align', textBox.format.align);
-			}
+			this.updateView(this);
 		}
 		if (textBox.type)  $displayNode.addClass(textBox.type);
 
@@ -4089,52 +4262,37 @@ TextBox.prototype = Object.assign(TextBox.prototype, {
 		}		
 	},
 	guiEdit(o = {}) {
-		o = {
-			combine: false,
-			...o
-		};
+		o.combine ??= false;
 		
-		function closeOut() {
-			$(this).removeAttr("contenteditable");
-			$(this).removeClass('editMode');
-			let newHeight = $(this).height();
+		let te = this;
+		let closeOut = _=> {
+			let el = q(this.el());
+			let newHeight = el.scrollHeight;
+			el
+				.removeAttribute('contenteditable')
+				.classList.remove('editMode').root;
 			window.getSelection().removeAllRanges();
-			var $textBox = $(this);
-			$textBox.find('br').replaceWith('\n');
-			$textBox.find('div').each(function(){ !$(this).text().trim() ? $(this).replaceWith('\n') : $(this).append('\n')});
-			var textBox = currentBn.getItem(this);
-			let oldHeight = textBox.size.height;
-			var newText = $textBox[0].textContent;
-			currentBn.changes.addAndDo({
-				textBox: textBox,
-				newText: newText,
-				oldText: textBox.text,
-				withPrevious: o.combine,
-				oldHeight,
-				newHeight, 
-				exec(text, height) {
-					this.textBox.setText(text);
-					this.textBox.el()[0].innerText = text;
-					this.textBox.size.height = height;
-				},
-				redo() { this.exec(this.newText, this.newHeight); },
-				undo() { this.exec(this.oldText, this.oldHeight); },
-			});
-			$(this).unbind('focusOut', closeOut);
-			document.removeEventListener('focusOut', closeOut);
+			var newText = el.innerTextTEMPFIX;
+
+			evts.remove();
+
+			te.update({text:newText, size:{height:newHeight}}, {withPrevious:o.combine});
 		}
 		
-		this.el().addClass('editMode');
-		this.el().attr("contenteditable", "");
-		this.el().focus();
+		q(this.el())
+			.setAttribute("contenteditable", "")
+			.classList.add('editMode').root
+			.focus();
 		document.execCommand('selectAll', false, null);
+		
+		let evts = new ListenerGroup();
 		setTimeout(_=> {
-			document.addEventListener('click', event => {
+			evts.add(document, 'click', event => {
 				if (event.target.closest('.textBox')!=this.el()[0]) {
 					closeOut.apply(this.el()[0]);
 				}
 			});
-			this.el().on("focusout", closeOut);
+			evts.add(this.el(), 'focusout', closeOut);
 		}, 100);
 	},
 	contextMenu(event) {
@@ -6279,7 +6437,10 @@ var app = {
 		if (q)  q.checked = true;
 		currentBn?.redrawAllArcs?.();
 	},
-	newFile: function() {
+	newFile() {
+		window.open(String(location).slice(0,-location.search.length || undefined));
+	},
+	closeFile() {
 		window.history.pushState({}, '', changeQsUrl(window.location.href, {file: null}));
 		let bn = new BN({filename: `bn${++guiBnCount}.xdsl`});
 		app.openBn(bn);
@@ -7045,6 +7206,31 @@ var app = {
 		}).click();
 	},
 	helpers: {
+		stats: {
+			name: 'Network Statistics',
+			get rootEl() { return q('.sidebar .stats'); },
+			init() {
+				if (!this.rootEl) {
+					let stats = n('div.stats',
+						n('div.fields',
+							n('div.field',
+								n('label', 'Joint Distribution Size:'),
+								n('span.jointSize', ''),
+							),
+						),
+					);
+					currentBn.addBoxToSidebar(stats, {title: 'Network Statistics', on_close: event => {
+						currentBn.listeners.remove(this);
+					}});
+					currentBn.listeners.add(['structureChange definitionsChange',this], _=>this.updateView());
+				}
+				this.updateView();
+			},
+			updateView() {
+				let jointSize = currentBn.nodes.map(n=>n.states.length).reduce((a,v) => a*v,1);
+				this.rootEl.q('.jointSize').textContent = Number(jointSize).toLocaleString();
+			},
+		},
 		treatmentOutcome: {
 			get rootEl() {
 				return document.querySelector('.sidebar .treatmentOutcome');
@@ -7075,7 +7261,7 @@ var app = {
 						//let arcs = currentBn.findAllDConnectedNodes4(currentBn.node[cause], currentBn.node[effect], {arcs:true});
 						let backdoorArcs = causeNode.getBackdoorPaths([causeNode,effectNode]);
 						let selectionBiasArcs = causeNode.getSelectionBias([causeNode,effectNode]);
-						let directArcs = causeNode.getDirected([causeNode,effectNode],{arcs:true});
+						let directArcs = causeNode.getDirected([causeNode,effectNode],{arcs:true,blockOn:n=>n.hasEvidence()});
 						this.bnview.querySelectorAll(directArcs.map(arc => `.arc-${arc}`).join(', ') || '#lfkasjdfl').forEach(el => $(el).data('clickable')[0].classList.add('treatOut-direct'));
 						this.bnview.querySelectorAll(backdoorArcs.map(arc => `.arc-${arc}`).join(', ') || '#lfkasjdfl').forEach(el => $(el).data('clickable')[0].classList.add('treatOut-backdoor'));
 						this.bnview.querySelectorAll(selectionBiasArcs.map(arc => `.arc-${arc}`).join(', ') || '#lfkasjdfl').forEach(el => $(el).data('clickable')[0].classList.add('treatOut-selectionBias'));
@@ -7607,6 +7793,7 @@ $(document).ready(function() {
 		Menu({label:"File", items: [
 			MenuAction("New...", function(){ app.newFile(); dismissActiveMenus(); }, {shortcut: 'Alt-N'}),
 			MenuAction("Open...", function(){ app.loadFile(); dismissActiveMenus(); }, {shortcut: 'Ctrl-O'}),
+			MenuAction("Close", function(){ app.closeFile(); dismissActiveMenus(); }),
 			MenuAction(`Name: <input class=bnName type=text value="">`, ()=>{}),
 			MenuAction("Save...", function(){ app.saveFile(); dismissActiveMenus(); }, {shortcut: 'Ctrl-S', type: 'saveItem'}),
 			Menu({label:"Export", items: [
@@ -7786,6 +7973,7 @@ $(document).ready(function() {
 			MenuAction('Treament-Outcome Helper', _=>{app.helpers.treatmentOutcome.init(); dismissActiveMenus()}),
 			MenuAction('Mutual Info Helper', _=>{app.helpers.mi.init(); dismissActiveMenus()}),
 			MenuAction('Variable Dictionary Helper', _=>{app.helpers.varDict.init(); dismissActiveMenus()}),
+			MenuAction('Network Information', _=>{app.helpers.stats.init(); dismissActiveMenus()}),
 			MenuAction('<hr>', {type: 'separator'}),
 			Menu({label:'Themes', items: [
 				MenuAction(n('div',
@@ -8892,6 +9080,20 @@ $(document).ready(function() {
 		app.openBn(bn);
 		currentBn.display();
 	}
+	
+	/* Fix contenteditable empty on td/th on firefox.
+	Block empty contenteditable fixing with, e.g., <div default-empty> */
+	q(document).listeners.add('focusin', event => {
+		let ce = event.target.matches?.('[contenteditable]:is(td,th):not([default-empty])') && event.target;
+		if (ce) {
+			if (!ce.textContent.trim())  ce.innerHTML='<br>';
+		}
+	}).add('focusout', event => {
+		let ce = event.target.matches?.('[contenteditable]:is(td,th):not([default-empty])') && event.target;
+		if (ce) {
+			if (!ce.textContent.trim())  ce.innerHTML='';
+		}
+	});
 	
 	window.dispatchEvent(new Event('MakeBelieveLoaded'));
 });

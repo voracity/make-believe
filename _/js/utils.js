@@ -111,17 +111,17 @@ function isElementInViewport (el) {
 
 /* innerText, etc., Firefox/Chrome, wow, much hurt. */
 function getContenteditableText(el) {
-	let qel = q(el).cloneNode(true).rootNew.qa('br:only-child').forEach(el => el.replaceWith('\n')).root;
+	let qel = q(el).cloneNode(true).rootNew.qa('br:only-child').forEach(el => el.parentNode.childNodes.length==1?el.replaceWith('\n'):'').root;
 	qel.qa('br:last-child').forEach(el => el.remove());
 	qel.qa('br').forEach(el => el.replaceWith('\n'));
 	qel.qa('div').forEach(div => !div.textContent.trim() ? '' :div.append('\n'));
 	// console.log(qel.raw);
-	return qel.innerText;
+	return qel.innerText.replace(/\n$/, '');
 }
 
 function setContenteditableText(el, text) {
 	el.textContent = text;
-	el.innerHTML = el.innerHTML.replace(/\r\n/g, '\n').replace(/(.{0,0}|.+)\n/g, (m,p1)=>`<div>${p1?p1:'<br>'}</div>`);
+	el.innerHTML = el.innerHTML.replace(/\r\n/g, '\n').replace(/(.{0,0}(?=\n)|.+)(\n|$)/g, (m,p1)=>`<div>${p1?p1:'<br>'}</div>`);
 }
 if (typeof(HTMLElement)!=='undefined') {
 	Object.defineProperty(HTMLElement.prototype, 'innerTextTEMPFIX', {
@@ -369,7 +369,8 @@ Object.defineProperty(Array.prototype, 'stableSort', {
   });
 
 /**
-Generic (and very simple) listener handling, with arbitrary names. (Based on intent, not declaration.)
+Generic (and very simple) listener handling, with arbitrary names. (Based on intent, not declaration --- unless you declare them.)
+e.g. 'change.myGroup' or ['change', 'myGroup'] or ['change',jsObj]
 */
 class Listeners {
 	constructor(declared = []) {
@@ -378,26 +379,69 @@ class Listeners {
 		// this.groups = {};
 	}
 	
+	/*
+	Test:
+	getTypeGroup('event')
+	getTypeGroup(['event',{}])
+	getTypeGroup(['event.mygroup',{}])
+	getTypeGroup(['event.mygroup'])
+	getTypeGroup('event.mygroup')
+	getTypeGroup('event.mygroup')
+	
+	*/
+	getTypeGroup(typeGroup) {
+		let type = typeGroup;
+		let group = null;
+		let listenerGroup = null;
+		if (Array.isArray(typeGroup)) {
+			[type,group,listenerGroup] = typeGroup;
+		}
+		let typeAndGroup = typeof(type)=='string' ?
+				(type.includes(' ') ?
+					type.split(/\s/)
+						.map(tg => this.getTypeGroup(tg))
+						.reduce((a,v) => [a[0].concat(v[0]),a[1].concat(v[1] || group)], [[],[]])
+					: type.split(/\./))
+			: [null,type];
+		if (typeAndGroup.length==1)  typeAndGroup.push(group);
+		if (typeAndGroup.length==2 && listenerGroup)  typeAndGroup.push(listenerGroup);
+		return typeAndGroup;
+	}
+	
 	declare(declared = []) {
 		this.declared.push(...declared);
+	}
+	
+	typeOk(type) {
+		return !this.declared.length || this.declared.includes(type);
 	}
 	
 	add(typeGroup, func) {
 		if (!func)  return;
 		/// XXX: Make listener indexing more efficient? Is it worthwhile?
-		let [type,group='$$default$$'] = typeGroup.split(/\./);
-		if (!this.declared.includes(type))  { console.error(`${type} not a recognised listener in |Listener.add|.`); return; }
+		let [type,group='$$default$$',listenerGroup] = this.getTypeGroup(typeGroup);
+		if (Array.isArray(type)) {
+			type.forEach((type,i) => this.add([type,group[i],listenerGroup], func));
+			return this;
+		}
+		if (!this.typeOk(type))  { console.error(`${type} not a recognised listener in |Listener.add|.`); return; }
 		// if (!(type in this.listeners))  this.listeners[type] = [];
 		// if (!(group in this.groups))  this.groups[group] = [];
-		let entry = {type, group, func};
+		let entry = {type, group, func, listeners:this, listenerGroup};
 		// this.listeners[type].push(entry);
 		// this.groups[group].push(entry);
 		this.listeners.push(entry);
+		if (group instanceof Listeners)  group.listeners.push(entry);
+		if (listenerGroup instanceof Listeners)  listenerGroup.listeners.push(entry);
+		return this;
 	}
 	
 	get(typeGroup, func) {
-		let [type,group='$$default$$'] = typeGroup.split(/\./);
-		if (type && !this.declared.includes(type))  { console.error(`${type} not a recognised listener |Listener.get|.`); }
+		let [type,group='$$default$$'] = this.getTypeGroup(typeGroup);
+		if (Array.isArray(type)) {
+			return type.map((type,i) => this.get([type,group[i]], func)).flat();
+		}
+		if (type && !this.typeOk(type))  { console.error(`${type} not a recognised listener |Listener.get|.`); }
 		let predList = [];
 		if (group!='$$default$$') {
 			predList.push(l => l.group == group);
@@ -411,9 +455,13 @@ class Listeners {
 		return this.listeners.filter(l => predList.reduce((a,p) => a && p(l), true));
 	}
 	
+	notify(typeGroup, ...args) {
+		this.get(typeGroup).forEach(l => l.func(...args));
+	}
+	
 	remove(typeGroup, func) {
-		let [type,group='$$default$$'] = typeGroup.split(/\./);
-		if (type && !this.declared.includes(type))  { console.error(`${type} not a recognised listener |Listener.remove|.`); }
+		let [type,group='$$default$$'] = this.getTypeGroup(typeGroup);
+		if (type && !this.typeOk(type))  { console.error(`${type} not a recognised listener |Listener.remove|.`); }
 		let predList = [];
 		if (group!='$$default$$') {
 			predList.push(l => l.group == group);
@@ -424,7 +472,60 @@ class Listeners {
 		if (func) {
 			predList.push(l => l.func == func);
 		}
+		let removed = this.listeners.filter(l => predList.reduce((a,p) => a && p(l), true));
 		this.listeners = this.listeners.filter(l => !predList.reduce((a,p) => a && p(l), true));
+		removed.forEach(entry => {
+			if (entry.listeners != this) {
+				entry.listeners.remove([entry.type,entry.group],entry.func);
+			}
+			else {
+				if (entry.group instanceof Listeners) {
+					entry.group.remove([entry.type,entry.group],entry.func);
+				}
+				if (entry.listenerGroup instanceof Listeners) {
+					entry.listenerGroup.remove([entry.type,entry.group],entry.func);
+				}
+			}
+		});
+		return removed;
+	}
+}
+
+class DOMListeners extends Listeners {
+	constructor(el, declared = []) {
+		super(declared);
+		this.el = el;
+	}
+	
+	add(typeGroup, func, opts = null) {
+		let [type,group] = this.getTypeGroup(typeGroup);
+		super.add(typeGroup, func);
+		this.el.addEventListener(type, func, opts);
+		return this;
+	}
+	
+	remove(typeGroup, func) {
+		let [type,group] = this.getTypeGroup(typeGroup);
+		let removed = super.remove(typeGroup, func);
+		for (let {type, func} of removed) {
+			this.el.removeEventListener(type, func);
+		}
+	}
+}
+
+class ListenerGroup extends Listeners {
+	add(obj, typeGroup, func, opts = null) {
+		let listeners = obj.listeners instanceof Listeners ? obj.listeners : q(obj.jquery ? obj[0] : obj).listeners;
+		listeners.add(this.getTypeGroup(typeGroup).concat([this]), func);
+		return this;
+	}
+	
+	remove(obj, typeGroup, func) {
+		if (obj!=undefined && !Array.isArray(obj) && typeof(obj)!='string') {
+			let listeners = obj.listeners instanceof Listeners ? obj.listeners : q(obj.jquery ? obj[0] : obj).listeners;
+			listeners.remove(this.getTypeGroup(typeGroup), func);
+		}
+		return super.remove(...arguments);
 	}
 }
 
@@ -550,6 +651,7 @@ class UndoList {
 		};
 	}
 	
+	/// Not multi-thread-friendly
 	doCombined(func) {
 		this.startCombined();
 		func();
