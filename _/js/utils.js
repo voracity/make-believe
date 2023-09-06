@@ -21,8 +21,10 @@ var counters = {
 	moveVarToStart: 0,
 	reduce: 0,
 	multiplyFaster: 0,
+	multiplyFaster3: 0,
 	marginalize: 0,
 	marginalize1: 0,
+	unitPotentials: 0,
 	reset() {
 		for (let i in this) {
 			this[i] = 0;
@@ -38,7 +40,7 @@ var counters = {
 Object.defineProperty(counters, 'reset', {configurable:true,writable:true,enumerable:false,value:counters.reset});
 Object.defineProperty(counters, 'log', {configurable:true,writable:true,enumerable:false,value:counters.log});
 function allocFloat32(length) {
-	return new Float32Array(new ArrayBuffer(4*length));
+	return new Float32Array(length);
 }
 
 function pick(o, ...props) {
@@ -170,6 +172,16 @@ function removeMatchingClasses(node, matches) {
 			cl.remove(cl[i]);
 		}
 	}
+}
+
+function fileGetContents(file) {
+	let reader = new FileReader();
+	return new Promise(res => {
+		reader.addEventListener('load', event => {
+			res(event.target.result);
+		});
+		reader.readAsText(file);
+	});
 }
 
 
@@ -335,6 +347,42 @@ function normalize(vec) {
 	}
 
 	return newVec;
+}
+function normalize2(vec) {
+	var sum = 0;
+	for (var i=0; i<vec.length; i++)  if (vec[i]>0)  sum += vec[i];
+
+	var newVec = new Float32Array(vec.length);
+	if (sum>0) {
+		for (var i=0; i<vec.length; i++)  newVec[i] = vec[i]>0 ? vec[i]/sum : 0;
+	}
+	else {
+		for (var i=0; i<vec.length; i++)  newVec[i] = 1/vec.length;
+	}
+
+	return newVec;
+}
+// In place normalize slightly faster
+// function normalize2(vec) {
+	// var sum = 0;
+	// var i=0;
+
+	// for (i=0; i<vec.length; i++)  if (vec[i]>0)  sum += vec[i];
+
+	// if (sum>0) {
+		// for (i=0; i<vec.length; i++)  vec[i] = vec[i]>0 ? vec[i]/sum : 0;
+	// }
+	// else {
+		// for (i=0; i<vec.length; i++)  vec[i] = 1/vec.length;
+	// }
+// }
+
+function testNorms() {
+	let vecs = Array.from({length:100000}, _=>Array.from({length:10},_=>Math.random()));
+	for (let i=0; i<10; i++) {
+		console.time('vec'); vecs.forEach(vec => normalize(vec)); console.timeEnd('vec');
+		console.time('vec2'); vecs.forEach(vec => normalize2(vec)); console.timeEnd('vec2');
+	}
 }
 
 // ECMAScript 5 polyfill
