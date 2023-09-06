@@ -37,7 +37,9 @@ function addArc(from, to) {
 }
 
 class Clique {
+	static num = 0;
 	constructor(o = {}) {
+		this.cliqueNum = Clique.num++;
 		this.nodes = null;
 		this.i = null;
 		this.separator = null;
@@ -46,6 +48,19 @@ class Clique {
 		this.potentials = [];
 		
 		Object.assign(this, o);
+	}
+	
+	getSize() {
+		return this.potentials.reduce((a,v)=>a*v.size(),1);
+	}
+	
+	getFullSize() {
+		let clique = this;
+		let totalPotentials = [...clique.potentials, ...clique.separator.potentialsDown];
+		for (let childClique of clique.children) {
+			totalPotentials.push(...childClique.separator.potentialsUp);
+		}
+		return totalPotentials.reduce((a,v)=>a*v.size(),1);
 	}
 	
 	getDomain() {
@@ -383,7 +398,54 @@ class JunctionTree {
 		this.triangulate();
 		this.cliques = this.makeJoinTree();
 		
+		console.log('Num cliques', this.cliques.length);
+		
 		return this.cliques;
+	}
+	
+	findMultiplied(potentials) {
+		if (!this.mulCache)  return potentials;
+		
+		let _fm = potentials => {
+		
+			let remPotentials = [];
+			let seen = new Set();
+			
+			let sortedPotentials = potentials; //.toSorted((a,b) => a.factorNum - b.factorNum);
+			outer: for (let [i,potential] of sortedPotentials.entries()) {
+				if (seen.has(potential))  continue;
+				let otherMap = this.mulCache.get(potential);
+				if (otherMap) {
+					for (let j=i+1; j<sortedPotentials.length; j++) {
+						let res = otherMap.get(sortedPotentials[j]);
+						if (res) {
+							remPotentials.push(res);
+							seen.add(sortedPotentials[j]);
+							console.log('hit');
+							continue outer;
+						}
+					}
+				}
+				remPotentials.push(potential);
+			}
+			
+			if (remPotentials.length < potentials.length) {
+				console.log('xxg');
+				return _fm(remPotentials);
+			}
+			
+			return remPotentials;
+		}
+		
+		return _fm(potentials);
+	}
+	
+	addMultiplied(p1, p2, res) {
+		if (p2.factorNum < p1.factorNum)  [p2,p1] = [p1,p2];
+
+		if (!this.mulCache)  this.mulCache = new Map();
+		if (!this.mulCache.has(p1))  this.mulCache.set(p1, new Map());
+		if (!this.mulCache.get(p1).has(p2))  this.mulCache.get(p1).set(p2, res);
 	}
 	
 	multiply(potentials) {
@@ -401,17 +463,33 @@ class JunctionTree {
 		potentials = filteredPotentials;
 		console.log(potentials);*/
 		
-		potentials.sort((a,b) => a.size()-b.size());
-		let newPotential = potentials[0].def ? Factor.fromDef(potentials[0]) : potentials[0];
+		//potentials.sort((a,b) => a.size()-b.size());
+		potentials.sort((a,b) => a.factorNum - b.factorNum);
+		potentials = this.findMultiplied(potentials);
+		let newPotential = potentials[0];//.def ? Factor.fromDef(potentials[0]) : potentials[0];
+		// console.log('pre-size:',potentials.map(p => p.size()),potentials.reduce((a,p) => a*p.size(),1));
+		// console.log('mulling:',potentials.map(p=>p.factorNum));
+		// console.log('domains:',potentials.map(p=>p.getDomain()));
 		for (let i=1; i<potentials.length; i++) {
 			let potential = potentials[i];
-			if (potential.def) {
+			/*if (potential.def) {
 				/// Convert any CPTs to plain potentials
 				potential = Factor.fromDef(potential);
+			}*/
+			let newPotentialRes = null;
+			if (potential.isUnitPotential()) {
+				counters.unitPotentials++;
+				newPotentialRes = newPotential.addVars(potential.vars, potential.varNumStates, potential.values[0]);
 			}
-			newPotential = newPotential.multiplyFaster(potential, this.factorCache);
+			else {
+				// newPotential = newPotential.isUnitPotential() ? potential : potential.isUnitPotential() ? newPotential : newPotential.multiplyFaster(potential, this.factorCache);
+				newPotentialRes = newPotential.multiplyFaster3(potential);
+			}
+			this.addMultiplied(newPotential, potential, newPotentialRes);
+			newPotential = newPotentialRes;
 			//newPotential = Factor.multiplyAndMarginalize([newPotential, potential], []);
 		}
+		// console.log('post-size:',newPotential.size());
 		/*function sortQ() {
 			potentialQ.sort((a,b) => a.size()-b.size());
 		}
@@ -432,8 +510,16 @@ class JunctionTree {
 		if (item.def) {
 			item = Factor.fromDef(item);
 		}
+		if (!this.margCache)  this.margCache = new Map();
+		if (!this.margCache.has(item))  this.margCache.set(item, new Map());
+		if (this.margCache.get(item).has(itemToRemove)) {
+			console.log('marghit');
+			return this.margCache.get(item).get(itemToRemove);
+		}
 		
-		return item.marginalize1(itemToRemove, this.factorCache);
+		let marg = item.marginalize1(itemToRemove);
+		this.margCache.get(item).set(itemToRemove, marg);
+		return marg;
 	}
 	
 	/// translation from friedman to kohler:
@@ -441,9 +527,9 @@ class JunctionTree {
 	/// domain = scope
 	reducePotentials(potentials, nodeIds) {
 		let N = id => id ? id[0].toUpperCase() : id;
-		//console.log(potentials.map(p => p.getDomain().map(v=>N(v)).join("")) + " down to " + nodeIds.map(v=>N(v)).join(""));
+		// console.log(potentials.map(p => p.getDomain().map(v=>N(v)).join("")) + " down to " + nodeIds.map(v=>N(v)).join(""));
 		
-		//onsole.log("pre-filtered:", potentials);
+		// console.log("pre-filtered:", potentials);
 		/// Drop unit potentials if possible (this has a significant beneficial performance impact)
 		/// Wow, this was tricky to work out. You can't just filter out unit potentials,
 		/// you have to make sure that each node id still exists. But to get the speed benefit,
@@ -457,16 +543,16 @@ class JunctionTree {
 				potential.getDomain().forEach(nodeId => nodeIdsMissing.delete(nodeId));
 			}
 		}
+		// console.log('missing:', nodeIdsMissing, new Set(potentials.map(p=>p.getDomain()).flat()));
+		/*nodeIdsMissing = new Set(nodeIds);
+		console.log('HALO');*/
 		
-		/// Create one-node unit potentials for every missing node
+		/// Use one-node unit potentials for every missing node
 		for (let nodeId of nodeIdsMissing) {
-			let f = new Factor();
-			let numStates = this.bn.nodesById[nodeId].states.length;
-			let values = new Float32Array(new ArrayBuffer(numStates*4));
-			values.fill(1);
-			f.make([nodeId], [numStates], values);
-			keptPotentials.push(f);
+			keptPotentials.push(this.unitPotentials[nodeId]);
 		}
+		
+		// console.log('all potentials:', potentials, keptPotentials);
 		
 		potentials = keptPotentials;
 		
@@ -523,12 +609,16 @@ class JunctionTree {
 				
 				
 				/// Multiply
-				//console.log(toMultiply);
+				// console.log('mulfactors:', toMultiply.map(p=>p.factorNum), toMultiply.map(p=>p.getDomain()), toMultiply);
+				// console.log('units:', toMultiply.map(p=>p.isUnitPotential()));
 				newPotential = this.multiply(toMultiply);
+				// console.log('res:',newPotential);
 			}
 			
 			/// Marginalize
+			// console.log('before marg:', newPotential, id);
 			newPotential = this.marginalize(newPotential, id);
+			// console.log('after marg:', newPotential);
 
 			/*/// Find all matching potentials and remove potentials from list
 			let toMultiply = [];
@@ -544,12 +634,14 @@ class JunctionTree {
 			
 			potentials.push(newPotential);
 		}
+		// console.log('returned potentials:', potentials);
 		
 		return potentials;
 	}
 	
 	propagate(evidence = {}) {
-		this.factorCache = {};
+		this.mulCache = new Map();
+		this.margCache = new Map();
 		
 		/// Go through and erase all potentials first
 		for (let clique of this.cliques) {
@@ -561,6 +653,17 @@ class JunctionTree {
 		/// Create potentials from each node's CPT, as well as the
 		/// the evidence
 		let potentials = [...this.originalBn.nodes.map(n => Factor.fromDef(n.def))];
+		
+		/// Create unit potentials for every node, in case we need them:
+		this.unitPotentials = {};
+		this.bn.nodes.forEach(node => {
+			let f = new Factor();
+			let numStates = this.bn.nodesById[node.id].states.length;
+			let values = new Float32Array(numStates*4);
+			values.fill(1);
+			f.make([node.id], [numStates], values);
+			this.unitPotentials[node.id] = f;
+		});
 		
 		this.addEvidence(evidence);
 		
@@ -656,32 +759,47 @@ class JunctionTree {
 		for (let node of this.originalBn.nodes) {
 			//console.log("node.id", node.id, sortedCliques);
 			/// Find a clique with the node (replace with something better)
+			let minSize = Infinity;
+			let chosenClique = null;
 			for (let clique of sortedCliques) {
-				//console.log(node.id, clique.getDomain().join(','));
-				if (clique.getDomain().includes(node.id)) {
-					//console.log('Found a clique!', node.id, clique.getDomain());
-					/// Collect all relevant potentials, multiply them, and marginalize down
-					let totalPotentials = [...clique.potentials, ...clique.separator.potentialsDown];
-					for (let childClique of clique.children) {
-						totalPotentials.push(...childClique.separator.potentialsUp);
-					}
-					//onsole.log(clique.potentials, clique.separator.potentialsDown, totalPotentials);
-					let idPotential = this.reducePotentials(totalPotentials, [node.id]);
-					//onsole.log('idPotential:', idPotential);
-					/// May still have multiple potentials, so multiply if so
-					if (idPotential.length>1)  idPotential = this.multiply(idPotential);
-					else  idPotential = idPotential[0];
-					/// Convert to factor, which should have been done right at the beginning!
-					idPotential = idPotential.def ? Factor.fromDef(idPotential.def) : idPotential;
-					let beliefs = normalize(idPotential.values);
-					nodeBeliefs[node.id] = beliefs;
-					break;
+				let cliqueSize = clique.getFullSize();
+				if (clique.getDomain().includes(node.id) && cliqueSize < minSize) {
+					minSize = cliqueSize;
+					chosenClique = clique;
 				}
 			}
+			console.log(node.id, ' to clique ', chosenClique.cliqueNum);
+			/*for (let clique of sortedCliques) {
+				//console.log(node.id, clique.getDomain().join(','));
+				if (clique.getDomain().includes(node.id)) {*/
+					//console.log('Found a clique!', node.id, clique.getDomain());
+					/// Collect all relevant potentials, multiply them, and marginalize down
+					{
+						let clique = chosenClique;
+						let totalPotentials = [...clique.potentials, ...clique.separator.potentialsDown];
+						for (let childClique of clique.children) {
+							totalPotentials.push(...childClique.separator.potentialsUp);
+						}
+						//onsole.log(clique.potentials, clique.separator.potentialsDown, totalPotentials);
+						let idPotential = this.reducePotentials(totalPotentials, [node.id]);
+						// console.log('idPotential:', idPotential);
+						/// May still have multiple potentials, so multiply if so
+						if (idPotential.length>1)  idPotential = this.multiply(idPotential);
+						else  idPotential = idPotential[0];
+						// console.log('idPotential2:', idPotential);
+						/// Convert to factor, which should have been done right at the beginning!
+						idPotential = idPotential.def ? Factor.fromDef(idPotential.def) : idPotential;
+						let beliefs = normalize(idPotential.values);
+						// console.log('beliefs:', node.id, beliefs);
+						nodeBeliefs[node.id] = beliefs;
+					}
+					/*break;
+				}
+			}*/
 		}
 		
-		//ounters.log('end');
-		//onsole.log(nodeBeliefs);
+		// counters.log('end');
+		// console.log('nodeBeliefs:',nodeBeliefs);
 		
 		/// Done!
 		return nodeBeliefs;
@@ -689,15 +807,17 @@ class JunctionTree {
 	
 	addEvidence(evidence) {
 		for (let [nodeId,state] of Object.entries(evidence)) {
-			let node = this.bn.nodesById[nodeId];
-			let f = new Factor();
-			let values = new Float32Array(new ArrayBuffer(4*node.states.length));
-			values[state] = 1;
-			f.make([node.id], [node.states.length], values);
-			for (let clique of this.cliques) {
-				if (clique.getDomain().includes(node.id)) {
-					clique.potentials.push(f);
-					break;
+			if (state >= 0) {
+				let node = this.bn.nodesById[nodeId];
+				let f = new Factor();
+				let values = new Float32Array(new ArrayBuffer(4*node.states.length));
+				values[state] = 1;
+				f.make([node.id], [node.states.length], values);
+				for (let clique of this.cliques) {
+					if (clique.getDomain().includes(node.id)) {
+						clique.potentials.push(f);
+						break;
+					}
 				}
 			}
 		}
@@ -747,6 +867,7 @@ class JunctionTree {
 
 junctionTree = null;
 onmessage = function(e) {
+	counters.reset();
 	//onsole.log(junctionTree);
 	// Worker has been sent the BN
 	if (e.data[0]==0) {
