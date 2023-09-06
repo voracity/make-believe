@@ -1,3 +1,4 @@
+(function() {
 /**
 OM = object model.
 
@@ -691,3 +692,7 @@ Object.defineProperty(Object.prototype, '_findObjects', {value: function(criteri
 	doFind(this);
 	return foundObjs;
 }});
+
+window.Grammar = Grammar;
+window.OBJECTVALUE = OBJECTVALUE;
+})();
