@@ -1267,7 +1267,7 @@ Object.assign(BN.prototype, {
 			if (!$(".status .expectedValue").length) {
 				$(".status").append('<span class=expectedValue title="Expected value (or utility) of the current network">Expected value: <span class=val></span></span>');
 			}
-			$(".status .expectedValue .val").text(Math.round(this.expectedValue*1000)/1000);
+			$(".status .expectedValue .val").text(mbConfig.sigFig(this.expectedValue));
 		}
 		
 		if (redrawArcs) {
@@ -1984,7 +1984,7 @@ Object.assign(BN.prototype, {
 	},
 	addBoxToSidebar(el, o = {}) {
 		o.class ??= '';
-		o.onclose ??= _=>{};
+		o.onclose ??= o.on_close ?? (_=>{});
 		o.title ??= '';
 		let $parEl = $('<div>').attr('class', 'box '+o.class);
 		$parEl.data('onclose', o.onclose);
@@ -2741,7 +2741,7 @@ Object.assign(Node.prototype, DisplayItem.prototype, {
 				);
 			}
 			else {
-				var pc = Math.round(node.beliefs[stateI]*1000)/1000;
+				var pc = mbConfig.sigFig(node.beliefs[stateI]);
 				var pcCss = node.beliefs[stateI];
 				$(this).find(".prob").text(String(pc).replace(/^0\./, '.'));
 				$(this).find(".beliefBar").css({width:(pcCss*100)+'%'});
@@ -7214,7 +7214,15 @@ var app = {
 					let stats = n('div.stats',
 						n('div.fields',
 							n('div.field',
-								n('label', 'Joint Distribution Size:'),
+								n('label', '# Nodes:'),
+								n('span.numNodes', ''),
+							),
+							n('div.field',
+								n('label', '# CPT Parameters:'),
+								n('span.numParams', ''),
+							),
+							n('div.field',
+								n('label', 'Joint Distr. Size:'),
 								n('span.jointSize', ''),
 							),
 						),
@@ -7227,8 +7235,145 @@ var app = {
 				this.updateView();
 			},
 			updateView() {
-				let jointSize = currentBn.nodes.map(n=>n.states.length).reduce((a,v) => a*v,1);
-				this.rootEl.q('.jointSize').textContent = Number(jointSize).toLocaleString();
+				function makeExpNum(coeff, exp, o = {}) {
+					o.nonSciUpperThresh ??= 7;
+					o.orig ??= null;
+					if (o.nonSciUpperThresh && exp < 7) {
+						let num = 10**(Math.log10(coeff)+exp);
+						if (exp>=0) {
+							return n('span.exp.nonsci', Math.fround(num));
+						}
+						return n('span.exp.nonsci', num);
+					}
+					return n('span.exp', sigFig(coeff,3), '\u00d7', 10, n('sup', sigFig(exp, 3)));
+				}
+				let jointSize = currentBn.nodes.map(n=>Math.log10(n.states.length)).reduce((a,v) => a+v,0);
+				let [jointNum,jointExp] = [jointSize-Math.floor(jointSize),Math.floor(jointSize)];
+				let numParams = currentBn.nodes.map(n=>n.def.cpt?.length ?? 0).reduce((a,v)=>a+v,0);
+				this.rootEl.q('.numNodes').textContent = Number(currentBn.nodes.length).toLocaleString();
+				this.rootEl.q('.numParams').textContent = Number(numParams).toLocaleString();
+				//this.rootEl.q('.jointSize').append(html(LatexToMathML(`${sigFig(10**jointNum,3)} \\times 10^{${jointExp}}`))); //jointSizeNumber().toLocaleString();
+				this.rootEl.q('.jointSize').append(makeExpNum(10**jointNum,jointExp)); //jointSizeNumber().toLocaleString();
+				/// Info from whatever engine is being used:
+			},
+		},
+		compareCpts: {
+			name: 'Compare CPTs',
+			get rootEl() { return q('.sidebar .compareCpts'); },
+			init() {
+				if (!this.rootEl) {
+					let cmp = n('div.compareCpts',
+						n('style', `
+							.klPopup { position: absolute;  background: white; border: solid 1px #ccc; padding: 3px; z-index: 10;
+								max-width: 80%; }
+							.ds_label h6 { position: relative; top: calc(-100% - 2px); text-shadow: 0 0 5px #fff, 0 0 5px #fff, 0 0 5px #fff;  }
+							.legend .scale { height: 20px; width: 100%; }
+							.legend .max { width: 100%; text-align: right; }
+						`),
+						n('div.fields',
+							n('div.field',
+								n('label', 'Compare to BN:'),
+								n('input.fileCompare', {type:'file'}),
+							),
+							n('div.field.wide',
+								n('div.legend',
+									n('div.scale'),
+									n('div.max'),
+								),
+							),
+						),
+					);
+					currentBn.addBoxToSidebar(cmp, {title: 'Compare CPTs', on_close: event => {
+						this.events.remove();
+						q(currentBn).display().displayBeliefs();
+					}});
+					// currentBn.listeners.add(['structureChange definitionsChange',this], _=>this.updateView());
+				}
+				this.events = new ListenerGroup();
+				this.eventHandlers();
+				this.updateView();
+			},
+			cptKlDiv(cpt2d1, cpt2d2) {
+				let kls = [];
+				for (let i=0; i<cpt2d1.length; i++) {
+					kls.push(klDiv(cpt2d1[i],cpt2d2[i]));
+				}
+				return kls;
+			},
+			makeGrad(kls, maxKl) {
+				maxKl = Math.max(maxKl, 0.0001);
+				let stops = [];
+				for (let [i,kl] of kls.entries()) {
+					stops.push(`hsl(230 50% ${sigFig(100-kl/maxKl*50,3)}%) ${i*100/kls.length}%`);
+					stops.push(`hsl(230 50% ${sigFig(100-kl/maxKl*50,3)}%) ${(i+1)/kls.length*100}%`);
+				}
+				console.log(stops);
+				return 'linear-gradient(to right, '+stops.join(', ')+')';
+			},
+			eventHandlers() {
+				this.rootEl.listeners.add('dragover', event => false);
+				this.rootEl.listeners.add('drop', event => {
+					this.rootEl.q('.fileCompare').set({files: event.dataTransfer.files}).dispatchEvent(new Event('change'));
+					event.stopPropagation();
+					event.preventDefault();
+				});
+				let bn2 = null;
+				this.rootEl.q('.fileCompare').listeners.add('change', async event => {
+					let file = event.target;
+					if (file.files.length) {
+						let bn1 = currentBn;
+						bn2 = new BN({source:await fileGetContents(file.files[0]), fileName: file.files[0].name});
+						let allKls = {};
+						let maxKl = 0;
+						for (let node1 of bn1.nodes) {
+							let node2 = bn2.node[node1.id];
+							//console.log(node1.def.getCptVersion().get2d(), node2.def.getCptVersion().get2d());
+							let kls = this.cptKlDiv(node1.def.getCptVersion().get2d(), node2.def.getCptVersion().get2d());
+							maxKl = Math.max(maxKl, ...kls);
+							allKls[node1.id] = kls;
+							//console.log(kls);
+							// node1.el().style.background = 'red';
+						}
+						this.rootEl.q('.legend .scale').style.background = 'linear-gradient(to right, white, hsl(230,50%,50%))';
+						this.rootEl.q('.legend .max').textContent = sigFig(maxKl, 3);
+						let klDivPopup = n('div.klPopup');
+						for (let [id,kls] of Object.entries(allKls)) {
+							let node = q(bn1.node[id].el());
+							node.style.background = this.makeGrad(kls, maxKl);
+							node.dataset.kls = JSON.stringify(kls.map(n => sigFig(n,3)));
+							node.listeners.remove('.kls');
+							this.events.add(node, 'mousemove.kls', event => {
+								let el = event.target.closest('.node');
+								let rect = el.getBoundingClientRect();
+								let xPos = event.clientX - rect.x;
+								let width = rect.width;
+								let relPos = xPos/width;
+								let kls = JSON.parse(el.dataset.kls);
+								let rowI = Math.floor(relPos*kls.length);
+								let kl = kls[rowI];
+								let node1Cpt = currentBn.getItem(el).def.getCptVersion();
+								let node2Cpt = bn2.getItem(el).def.getCptVersion()
+								let node1Row = node1Cpt.getRow(rowI).map(v => sigFig(v,3));
+								let node2Row = node2Cpt.getRow(rowI).map(v => sigFig(v,3));
+								let rowName = JSON.stringify(node1Cpt.getNamedParentStatesMap(rowI)).slice(1,-1);
+								q(klDivPopup).set({innerHTML:''}).append(
+									n('div',rowName),
+									n('div',kl),
+									n('div',JSON.stringify(node1Row)),
+									n('div',JSON.stringify(node2Row)),
+								);
+								popupElement(klDivPopup, q('.bnmidview').raw, event);
+							}, {capture: true});
+						}
+						this.events.add(document, 'mousemove.kls', event => {
+							if (!event.target.closest('.node')) {
+								klDivPopup.remove();
+							}
+						});
+					}
+				});
+			},
+			updateView() {
 			},
 		},
 		treatmentOutcome: {
@@ -7974,6 +8119,7 @@ $(document).ready(function() {
 			MenuAction('Mutual Info Helper', _=>{app.helpers.mi.init(); dismissActiveMenus()}),
 			MenuAction('Variable Dictionary Helper', _=>{app.helpers.varDict.init(); dismissActiveMenus()}),
 			MenuAction('Network Information', _=>{app.helpers.stats.init(); dismissActiveMenus()}),
+			MenuAction('Compare BN CPTs', _=>{app.helpers.compareCpts.init(); dismissActiveMenus()}),
 			MenuAction('<hr>', {type: 'separator'}),
 			Menu({label:'Themes', items: [
 				MenuAction(n('div',

@@ -60,6 +60,7 @@
 	<script src="_/js/makeBelieve.js"></script>
 	<script src="_/js/gui.js"></script>
 	<script src="_/js/contextmenus.js"></script>
+	<script src="_/js/LaTeXMathML.min.js"></script>
 	<style>
 	:root {
 		--cpt-background0: rgb(255, 198, 35);
@@ -81,6 +82,8 @@
 	h6 { font-size: 1em; }
 	
 	th { text-align: left; }
+	
+	sup, sub { line-height: 1em; }
 	
 	input.jscolor { border: solid 1px #777; }
 	input.jscolor:hover { border: solid 1px black; }
@@ -372,6 +375,9 @@
 	.field.wide label { display: block; }
 	
 	.field.wide textarea { font-size: 8pt; font-family: arial; width: 100%; min-height: 4em; }
+	
+	/* Fields in the sidebar */
+	.sidebar .box .fields { padding: 5px; }
 	
 	.insertSpaceProtector { opacity: 0.01; background: white; position: fixed; z-index: 100;
 		cursor: row-resize; }

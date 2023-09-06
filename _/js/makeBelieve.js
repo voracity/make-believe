@@ -8,6 +8,7 @@ var mbConfig = {
 	useWorkers: true,
 	numWorkers: 2,
 	iterations: 10000,
+	sigFig(num) { return sigFig(num, 4); },
 };
 var FILE_EXTENSIONS = {
 	mb: {text: true},
@@ -4640,7 +4641,7 @@ ${nodesStr}
 		this.compile();
 		
 		/// Convert evidence to array
-		var evidenceArr = new Int32Array(new ArrayBuffer(bn.nodes.length*4));
+		var evidenceArr = new Int32Array(bn.nodes.length);
 		for (var i=0; i<evidenceArr.length; i++)  evidenceArr[i] = -1;
 		for (var i in this.evidence) {
 			if (typeof(this.evidence[i])=="string") {
