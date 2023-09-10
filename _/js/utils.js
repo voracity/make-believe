@@ -22,9 +22,12 @@ var counters = {
 	reduce: 0,
 	multiplyFaster: 0,
 	multiplyFaster3: 0,
+	multiplyFaster4: 0,
 	marginalize: 0,
 	marginalize1: 0,
 	unitPotentials: 0,
+	marginalHit: 0,
+	multiplyHit: 0,
 	reset() {
 		for (let i in this) {
 			this[i] = 0;
@@ -53,6 +56,26 @@ function zip(...rows) {
 
 function defaultGet(val, defaultValue) {
 	return val===null || val===undefined ? defaultValue : val;
+}
+
+/// I'm not sure if this guarantees a nicely formatted string.
+function sigFig(num, digits) {
+	if (num==0)  return 0;
+	/// Get a multiplier based on the log position of most sig digit (add 1 to avoid 100...0 not being rounded up)
+	var mul = Math.pow(10,Math.floor(Math.log10(num)));
+	var sigPow = Math.pow(10,digits-1);
+	/// XXX: I need to work this out properly at some point
+	var v = Math.round((num/mul)*sigPow);
+	if ((mul/sigPow) < 1) {
+		var d = Math.round(1/(mul/sigPow));
+		v = v/d;
+	}
+	else {
+		var d = Math.round(mul/sigPow);
+		v = v*d;
+	}
+
+	return v;
 }
 
 /// This will replace a method with a method with listener hooks, and add the listener requested.

@@ -9,6 +9,7 @@ var mbConfig = {
 	numWorkers: 2,
 	iterations: 10000,
 	sigFig(num) { return sigFig(num, 4); },
+	crossEvidenceCaching: false,
 };
 var FILE_EXTENSIONS = {
 	mb: {text: true},
@@ -92,9 +93,9 @@ if (typeof($)=="undefined") {
 	/// XXX Quick hack to suppress ordinary console.logs in the API
 	/// XXX Fix by actually removing unnecessary console.log statements!
 	console.apilog = console.log;
-	console.log = function(){}
+	//console.log = function(){}
 
-	$ = require('cheerio');
+	var cheerio = require('cheerio');
 	/*** Am using Object.assign now
 	/// I use jQuery's extend, add something like it
 	$.extend = function() {
@@ -166,26 +167,6 @@ function addDefaultSetters(Obj) {
 // function setArrayProperty(obj, prop, value) {
 	// Object.defineProperty(obj, prop, {configurable:true, writable:true, enumerable: false, value});
 // }
-
-/// I'm not sure if this guarantees a nicely formatted string.
-function sigFig(num, digits) {
-	if (num==0)  return 0;
-	/// Get a multiplier based on the log position of most sig digit (add 1 to avoid 100...0 not being rounded up)
-	var mul = Math.pow(10,Math.floor(Math.log10(num)));
-	var sigPow = Math.pow(10,digits-1);
-	/// XXX: I need to work this out properly at some point
-	var v = Math.round((num/mul)*sigPow);
-	if ((mul/sigPow) < 1) {
-		var d = Math.round(1/(mul/sigPow));
-		v = v/d;
-	}
-	else {
-		var d = Math.round(mul/sigPow);
-		v = v*d;
-	}
-
-	return v;
-}
 
 function toChance(v) {
 	if (v>0 && v<1) {
@@ -724,9 +705,9 @@ Object.assign(Node.prototype, {
 		node.intervene = false;
 
 		/// Setup the vectors needed for the inference (needed even if using workers)
-		node.beliefs = new Float32Array(new ArrayBuffer(node.states.length*4));
-		node.counts = new Float32Array(new ArrayBuffer(node.states.length*4));
-		node.parentStates = new Float32Array(new ArrayBuffer(node.parents.length*4));
+		node.beliefs = new Float32Array(node.states.length);
+		node.counts = new Float32Array(node.states.length);
+		node.parentStates = new Float32Array(node.parents.length);
 
 		/// We can only do the following if we've been assigned a net
 		if (this.net !== null) {
@@ -1158,8 +1139,8 @@ Object.assign(Node.prototype, {
 		}
 
 		/// Update the belief vectors
-		this.beliefs = new Float32Array(new ArrayBuffer(this.states.length*4));
-		this.counts = new Float32Array(new ArrayBuffer(this.states.length*4));
+		this.beliefs = new Float32Array(this.states.length);
+		this.counts = new Float32Array(this.states.length);
 	},
 	/// Duplicate this node, state and definition, along with parent
 	/// node and states (but not definitions).
@@ -1219,8 +1200,8 @@ Object.assign(Node.prototype, {
 		for (var i=0; i<this.states.length; i++)  this.states[i].index = i;
 
 		/// Update the belief vectors
-		this.beliefs = new Float32Array(new ArrayBuffer(this.states.length*4));
-		this.counts = new Float32Array(new ArrayBuffer(this.states.length*4));
+		this.beliefs = new Float32Array(this.states.length);
+		this.counts = new Float32Array(this.states.length);
 
 		/// Update the definition
 		this.def.updateStates({oldNumStates: numStates, newNumStates: numNewStates,
@@ -1234,8 +1215,8 @@ Object.assign(Node.prototype, {
 		}
 
 		/// Update the state-dependent inf states
-		//this.beliefs = new Float32Array(new ArrayBuffer(this.states.length*4));
-		//this.counts = new Float32Array(new ArrayBuffer(this.states.length*4));
+		//this.beliefs = new Float32Array(this.states.length);
+		//this.counts = new Float32Array(this.states.length);
 
 		if (this.net)  this.net.needsCompile = true;
 
@@ -2515,7 +2496,7 @@ var BN = class extends Submodel {
 
 		this.currentSubmodel = []; //["Orchard","Tree"];
 
-		this.getRowIInts = new Int32Array(new ArrayBuffer(2*4));
+		this.getRowIInts = new Int32Array(2);
 
 		this._trackingArcInfluences = false;
 
@@ -2734,19 +2715,25 @@ Object.assign(BN.prototype, {
 			  without applying HTML semantics.
 		*/
 		text = text.replace(/<(\/?)caption>/g, '<$1tempcaption>');
-		try {
-			/// 2020-10-27: If there's a problem with loading, check this.
-			//objs = $($.parseXML(text));
-			objs = $(text);
+		if (cheerio) {
+			let $ = cheerio.load(text);
+			objs = $();
 		}
-		catch (e) {
-			let div = document.createElementNS('http://www.w3.org/1999/xhtml/', 'div');
-			//let div = document.createElementNS('http://www.w3.org/2000/svg', 'div');
-			//let div = document.createElement('div');
-			div.innerHTML = text;
-			objs = $(div);
+		else {
+			try {
+				/// 2020-10-27: If there's a problem with loading, check this.
+				//objs = $($.parseXML(text));
+				objs = $(text);
+			}
+			catch (e) {
+				let div = document.createElementNS('http://www.w3.org/1999/xhtml/', 'div');
+				//let div = document.createElementNS('http://www.w3.org/2000/svg', 'div');
+				//let div = document.createElement('div');
+				div.innerHTML = text;
+				objs = $(div);
+			}
+			//console.log(this.objs);
 		}
-		//console.log(this.objs);
 		
 		return objs;
 	},
@@ -2755,6 +2742,7 @@ Object.assign(BN.prototype, {
 	load_xdsl: function(xdsl) {
 		/// 2018-03-1 I used to have .find('smile') inside loadXml. I don't seem to need it now...
 		this.objs = this.loadXml(xdsl);
+		let $ = cheerio ? this.objs.find : jQuery;
 	
 		var bn = this;
 		this.nodes = [];
@@ -2856,12 +2844,12 @@ Object.assign(BN.prototype, {
 			}
 		});
 
-		if (this._decisionNodes.length) {
+		/*if (this._decisionNodes.length) {
 			$(".decisionNet").css('display', 'inline');
 		}
 		else {
 			$(".decisionNet").hide();
-		}
+		}*/
 
 		/*this.objs.find("> nodes utility").each(function() {
 			var node = Node.makeNodeFromXdslEl(this, bn.objs);
@@ -3378,14 +3366,14 @@ ${nodesStr}
 			/// missing entries are 0
 			
 			if (jNode.condProbIsCompressed) {
-				oldCpt = new Float32Array(new ArrayBuffer(4*jNode.totalNumberOfConditionalProbabilities));
+				oldCpt = new Float32Array(jNode.totalNumberOfConditionalProbabilities);
 				for (let entry of jNode.condProbCompressedIndexVal) {
 					let index = entry[0];
 					let prob = entry[1];
 					oldCpt[index] = prob;
 				}
 			}
-			let fixedCpt = new Float32Array(new ArrayBuffer(4*oldCpt.length));
+			let fixedCpt = new Float32Array(oldCpt.length);
 			let numStates = node.states.length;
 			let numRows = oldCpt.length/numStates;
 			/// grr, the table is not formatted in the order of entry. It's formatted like a factor,
@@ -3795,6 +3783,9 @@ ${nodesStr}
 				.append($('<interior>').attr('color', formatColor(node.format.backgroundColor) || "e5f6f7"))
 				.append($('<outline>').attr('color', formatColor(node.format.borderColor) || '0000bb'))
 				.append($('<font>').attr('color', formatColor(node.format.fontColor) || '000000').attr('name', node.format.fontFamily || 'Arial').attr('size', node.format.fontSize || 8));
+			if (node.format.displayStyle && ['detailed','stacked'].includes(node.format.displayStyle)) {
+				$node.append($('<barchart active="true" />'));
+			}
 			if (node.comment) {
 				$node.append($('<comment>').text(node.comment));
 			}
@@ -4047,7 +4038,7 @@ ${nodesStr}
 
 		/// Start fresh (everything has a count of 1)
 		for (var node of nodes) {
-			node.def.cptCounts = new Float32Array(new ArrayBuffer(4*node.def.cpt.length));
+			node.def.cptCounts = new Float32Array(node.def.cpt.length);
 			for (var i=0; i<node.def.cptCounts.length; i++)  node.def.cptCounts[i] = 0;
 		}
 		/// Run through data, counting parent combos + child values
@@ -4628,7 +4619,7 @@ ${nodesStr}
 		jtree.compile();
 		console.timeEnd('compile');*/
 		console.time('propagate');
-		let beliefs = this.jtree.propagate(this.evidence);
+		let beliefs = this.jtree.propagate(this.evidence, {crossEvidenceCaching: mbConfig.crossEvidenceCaching});
 		for (let [nodeId,bels] of Object.entries(beliefs)) {
 			this.nodesById[nodeId].beliefs = bels;
 		}
@@ -4655,7 +4646,7 @@ ${nodesStr}
 		/// Just the 1 worker
 		let w = this._workers[0];
 
-		w.postMessage([1, evidenceArr]);
+		w.postMessage([1, evidenceArr, {crossEvidenceCaching: mbConfig.crossEvidenceCaching}]);
 		w.onmessage = function(e) {
 			if (e.data[0]==0) {
 				var workerBeliefs = e.data[1];
@@ -4686,7 +4677,7 @@ ${nodesStr}
 		if (iterations < numWorkers)  numWorkers = iterations;
 
 		/// Convert evidence to array
-		var evidenceArr = new Int32Array(new ArrayBuffer(bn.nodes.length*4));
+		var evidenceArr = new Int32Array(bn.nodes.length);
 		for (var i=0; i<evidenceArr.length; i++)  evidenceArr[i] = -1;
 		for (var i in this.evidence) {
 			if (typeof(this.evidence[i])=="string") {
@@ -4781,7 +4772,7 @@ ${nodesStr}
 		this.compile(true);
 
 		/// Convert evidence to array
-		var evidenceArr = new Int32Array(new ArrayBuffer(bn.nodes.length*4));
+		var evidenceArr = new Int32Array(bn.nodes.length);
 		for (var i=0; i<evidenceArr.length; i++)  evidenceArr[i] = -1;
 		for (var i in this.evidence) {
 			if (typeof(this.evidence[i])=="string") {

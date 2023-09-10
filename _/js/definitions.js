@@ -69,7 +69,7 @@ var CPT = class extends Definition {
 			this.cpt = def.cpt.slice();
 		}
 		else if (def.type == 'CDT') {
-			this.cpt = new Float32Array(new ArrayBuffer(this.node.numParentCombinations()*this.node.states.length*4));
+			this.cpt = new Float32Array(this.node.numParentCombinations()*this.node.states.length);
 			for (var i=0; i<def.funcTable.length; i++) {
 				this.cpt[this.node.states.length*i + def.funcTable[i]] = 1;
 			}
@@ -107,8 +107,7 @@ var CPT = class extends Definition {
 		//var node = this.node;
 		if (o.force || this.needsCompile) {
 			if (this.cpt && this.cpt.length) {
-				var cptBuf = new ArrayBuffer(this.cpt.length*4);
-				var newCpt = new Float32Array(cptBuf);
+				var newCpt = new Float32Array(this.cpt.length);
 				for (var i=0; i<this.cpt.length; i++) {
 					newCpt[i] = this.cpt[i];
 				}
@@ -187,13 +186,13 @@ var CPT = class extends Definition {
 	}
 	
 	_makeUniform(cpt) {
-		let newCpt = new Float32Array(new ArrayBuffer(cpt.length*4));
+		let newCpt = new Float32Array(cpt.length);
 		for (var i=0; i<newCpt.length; i++)  newCpt[i] = 1/this.node.states.length;
 		return newCpt;
 	}
 	
 	setUniform() {
-		this.cpt = new Float32Array(new ArrayBuffer(this.node.numParentCombinations()*this.node.states.length*4));
+		this.cpt = new Float32Array(this.node.numParentCombinations()*this.node.states.length);
 		for (var i=0; i<this.cpt.length; i++)  this.cpt[i] = 1/this.node.states.length;
 		// this.cpt = this._makeUniform(this.cpt);
 
@@ -236,6 +235,12 @@ var CPT = class extends Definition {
 			this.cpt[i] = Math.random();
 		}
 		this.normalize();
+		this.cpt = this.cpt.map(c => sigFig(c, 2));
+		for (let i=0; i<this.getNumRows(); i++) {
+			let row = this.getRow(i);
+			row[row.length-1] = 1 - row.slice(0, row.length-1).reduce((a,v)=>a+v,0);
+			this.setRow(i, row);
+		}
 		
 		return this;
 	}
@@ -442,7 +447,7 @@ var CPT = class extends Definition {
 		/// XXX Need to integrate insertions and removals properly
 		if (insertPoint!=undefined) {
 			var rows = this.cpt.length/oldNumStates;
-			var newCpt = new Float32Array(new ArrayBuffer(rows*newNumStates*4));
+			var newCpt = new Float32Array(rows*newNumStates);
 			var newStates = newNumStates-oldNumStates;
 			for (var r=0; r<rows; r++) {
 				for (var i=0; i<insertPoint; i++) {
@@ -463,7 +468,7 @@ var CPT = class extends Definition {
 			/// Sort in ascending order (to pull later elements in CPT forward)
 			removedI = removedI.slice().sort((a,b)=>a-b);
 			var rows = this.cpt.length/oldNumStates;
-			var newCpt = new Float32Array(new ArrayBuffer(rows*newNumStates*4));
+			var newCpt = new Float32Array(rows*newNumStates);
 			var adjust = 0;
 			for (var r=0; r<rows; r++) {
 				for (var i=0; i<newNumStates; i++) {
@@ -558,9 +563,9 @@ var CPT = class extends Definition {
 		
 		var numNodes = 3;
 		var sampling = new Sampling();
-		sampling.case = new Int32Array(new ArrayBuffer(4*numNodes));
+		sampling.case = new Int32Array(numNodes);
 		sampling.case[0] = 2;
-		sampling.evidence = new Int32Array(new ArrayBuffer(4*numNodes)).fill(-1);
+		sampling.evidence = new Int32Array(numNodes).fill(-1);
 		console.log(cpt.sample(sampling));
 		console.log(sampling.case);
 		
@@ -598,7 +603,7 @@ var CDT = class extends Definition {
 	
 	fromDef(def) {
 		this.node = def.node;
-		this.funcTable = new Int32Array(new ArrayBuffer(this.node.numParentCombinations()*4));
+		this.funcTable = new Int32Array(this.node.numParentCombinations());
 		if (def.type == 'CPT') {
 			var numRows = def.cpt.length / def.node.states.length;
 			for (var i=0; i<numRows; i++) {
@@ -636,10 +641,9 @@ var CDT = class extends Definition {
 		varNumStates.push(this.node.states.length);
 		
 		/// Reconstruct prob values
-		//let values = new Float32Array(new ArrayBuffer(this.node.numParentCombinations()*this.node.states.length*4));
 		let values = [];
 		for (let i=0; i<this.funcTable.length; i++) {
-			let arr = new Float32Array(new ArrayBuffer(this.node.states.length*4));
+			let arr = new Float32Array(this.node.states.length);
 			arr[this.funcTable[i]] = 1;
 			values.push(...arr);
 		}
@@ -658,8 +662,7 @@ var CDT = class extends Definition {
 		var node = this;
 		if (o.force || this.needsCompile) {
 			if (this.funcTable && this.funcTable.length) {
-				var ftBuf = new ArrayBuffer(this.funcTable.length*4);
-				var newFt = new Int32Array(ftBuf);
+				var newFt = new Int32Array(this.funcTable.length);
 				for (var i=0; i<this.funcTable.length; i++) {
 					newFt[i] = this.funcTable[i];
 				}
@@ -700,7 +703,7 @@ var CDT = class extends Definition {
 	}
 	
 	getCptVersion() {
-		let cpt = new Float32Array(new ArrayBuffer(this.node.numParentCombinations()*this.node.states.length*4));
+		let cpt = new Float32Array(this.node.numParentCombinations()*this.node.states.length);
 		for (let i=0; i<this.funcTable.length; i++) {
 			cpt[this.node.states.length*i + this.funcTable[i]] = 1;
 		}
@@ -709,7 +712,7 @@ var CDT = class extends Definition {
 	}
 	
 	setInitial() {
-		this.funcTable = new Int32Array(new ArrayBuffer(this.node.numParentCombinations()*4));
+		this.funcTable = new Int32Array(this.node.numParentCombinations());
 		this.needsCompile = true;
 		return this;
 	}
@@ -831,9 +834,9 @@ var CDT = class extends Definition {
 		
 		var numNodes = 3;
 		var sampling = new Sampling();
-		sampling.case = new Int32Array(new ArrayBuffer(4*numNodes));
+		sampling.case = new Int32Array(numNodes);
 		sampling.case[0] = 1;
-		sampling.evidence = new Int32Array(new ArrayBuffer(4*numNodes)).fill(-1);
+		sampling.evidence = new Int32Array(numNodes).fill(-1);
 		console.log(cdt.sample(sampling));
 		console.log(sampling.case);
 		
@@ -914,7 +917,7 @@ var Equation = class extends Definition {
 				this.funcDef = Equation.parse(this.node.id, this.node.parents.map(p=>p.id), this.funcText);
 				this.func = new Function(...this.funcDef);
 				this.needsCompile = false;
-				this.parentStates = new Float32Array(new ArrayBuffer(4*this.node.parents.length));
+				this.parentStates = new Float32Array(this.node.parents.length);
 			}
 			else {
 				this.setInitial();
@@ -1021,7 +1024,7 @@ var Equation = class extends Definition {
 		
 		this.compile();
 		
-		let cpt = new Float32Array(new ArrayBuffer(numParentCombinations*numStates*4));
+		let cpt = new Float32Array(numParentCombinations*numStates);
 		if (estimate) {
 			let parentStates = setupIndexes(this.node.parents);
 			let r = 0;
@@ -1106,11 +1109,11 @@ var Equation = class extends Definition {
 		
 		var numNodes = 3;
 		var sampling = new Sampling();
-		sampling.case = new Int32Array(new ArrayBuffer(4*numNodes));
+		sampling.case = new Int32Array(numNodes);
 		sampling.case[0] = 1;
-		sampling.caseTypes = new Int32Array(new ArrayBuffer(4*numNodes)).fill(CASE_REAL_VALUE);
-		sampling.caseReal = new Float32Array(new ArrayBuffer(4*numNodes)).fill(3.2);
-		sampling.evidence = new Int32Array(new ArrayBuffer(4*numNodes)).fill(-1);
+		sampling.caseTypes = new Int32Array(numNodes).fill(CASE_REAL_VALUE);
+		sampling.caseReal = new Float32Array(numNodes).fill(3.2);
+		sampling.evidence = new Int32Array(numNodes).fill(-1);
 		console.log(eqn.sample(sampling));
 		console.log(sampling.case, sampling.caseReal);
 		
@@ -1229,7 +1232,7 @@ var NoisyOrDef = class extends Definition {
 		let newCpt = new CPT(this.node);
 		let parents = this.node.parents;
 		
-		let cpt = new Float32Array(new ArrayBuffer(numParentCombinations*numStates*4));
+		let cpt = new Float32Array(numParentCombinations*numStates);
 		let parentStates = setupIndexes(this.node.parents);
 		let r = 0;
 		do {
@@ -1387,7 +1390,7 @@ var WeightedSum = class extends Definition {
 		let newCpt = new CPT(this.node);
 		let parents = this.node.parents;
 		
-		let cpt = new Float32Array(new ArrayBuffer(numParentCombinations*numStates*4));
+		let cpt = new Float32Array(numParentCombinations*numStates);
 		let parentStates = setupIndexes(this.node.parents);
 		let r = 0;
 		do {
@@ -1657,13 +1660,19 @@ var WeightedSum = class extends Definition {
 }
 
 var Factor = class {
+	static factorNum = 0;
+	static factors = [];
 	constructor() {
-		counters.newFactor++;
-		this.factorNum = counters.newFactor;
+		this.factorNum = Factor.factorNum++;
+		/// For debugging:
+		Factor.factors.push(this);
 		/// e.g. A, B, C
 		this.vars = [];
 		/// e.g. 3,6,2 means A has 3 states, B has 6 states, C has 2 states
 		this.varNumStates = [];
+		/// These are the remaining active/conditioning states for each var (e.g. evidence, or after multiplied
+		/// by another factor with only certain states active)
+		this.activeStates = [];
 		/// A (possibly partial) enumeration of the cross product for this factor (all possible var combinations)
 		/// e.g.: 0 0 0, 0 0 1, 0 1 0, 0 1 1, 0 2 0, 0 2 1, 0 3 0, etc.
 		/// This will be partial if some combinations have been reduced/eliminated
@@ -1676,15 +1685,32 @@ var Factor = class {
 		this.constants = {};
 		/// Any variables that would be on the conditional side (e.g. B,C in P(A|B,C))
 		this.conditionals = [];
+		this.unconditionals = [];
+		/// Debugging
+		this.childFactors = []; /// i.e. child as a result of multiplication or marginalisation
+		this.temp = false;
 	}
 	
-	make(vars, varNumStates, values = null, conditionals = null) {
+	findDescendants() {
+		let toVisit = [this];
+		let found = [];
+		while (toVisit.length) {
+			let next = toVisit.shift();
+			found.push(next);
+			toVisit.push(...next.childFactors);
+		}
+		return found;
+	}
+	
+	make(vars, varNumStates, values = null, conditionals = null, activeStates = null) {
 		counters.make++;
 		//this.vars = vars.slice();
 		//this.varNumStates = new Uint32Array(varNumStates);
 		this.vars = vars;
 		this.varNumStates = varNumStates;
+		this.activeStates = activeStates ?? varNumStates.map(_=>null);
 		this.conditionals = conditionals ?? [];
+		this.unconditionals = [...new Set(this.vars).difference(this.conditionals)];
 		
 		//this.makeIndexes();
 		this.calcPositions();
@@ -1708,8 +1734,28 @@ var Factor = class {
 		return this;
 	}
 	
-	get unconditionals() {
-		return [...new Set(this.vars).difference(this.conditionals)];
+	select(varStates) {
+		let fac = new Factor();
+		
+		let varStatesI = Object.fromEntries(Object.entries(varStates).map(([k,v]) => [this.vars.indexOf(k),v]));
+
+		let activeStates = this.activeStates.slice();
+		Object.entries(varStatesI).forEach(([i,v]) => activeStates[i] = Array.isArray(v) ? v : [v]);
+		let varNumStates = activeStates.map((a,i) => a==null ? this.varNumStates[i] : a.length);
+		let values = new Float32Array(varNumStates.reduce((a,v)=>a*v,1));
+		let indexes = varNumStates.map(_=>0);
+		let identityMap = varI => Array.from({length:varNumStates[varI]},(_,i)=>i);
+		let indexMap = activeStates.map((active,k) => active == null ? identityMap(k) : active.map((s,i) => this.activeStates[k]==null ? s : this.activeStates[k].indexOf(s)));
+		// Do select
+		for (let i=0; i<values.length; i++) {
+			let oldI = indexes.map((s,vi) => indexMap[vi][s]*this.positions[vi]).reduce((a,v)=>a+v,0);
+			values[i] = this.values[oldI];
+			Factor.nextCombination(varNumStates, indexes);
+		}
+		
+		fac.make(this.vars, varNumStates, values, this.conditionals, activeStates);
+		
+		return fac;
 	}
 	
 	makeIndexes() {
@@ -1717,7 +1763,7 @@ var Factor = class {
 		let numIndexes = this.varNumStates.reduce((a,v) => a*v, 1) * this.vars.length;
 		/*
 		/// Copy using 'copyWithin'
-		let buf = new Uint32Array(new ArrayBuffer(numIndexes*4 + this.vars.length*4));
+		let buf = new Uint32Array(numIndexes + this.vars.length);
 		this.indexes = buf.subarray(0, numIndexes);
 		/// Setup indexes
 		let index = buf.subarray(numIndexes);
@@ -1731,23 +1777,21 @@ var Factor = class {
 		/// Copy using plain JS array assignments
 		/// This is currently the fastest version! The other two, which
 		/// make use of native copies, are somehow slower
-		// this.indexes = new Uint32Array(new ArrayBuffer(numIndexes*4));
 		this.indexes = new Uint32Array(numIndexes);
 		/// Setup indexes
-		// let index = new Uint32Array(new ArrayBuffer(this.vars.length*4));
 		let index = new Uint32Array(this.vars.length);
 		let j = 0;
 		do {
 			for (let i=0; i<index.length; i++, j++) {
-				this.indexes[j] = index[i];
+				this.indexes[j] = this.activeStates[i]==null ? index[i] : this.activeStates[i][index[i]];
 			}
 		} while (Factor.nextCombination(this.varNumStates, index));
 		
 		/*
 		/// Copy using 'set'
-		this.indexes = new Uint32Array(new ArrayBuffer(numIndexes*4));
+		this.indexes = new Uint32Array(numIndexes);
 		/// Setup indexes
-		let index = new Uint32Array(new ArrayBuffer(this.vars.length*4));
+		let index = new Uint32Array(this.vars.length);
 		let j = 0;
 		do {
 			this.indexes.set(index, j);
@@ -1758,7 +1802,9 @@ var Factor = class {
 	
 	static fromDef(nodeOrDef) {
 		let def = nodeOrDef.def || nodeOrDef;
-		return def.toFactor();
+		let fac = def.toFactor();
+		// for (let i=0; i<fac.values.length; i++)  fac.values[i] *= 2;
+		return fac;
 	}
 	
 	isUnitPotential() {
@@ -1775,6 +1821,11 @@ var Factor = class {
 			return true;
 		}
 		else {
+			// If there is at least one selection on this factor,
+			// this is not a unit potential
+			for (let a of this.activeStates) {
+				if (a != null)  return false;
+			}
 			let epsilon = 0.001;
 			for (let val of this.values) {
 				if (Math.abs(val/testVal  - 1) > epsilon) {
@@ -1794,6 +1845,8 @@ var Factor = class {
 		factor.vars = this.vars.concat(endVars);
 		factor.varNumStates = this.varNumStates.concat(endVarNumStates);
 		factor.values = new Float32Array(factor.varNumStates.reduce((a,v)=>a*v,1));
+		factor.activeStates = this.activeStates.slice();
+		this.childFactors.push(factor);
 		let endVarLength = endVarNumStates.reduce((a,v)=>a*v,1);
 		
 		for (let i=0; i<this.values.length; i++) {
@@ -2105,10 +2158,10 @@ var Factor = class {
 		
 		let newNumValues = varNumStates.reduce((a,v) => a*v, 1);
 		
-		let values = new Float32Array(new ArrayBuffer(newNumValues*4));
+		let values = new Float32Array(newNumValues);
 		
 		/// Now just fill in the values
-		let thisIndex = new Uint32Array(new ArrayBuffer(this.vars.length*4));
+		let thisIndex = new Uint32Array(this.vars.length);
 		let newValuesI = 0;
 		let origValueIndex = 0;
 		do {
@@ -2146,6 +2199,7 @@ var Factor = class {
 
 	static nextCombination(numStates, indexes) {
 		for (let i=indexes.length-1; i>=0; i--) {
+			if (isNaN(numStates[i]))  return false;
 			indexes[i]++;
 			if (indexes[i] >= numStates[i]) {
 				indexes[i] = 0;
@@ -2210,15 +2264,12 @@ var Factor = class {
 		varNumStates = new Uint32Array(varNumStates);
 		let newNumValues = varNumStates.reduce((a,v) => a*v, 1);
 		
-		// let values = new Float32Array(new ArrayBuffer(newNumValues*4));
 		let values = new Float32Array(newNumValues);
 		
 		/// Now just fill in the values
-		// let thisIndex = new Uint32Array(new ArrayBuffer(this.vars.length*4));
 		let thisIndex = new Uint32Array(this.vars.length);
 		let newValuesI = 0;
 		let origValueIndex = 0;
-		// let commonValIndexes = new Uint32Array(new ArrayBuffer(common.length*4));
 		let commonValIndexes = new Uint32Array(common.length);
 		let otherFactorLength = otherFactor.values.length;
 		let i = 0, j = 0;
@@ -2243,10 +2294,8 @@ var Factor = class {
 			otherFactorCommonCache[key][otherFactorCommonCache[key].currentI++] = otherFactor.values[i];
 		}
 		//console.log(otherFactorCommonCache);
-		// let newIndex = new Uint32Array(new ArrayBuffer(4*varNumStates.length));
 		let newIndex = new Uint32Array(varNumStates.length);
 		//console.log('indexes length', 4*newNumValues*vars.length);
-		// factor.indexes = new Uint32Array(new ArrayBuffer(4*newNumValues*vars.length));
 		factor.indexes = new Uint32Array(newNumValues*vars.length);
 		let offset = 0;
 		do {
@@ -2442,7 +2491,6 @@ var Factor = class {
 
 		let vars = [...leftFactor.vars, ...rightDiffFactor.vars];
 		let varNumStates = [...leftFactor.varNumStates, ...rightDiffFactor.varNumStates];
-		// let values = new Float32Array(new ArrayBuffer(4*commonLength*leftDiffLength*rightDiffLength));
 		let values = new Float32Array(commonLength*leftDiffLength*rightDiffLength);
 		
 		// let commonVarStates = Array.from({length: common.length});
@@ -2501,6 +2549,15 @@ var Factor = class {
 
 		let leftFactor = this;
 		let rightFactor = otherFactor;
+		let leftZeroCount = 0, rightZeroCount = 0;
+		for (let i=0;i<leftFactor.values.length && i<20;i++){
+			if (leftFactor.values[i]==0) leftZeroCount++;
+		}
+		for (let i=0;i<rightFactor.values.length && i<20;i++){
+			if (rightFactor.values[i]==0) rightZeroCount++;
+		}
+		if (rightZeroCount>leftZeroCount) [leftFactor,rightFactor] = [rightFactor,leftFactor];
+
 
 		let seen = new Set(leftFactor.vars);
 		/// Find common factors
@@ -2518,7 +2575,7 @@ var Factor = class {
 		rightDiffFactor.calcPositions();
 		
 		let rightDiffLength = rightDiffFactor.varNumStates.reduce((a,v)=>a*v,1);
-
+		
 		let vars = [...leftFactor.vars, ...rightDiffFactor.vars];
 		let varNumStates = [...leftFactor.varNumStates, ...rightDiffFactor.varNumStates];
 		let values = new Float32Array(leftFactor.values.length*rightDiffLength);
@@ -2532,31 +2589,31 @@ var Factor = class {
 		let rightDiffIndexes = new Uint32Array(rightDiffFactor.varNumStates.length);
 		let leftPositions = leftFactor.vars.map(v => rightFactor.positions[rightFactor.vars.indexOf(v)] ?? 0);
 		let rightDiffPositions = rightDiffFactor.vars.map(v => rightFactor.positions[rightFactor.vars.indexOf(v)] ?? 0);
-		// console.log(leftCommonVarI, rightCommonVarI, rightDiffPositions);
 		let leftPartialPos = 0, rightDiffPartialPos = 0;
 		let rightDiffGroup = 0, rdiLength = rightDiffIndexes.length-1, ldiLength = leftIndexes.length-1;
 		for (i=0; i<leftFactor.values.length; i++) {
 			/// Compute what the indexes of the common vars are for this row of the factor (i.e. value, which is associated with row)
 			leftV = leftFactor.values[i];
-			rightDiffGroup = i*rightDiffLength;
-			
-			
-			for (j=0; j<rightDiffLength; j++) {
-				/// Convert each the indexes into
-				//nextCombination(
-				// rightPos = leftPartialPos + rightDiffPartialPos;
+			/// For each left value, find the associated right value, then mul
+			if (leftV != 0) {
+				rightDiffGroup = i*rightDiffLength;
 				
-				values[rightDiffGroup + j] = leftV*rightFactor.values[leftPartialPos + rightDiffPartialPos];
+				for (j=0; j<rightDiffLength; j++) {
+					/// Convert each the indexes into
+					
+					values[rightDiffGroup + j] = leftV*rightFactor.values[leftPartialPos + rightDiffPartialPos];
 
-				for (k=rdiLength; k>=0; k--) {
-					rightDiffIndexes[k]++;
-					if (rightDiffIndexes[k] >= rightDiffNumStates[k]) {
-						rightDiffPartialPos -= (rightDiffIndexes[k]-1)*rightDiffPositions[k];
-						rightDiffIndexes[k] = 0;
-					}
-					else {
-						rightDiffPartialPos += rightDiffPositions[k];
-						break;
+					/// Manually inling this is way faster (and no stack use at all)
+					for (k=rdiLength; k>=0; k--) {
+						rightDiffIndexes[k]++;
+						if (rightDiffIndexes[k] >= rightDiffNumStates[k]) {
+							rightDiffPartialPos -= (rightDiffIndexes[k]-1)*rightDiffPositions[k];
+							rightDiffIndexes[k] = 0;
+						}
+						else {
+							rightDiffPartialPos += rightDiffPositions[k];
+							break;
+						}
 					}
 				}
 			}
@@ -2573,21 +2630,182 @@ var Factor = class {
 			}
 		}
 		
-		/*let factorKey = leftFactor.vars.slice().sort().join('|')
-			+ rightFactor.vars.slice().sort().join('|')
-			+ vars.slice().sort().join('|');
-		if (factorCache && factorCache[factorKey]) {
-			//console.log('hit');
-			//let f = factorCache[factorKey];
-			//return new Factor().make(f.vars, f.varNumStates, f.values);
-			//console.log('hit');
-			return factorCache[factorKey];
-		}*/
-		
 		newFactor.make(vars, varNumStates, values, conditionals);
 		
-		//if (factorCache)  factorCache[factorKey] = newFactor;
+		return newFactor;
+	}
+	
+	/// Maybe?
+	multiplyFaster4(otherFactor) {
+		counters.multiplyFaster4++;
 
+		let newFactor = new Factor();
+
+		let leftFactor = this;
+		let rightFactor = otherFactor;
+		let leftZeroCount = 0, rightZeroCount = 0;
+		for (let i=0;i<leftFactor.values.length && i<20;i++){
+			if (leftFactor.values[i]==0) leftZeroCount++;
+		}
+		for (let i=0;i<rightFactor.values.length && i<20;i++){
+			if (rightFactor.values[i]==0) rightZeroCount++;
+		}
+		if (rightZeroCount>leftZeroCount) [leftFactor,rightFactor] = [rightFactor,leftFactor];
+
+
+		/// Find common factors
+		let common = new Set(leftFactor.vars).intersection(rightFactor.vars);
+		let commonFactor = new Factor();
+		let leftDiffFactor = new Factor();
+		let rightDiffFactor = new Factor();
+		commonFactor.temp = leftDiffFactor.temp = rightDiffFactor.temp = true;
+		for (let i=0; i<leftFactor.vars.length; i++) {
+			let v = leftFactor.vars[i];
+			
+			if (!common.has(v)) {
+				leftDiffFactor.vars.push(v);
+				leftDiffFactor.varNumStates.push(leftFactor.varNumStates[i]);
+				leftDiffFactor.activeStates.push(leftFactor.activeStates[i]);
+			}
+			else {
+				commonFactor.vars.push(v);
+				commonFactor.varNumStates.push(leftFactor.varNumStates[i]);
+				commonFactor.activeStates.push(leftFactor.activeStates[i]);
+			}
+		}
+		for (let i=0; i<rightFactor.vars.length; i++) {
+			let v = rightFactor.vars[i];
+			
+			if (!common.has(v)) {
+				rightDiffFactor.vars.push(v);
+				rightDiffFactor.varNumStates.push(rightFactor.varNumStates[i]);
+				rightDiffFactor.activeStates.push(rightFactor.activeStates[i]);
+			}
+			else {
+				let ci = commonFactor.vars.indexOf(v);
+				commonFactor.activeStates[ci] = 
+					commonFactor.activeStates[ci]==null ? rightFactor.activeStates[i]
+						: rightFactor.activeStates[i]==null ? commonFactor.activeStates[ci]
+						: [...new Set(rightFactor.activeStates[i]).intersection(commonFactor.activeStates[ci])];
+				commonFactor.varNumStates[ci] = commonFactor.activeStates[ci]?.length ?? rightFactor.varNumStates[i];
+			}
+		}
+		leftFactor.calcPositions();
+		rightFactor.calcPositions();
+		commonFactor.calcPositions();
+		leftDiffFactor.calcPositions();
+		rightDiffFactor.calcPositions();
+		
+		let commonLength = commonFactor.varNumStates.reduce((a,v)=>a*v,1);
+		let leftDiffLength = leftDiffFactor.varNumStates.reduce((a,v)=>a*v,1);
+		let rightDiffLength = rightDiffFactor.varNumStates.reduce((a,v)=>a*v,1);
+		let diffLength = leftDiffLength*rightDiffLength;
+		
+		let vars = [...commonFactor.vars, ...leftDiffFactor.vars, ...rightDiffFactor.vars];
+		let varNumStates = [...commonFactor.varNumStates, ...leftDiffFactor.varNumStates, ...rightDiffFactor.varNumStates];
+		let activeStates = [...commonFactor.activeStates, ...leftDiffFactor.activeStates, ...rightDiffFactor.activeStates];
+		let values = new Float32Array(varNumStates.reduce((a,v)=>a*v,1));
+		let conditionals = [...new Set(leftFactor.conditionals).difference(rightFactor.unconditionals).union(new Set(rightFactor.conditionals).difference(leftFactor.unconditionals))];
+		
+		let i=0, j=0, k=0, m=0;
+		let commonNumStates = new Uint32Array(commonFactor.varNumStates);
+		let leftDiffNumStates = new Uint32Array(leftDiffFactor.varNumStates);
+		let rightDiffNumStates = new Uint32Array(rightDiffFactor.varNumStates);
+		let commonIndexes = new Uint32Array(commonFactor.varNumStates.length);
+		let leftDiffIndexes = new Uint32Array(leftDiffFactor.varNumStates.length);
+		let rightDiffIndexes = new Uint32Array(rightDiffFactor.varNumStates.length);
+		/// Map the common state index for each v, to a position in leftFactor (or rightFactor) for that v
+		let commonLeftPositions = commonFactor.vars.map(v => leftFactor.positions[leftFactor.vars.indexOf(v)] ?? 0);
+		let commonRightPositions = commonFactor.vars.map(v => rightFactor.positions[rightFactor.vars.indexOf(v)] ?? 0);
+		let leftDiffPositions = leftDiffFactor.vars.map(v => leftFactor.positions[leftFactor.vars.indexOf(v)] ?? 0);
+		let rightDiffPositions = rightDiffFactor.vars.map(v => rightFactor.positions[rightFactor.vars.indexOf(v)] ?? 0);
+		let commonLeftPartialPos = 0, commonRightPartialPos = 0, leftDiffPartialPos = 0, rightDiffPartialPos = 0;
+		let commonGroup = 0, leftGroup = 0;
+		let rdiLength = rightDiffIndexes.length-1, ldiLength = leftDiffIndexes.length-1, ciLength = commonIndexes.length-1;
+		let leftDiffValues = new Float32Array(leftDiffLength);
+		let rightDiffValues = new Float32Array(rightDiffLength);
+		let identityMap = num => Array.from({length:num},(_,i)=>i);
+		let leftIndexMap = commonFactor.activeStates.map((active,k) => {
+			if (active==null)  return identityMap(commonFactor.varNumStates[k]);
+			let j = leftFactor.vars.indexOf(commonFactor.vars[k]);
+			return active.map((s,i) => {
+				return leftFactor.activeStates[j]==null ? s : leftFactor.activeStates[j].indexOf(s);
+			});
+		});
+		let rightIndexMap = commonFactor.activeStates.map((active,k) => {
+			if (active==null)  return identityMap(commonFactor.varNumStates[k]);
+			let j = rightFactor.vars.indexOf(commonFactor.vars[k]);
+			return active.map((s,i) => {
+				return rightFactor.activeStates[j]==null ? s : rightFactor.activeStates[j].indexOf(s);
+			});
+		});
+		for (let k=0; k<commonIndexes.length; k++) {
+			commonLeftPartialPos += leftIndexMap[k][0]*commonLeftPositions[k];
+			commonRightPartialPos += rightIndexMap[k][0]*commonRightPositions[k];
+		}
+		// console.log(commonLeftPartialPos, commonRightPartialPos, commonFactor.activeStates);
+		// debugger;
+		for (i=0; i<commonLength; i++) {
+
+			for (k=0; k<rightDiffLength; k++) {
+				rightDiffValues[k] = rightFactor.values[commonRightPartialPos + rightDiffPartialPos];
+				/// Manually inling this is way faster (and no stack use at all)
+				for (m=rdiLength; m>=0; m--) {
+					rightDiffIndexes[m]++;
+					if (rightDiffIndexes[m] >= rightDiffNumStates[m]) {
+						rightDiffPartialPos -= (rightDiffIndexes[m]-1)*rightDiffPositions[m];
+						rightDiffIndexes[m] = 0;
+					}
+					else {
+						rightDiffPartialPos += rightDiffPositions[m];
+						break;
+					}
+				}
+			}
+
+			for (k=0; k<leftDiffLength; k++) {
+				leftDiffValues[k] = leftFactor.values[commonLeftPartialPos + leftDiffPartialPos];
+				/// Manually inling this is way faster (and no stack use at all)
+				for (m=ldiLength; m>=0; m--) {
+					leftDiffIndexes[m]++;
+					if (leftDiffIndexes[m] >= leftDiffNumStates[m]) {
+						leftDiffPartialPos -= (leftDiffIndexes[m]-1)*leftDiffPositions[m];
+						leftDiffIndexes[m] = 0;
+					}
+					else {
+						leftDiffPartialPos += leftDiffPositions[m];
+						break;
+					}
+				}
+			}
+
+			commonGroup = i*diffLength;
+			for (j=0; j<leftDiffLength; j++) {
+				/// Convert each the indexes into
+				leftGroup = j*rightDiffLength;
+				/// This is the hottest part of this function
+				for (k=0; k<rightDiffLength; k++) {
+					values[commonGroup + leftGroup + k] = leftDiffValues[j] * rightDiffValues[k];
+				}
+			}
+			
+			for (k=ciLength; k>=0; k--) {
+				m = ++commonIndexes[k];
+				if (commonIndexes[k] >= commonNumStates[k]) {
+					commonLeftPartialPos -= (leftIndexMap[k][m-1]-leftIndexMap[k][0])*commonLeftPositions[k];
+					commonRightPartialPos -= (rightIndexMap[k][m-1]-rightIndexMap[k][0])*commonRightPositions[k];
+					commonIndexes[k] = 0;
+				}
+				else {
+					commonLeftPartialPos += (leftIndexMap[k][m]-leftIndexMap[k][m-1])*commonLeftPositions[k];
+					commonRightPartialPos += (rightIndexMap[k][m]-rightIndexMap[k][m-1])*commonRightPositions[k];
+					break;
+				}
+			}
+		}
+		
+		newFactor.make(vars, varNumStates, values, conditionals, activeStates);
+		
 		return newFactor;
 	}
 	
@@ -2615,11 +2833,8 @@ var Factor = class {
 		
 		let newNumStates = varNumStates.reduce((a,v) => a*v, 1);
 		
-		// let values = new Float32Array(new ArrayBuffer(newNumStates*4));
 		let values = new Float32Array(newNumStates);
 		
-		// let thisIndex = new Uint32Array(new ArrayBuffer(this.vars.length*4));
-		// let newIndex = new Uint32Array(new ArrayBuffer(vars.length*4));
 		let thisIndex = new Uint32Array(this.vars.length);
 		let newIndex = new Uint32Array(vars.length);
 		
@@ -2649,23 +2864,20 @@ var Factor = class {
 		return factor;
 	}
 	
-	marginalize1(id, factorCache = null) {
+	marginalize1(id) {
 		counters.marginalize1++;
-		/*let factorKey = null;
-		if (factorCache) {
-			factorKey = this.vars.filter(v => v!=id).sort().join('|');
-			if (factorCache[factorKey])  return factorCache[factorKey];
-		}*/
-		
+
 		let factor = new Factor();
 		
 		let varNumStates = [];
 		let numMarginalStates = 0;
+		let activeStates = [];
 		let jump = 1;
 		let vars = this.vars.filter((v,i) => {
 			let include = v != id;
 			if (include) {
 				varNumStates.push(this.varNumStates[i]);
+				activeStates.push(this.activeStates[i]==null ? this.activeStates[i] : this.activeStates[i].slice());
 				if (numMarginalStates) {
 					jump *= this.varNumStates[i];
 				}
@@ -2679,7 +2891,6 @@ var Factor = class {
 		let newNumStates = varNumStates.reduce((a,v) => a*v, 1);
 		let conditionals = this.conditionals.slice();
 		
-		// let values = new Float32Array(new ArrayBuffer(newNumStates*4));
 		let values = new Float32Array(newNumStates);
 		
 		let i = 0, j = 0, group = 0;
@@ -2692,9 +2903,51 @@ var Factor = class {
 			}
 		}
 		
-		factor.make(vars, varNumStates, values, conditionals);
+		factor.make(vars, varNumStates, values, conditionals, activeStates);
 		
-		//if (factorCache)  factorCache[factorKey] = factor;
+		return factor;
+	}
+	
+	marginalizeToSingle(id) {
+		counters.marginalize1++;
+
+		let factor = new Factor();
+		
+		let varNumStates = [];
+		let numMarginalStates = 0;
+		let activeStates = [];
+		let jump = 1;
+		let vars = this.vars.filter((v,i) => {
+			let include = v != id;
+			if (include) {
+				varNumStates.push(this.varNumStates[i]);
+				activeStates.push(this.activeStates[i]==null ? this.activeStates[i] : this.activeStates[i].slice());
+				if (numMarginalStates) {
+					jump *= this.varNumStates[i];
+				}
+			}
+			else {
+				numMarginalStates = this.varNumStates[i];
+			}
+			return include;
+		});
+		
+		let newNumStates = varNumStates.reduce((a,v) => a*v, 1);
+		let conditionals = this.conditionals.slice();
+		
+		let values = new Float32Array(newNumStates);
+		
+		let i = 0, j = 0, group = 0;
+		let iter = 0;
+		let valueI = 0;
+		for (i=0; i<values.length; i++) {
+			group = Math.floor(i/jump)*(numMarginalStates*jump) + i%jump;
+			for (j=0; j<numMarginalStates; j++) {
+				values[i] += this.values[group + j*jump];
+			}
+		}
+		
+		factor.make(vars, varNumStates, values, conditionals, activeStates);
 		
 		return factor;
 	}
@@ -2737,7 +2990,6 @@ var Factor = class {
 		for (let i=0; i<factors.length; i++) {
 			let factorVars = factors[i].vars;
 			let factorVarNumStates = factors[i].varNumStates;
-			// factorIndexMap.push(new Uint32Array(new ArrayBuffer(4*factorVars.length)));
 			factorIndexMap.push(new Uint32Array(factorVars.length));
 			for (let j=0; j<factorVars.length; j++) {
 				let n = factorVars[j];
@@ -2754,12 +3006,10 @@ var Factor = class {
 			}
 		}
 		varNumStates = new Uint32Array(varNumStates);
-		// let mulIndex = new Uint32Array(new ArrayBuffer(4*vars.length));
 		let mulIndex = new Uint32Array(vars.length);
 		
 		/// Set up the output factor
 		newFactor.make(finalVars, finalVarNumStates);
-		// let newFactorMap = new Uint32Array(new ArrayBuffer(4*finalVars.length));
 		let newFactorMap = new Uint32Array(finalVars.length);
 		for (let j=0; j<finalVars.length; j++) {
 			newFactorMap[j] = vars.indexOf(finalVars[j]);
@@ -2800,8 +3050,14 @@ var Factor = class {
 		return newFactor;
 	}
 	
+	toStringNodes() {
+		return '#F'+this.factorNum+'('+this.getDomain().join(',')+')';
+	}
+	
 	toStringShort() {
-		let str = 'Factor('+this.vars.join(',')+' as '+this.unconditionals.join(',')+(this.conditionals?('|'+this.conditionals.join(',')):'')+')';
+		let str = 'Factor(#'+this.factorNum+', '+this.vars.join(',')+
+			' as '+this.unconditionals.join(',')+(this.conditionals?('|'+this.conditionals.join(',')):'')+
+			' - Active:'+this.activeStates.map(v => v==null?'_':v.join(':')).join(',')+')';
 		return str;
 	}
 	
@@ -2811,7 +3067,7 @@ var Factor = class {
 		this.makeIndexes();
 		for (let i=0; i<this.values.length; i++) {
 			str += this.indexes.slice(i*n, i*n+n).join('\t');
-			str += '\t|\t' + this.values[i]+'\n';
+			str += '\t|\t' + sigFig(this.values[i],3)+'\n';
 		}
 		return str;
 	}
@@ -2829,6 +3085,8 @@ var Factor = class {
 		factor.varNumStates = Array.from({length:numVars}, (v,i) => numStates);
 		factor.values = Float32Array.from({length:numStates**numVars}, _=>Math.floor(Math.random()*20));
 		
+		factor.make(factor.vars, factor.varNumStates, factor.values);
+		
 		return factor;
 	}
 	
@@ -2838,29 +3096,75 @@ var Factor = class {
 		let varNumStates = Array.isArray(numStates) ? numStates : new Array(numVars).fill(numStates);
 		let factor = new Factor();
 		
+		vars = vars ?? Array.from({length:numVars}, (v,i) => String.fromCharCode(65+i));
+		varNumStates = varNumStates.slice();
+		let values = Float32Array.from({length:varNumStates.reduce((a,v)=>a*v,1)}, (_,i)=>(i+1));
 		
-		factor.vars = vars ?? Array.from({length:numVars}, (v,i) => String.fromCharCode(65+i));
-		factor.varNumStates = varNumStates.slice();
-		factor.values = Float32Array.from({length:varNumStates.reduce((a,v)=>a*v,1)}, (_,i)=>(i+1));
+		factor.make(vars, varNumStates, values);
 		
 		return factor;
 	}
 	
 	static testMultiply() {
-		let f1 = Factor.makeTestFactor(['A','B','C']);
-		console.log(f1.toString());
-		let f2 = Factor.makeTestFactor(['D','E','C','F','A']);
-		console.log(f2.toString());
-		console.log('mf:', f1.multiplyFaster(f2).moveVarsToStart(['A','B','C']).toString());
-		console.log('mf3:', f1.multiplyFaster3(f2).toString());
+		// // No common factor
+		// let f1 = Factor.makeTestFactor(['A']);
+		// let f2 = Factor.makeTestFactor(['D']);
+		// 2nd = evidence
+		// let f1 = Factor.makeTestFactor(['A']); f1.values.set([0,1])
+		// let f2 = Factor.makeTestFactor(['A']); f2.values.set([0,1]);
+		// let f3 = Factor.makeTestFactor(['A']); f3.values.set([0.3,0.7]);
+		// f1 = f1.select({A:1});
+		// f2 = f2.select({A:1});
+		// // // One common factor
+		// // let f1 = Factor.makeTestFactor(['A']);
+		// // let f2 = Factor.makeTestFactor(['A','D']);
+		// // // Two common factors
+		// // let f1 = Factor.makeTestFactor(['A','B','C']);
+		// // let f2 = Factor.makeTestFactor(['A','E','C','F','D']);
+		// // Larger factors
+		// // let f1 = Factor.makeTestFactor(['A','B','C','D','E','G','K']);
+		// // let f2 = Factor.makeTestFactor(['D','E','C','F','A','G','X','Y']);
+		// // console.log(f1.toString());
+		// // console.log(f2.toString());
+		// // console.log('mf:', f1.multiplyFaster(f2).moveVarsToStart(['A','B','C']).toString());
+		// // console.log('mf3:', f1.multiplyFaster3(f2).toString());
+		// // console.log('mf4:', f1.multiplyFaster4(f2).toString());
+		// // f1 = f1.select({A:1});
+		// console.log('f1:', f1.toString());
+		// console.log('f2:', f2.toString());
+		// console.log('mf4_cond:', f1.multiplyFaster4(f2).multiplyFaster4(f3).toString());
+		
+		let f1j = JSON.parse('{"factorNum":117,"vars":["CBODD_12_15","CKNI_12_15"],"varNumStates":[1,3],"activeStates":[[2],null],"values":{"0":0.20110072195529938,"1":0.409842312335968,"2":0.1818510740995407},"conditionals":["CKNI_12_00"],"unconditionals":["CBODD_12_15","CKNI_12_15"],"_size":3}');
+		let f2j = JSON.parse('{"factorNum":30,"vars":["CKNI_12_15","CBODD_12_15","CBODD_12_30"],"varNumStates":[3,4,4],"activeStates":[null,null,null],"values":{"0":0.9589062333106995,"1":0.04109375178813934,"2":0,"3":0,"4":0.03241562470793724,"5":0.9542562365531921,"6":0.013328124769032001,"7":0,"8":0,"9":0.07017968595027924,"10":0.9273421764373779,"11":0.002478125039488077,"12":0,"13":0,"14":0.11465000361204147,"15":0.8853499889373779,"16":0.8954437971115112,"17":0.10455624759197235,"18":0,"19":0,"20":0.008292187005281448,"21":0.9310718774795532,"22":0.06063593924045563,"23":0,"24":0,"25":0.025667186826467514,"26":0.9449312686920166,"27":0.029401563107967377,"28":0,"29":0,"30":0.0540640614926815,"31":0.9459359645843506,"32":0.8250750303268433,"33":0.17492499947547913,"34":0,"35":0,"36":0.001381249981932342,"37":0.8734655976295471,"38":0.12515312433242798,"39":0,"40":0,"41":0.007762500084936619,"42":0.9093124866485596,"43":0.08292499929666519,"44":0,"45":0,"46":0.02175937592983246,"47":0.9782406091690063},"conditionals":["CKNI_12_15","CBODD_12_15"],"unconditionals":["CBODD_12_30"],"_size":48,"keyNode":"CBODD_12_30","_isUnitPotential":false}');
+		
+		{
+			let f1 = new Factor();
+			let f2 = new Factor();
+			f1.make(f1j.vars, f1j.varNumStates, [...Object.values(f1j.values)/*.map((_,i)=>i+1)*/], f1j.conditionals, f1j.activeStates);
+			f2.make(f2j.vars, f2j.varNumStates, [...Object.values(f2j.values)/*.map((_,i)=>i+1)*/], f2j.conditionals, f2j.activeStates);
+			
+			let res1 = f1.multiplyFaster4(f2);
+			console.log(f1.toString());
+			console.log(f2.toString());
+			console.log(res1.toString());
+		}
 
-		let iters = 10000;
-		console.time('sep');
-		for (let i=0;i<iters;i++) {  f1.multiplyFaster(f2);  }
-		console.timeEnd('sep');
-		console.time('sep2');
-		for (let i=0;i<iters;i++) {  f1.multiplyFaster3(f2);  }
-		console.timeEnd('sep2');
+		// let iters = 10000;
+		// // console.time('sep');
+		// // for (let i=0;i<iters;i++) {  f1.multiplyFaster(f2);  }
+		// // console.timeEnd('sep');
+		// console.time('mul3');
+		// for (let i=0;i<iters;i++) {  f1.multiplyFaster3(f2);  }
+		// console.timeEnd('mul3');
+		// console.time('mul4');
+		// for (let i=0;i<iters;i++) {  f1.multiplyFaster4(f2);  }
+		// console.timeEnd('mul4');
+		// console.time('mul3');
+		// for (let i=0;i<iters;i++) {  f1.multiplyFaster3(f2);  }
+		// console.timeEnd('mul3');
+		// console.time('mul4');
+		// for (let i=0;i<iters;i++) {  f1.multiplyFaster4(f2);  }
+		// console.timeEnd('mul4');
 		
 		// let f1 = Factor.makeTestFactor(['K','L','A','B','C','F','D']);
 		// console.log(f1.toString());
@@ -2895,32 +3199,32 @@ var Factor = class {
 			// }
 		// }
 		
-		for (let t=0; t<10; t++) {
-			let f1 = Factor.makeTestFactor(Math.floor(Math.random()*4+2));
-			let f2Vars = [...new Set(Array.from({length:Math.floor(Math.random()*6+2)}, _=>String.fromCharCode(Math.floor(Math.random()*26+65))))];
-			let f2 = Factor.makeTestFactor(f2Vars);
-			let res1 = f1.multiplyFaster(f2);
-			let res2 = f1.multiplyFaster3(f2);
-			console.log(f1.vars, f2.vars);
-			console.time('sep');
-			for (let i=0;i<iters;i++) {  f1.multiplyFaster(f2)  }
-			console.timeEnd('sep');
-			console.time('sep2');
-			for (let i=0;i<iters;i++) {  f1.multiplyFaster2(f2)  }
-			console.timeEnd('sep2');
-			// console.log('Orig:',res2.vars);
-			res2.vars.toReversed().forEach(v => { res1 = res1.moveVarToStart(v); /*console.log(res1.vars);*/ });
-			// console.log(res1.toString());
-			// console.log(res2.toString());
-			console.log('try',t);
-			if (!res1.values.reduce((a,v,i)=>a && v==res2.values[i], true)) {
-				console.log(f1.toString());
-				console.log(f2.toString());
-				console.log(res1.toString());
-				console.log(res2.toString());
-				break;
-			}
-		}
+		// for (let t=0; t<10; t++) {
+			// let f1 = Factor.makeTestFactor(Math.floor(Math.random()*4+2));
+			// let f2Vars = [...new Set(Array.from({length:Math.floor(Math.random()*6+2)}, _=>String.fromCharCode(Math.floor(Math.random()*26+65))))];
+			// let f2 = Factor.makeTestFactor(f2Vars);
+			// let res1 = f1.multiplyFaster(f2);
+			// let res2 = f1.multiplyFaster3(f2);
+			// console.log(f1.vars, f2.vars);
+			// console.time('sep');
+			// for (let i=0;i<iters;i++) {  f1.multiplyFaster(f2)  }
+			// console.timeEnd('sep');
+			// console.time('sep2');
+			// for (let i=0;i<iters;i++) {  f1.multiplyFaster2(f2)  }
+			// console.timeEnd('sep2');
+			// // console.log('Orig:',res2.vars);
+			// res2.vars.toReversed().forEach(v => { res1 = res1.moveVarToStart(v); /*console.log(res1.vars);*/ });
+			// // console.log(res1.toString());
+			// // console.log(res2.toString());
+			// console.log('try',t);
+			// if (!res1.values.reduce((a,v,i)=>a && v==res2.values[i], true)) {
+				// console.log(f1.toString());
+				// console.log(f2.toString());
+				// console.log(res1.toString());
+				// console.log(res2.toString());
+				// break;
+			// }
+		// }
 
 		// let iters = 1000;
 		// let f1 = Factor.makeTestFactor(['A','B','C']);

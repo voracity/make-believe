@@ -1386,12 +1386,12 @@ Object.assign(BN.prototype, {
 			graphItem.pathsOut
 				.filter(p => graphItems.includes(p.childItem))
 				.forEach(p => __temp_removePath(p));
-			console.log('before', graphItem.id, graphItem.pathsIn, graphItem.pathsOut);
+			// console.log('before', graphItem.id, graphItem.pathsIn, graphItem.pathsOut);
 			graphItem.pathsIn = 
 				graphItem.pathsIn.filter(p => !graphItems.includes(p.parentItem));
 			graphItem.pathsOut =
 				graphItem.pathsOut.filter(p => !graphItems.includes(p.childItem));
-			console.log('after', graphItem.id, graphItem.pathsIn, graphItem.pathsOut);
+			// console.log('after', graphItem.id, graphItem.pathsIn, graphItem.pathsOut);
 		}
 		
 		let pathsToDraw = [];
@@ -1445,7 +1445,7 @@ Object.assign(BN.prototype, {
 								},
 							});
 							/// Add this to the list of arcs to draw
-							console.log("Drawing:", parent.id, "->", graphItem.id);
+							// console.log("Drawing:", parent.id, "->", graphItem.id);
 							pathsToDraw.push(graphItem.pathsIn[graphItem.pathsIn.length-1]);
 						}
 					}
@@ -5870,7 +5870,7 @@ CPT.Editor = class extends Definition.Editor {
 			let tr = table.rows[firstRowI+i];
 			/// Now list the distro for each row
 			for (let j=0; j<node.states.length; j++) {
-				console.log(tr, j, firstRowI, i , table);
+				// console.log(tr, j, firstRowI, i , table);
 				if (j >= node.states.length) {
 					this.addStateEntry(tr, 0);
 				}
@@ -8089,6 +8089,10 @@ $(document).ready(function() {
 			MenuAction('<hr>', {type: 'separator'}),
 		]}),
 		Menu({label:"(Dev)", type: 'debugMenu', items: [
+			MenuAction(n('span',n('input.cecCheck', {type:'checkbox',checked:mbConfig.crossEvidenceCaching?'checked':null}), 'Between evidence caching (JTree)'), _=>{
+				mbConfig.crossEvidenceCaching = !mbConfig.crossEvidenceCaching;
+				$('.cecCheck').prop('checked', mbConfig.crossEvidenceCaching);
+			}),
 			MenuAction('# Workers: <input type="text" name="numWorkers" value="2">', function() { }),
 			MenuAction('# Perf Loops: <input type="text" name="perfLoops" value="100">', function() { }),
 			MenuAction('# Perf Samples: <input type="text" name="perfIterations" value="10000">', function() { }),
@@ -8182,7 +8186,7 @@ $(document).ready(function() {
 	});
 
 	/** Evidence **/
-	$(".bnview").on("click", ".stateName, .beliefBar", function() {
+	$(".bnview").on("mousedown", ".stateName, .beliefBar", function() {
 		var nodeId = $(this).closest(".node").attr("id").replace(/^display_/, '');
 		var node = currentBn.nodesById[nodeId];
 		var stateI = node.statesById[$(this).closest('.state').find('.stateName').text()].index;
@@ -9242,6 +9246,10 @@ $(document).ready(function() {
 	});
 	
 	window.dispatchEvent(new Event('MakeBelieveLoaded'));
+});
+
+window.addEventListener('MakeBelieveLoaded', event => {
+	startUpTests();
 });
 
 function addStyles(name, styles) {

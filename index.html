@@ -61,6 +61,7 @@
 	<script src="_/js/gui.js"></script>
 	<script src="_/js/contextmenus.js"></script>
 	<script src="_/js/LaTeXMathML.min.js"></script>
+	<script src="_/js/startuptests.js"></script>
 	<style>
 	:root {
 		--cpt-background0: rgb(255, 198, 35);
@@ -115,7 +116,7 @@
 	.node .state .stateName:hover { cursor: pointer; opacity: 0.5; }
 	.node .state .stateName[contenteditable]:hover { cursor: text; }
 	.node .state > div { display: table-cell; vertical-align: middle; padding: 1px 5px 2px; }
-	.node .state .prob { width: 2.6em; text-align: right; padding-left: 5px; overflow: hidden; display: inline-block; padding-right: 3px; justify-self: end; }
+	.node .state .prob { width: 2.6em; text-align: right; padding-left: 5px; overflow: hidden; white-space: pre; display: inline-block; padding-right: 3px; justify-self: end; }
 	.node .state .beliefBarView { min-width: 50px; position: relative; border-left: solid 1px black; padding: 1px 0; background: #7772; display: flex; flex-direction: column; align-items: start; justify-content: center; }
 	.node.dynamic .state .beliefBarView { min-width: 100px; height: 26px; }
 	.node .state .beliefBar { background: #000c; height: 0.9em; width: 0px; }
