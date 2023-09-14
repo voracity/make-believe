@@ -9,7 +9,12 @@ var mbConfig = {
 	numWorkers: 2,
 	iterations: 10000,
 	sigFig(num) { return sigFig(num, 4); },
-	crossEvidenceCaching: false,
+	/// These normally for debugging
+	jtree: {
+		factorCaching: true,
+		crossEvidenceCaching: false,
+		useUnitPotentials: true, 
+	}
 };
 var FILE_EXTENSIONS = {
 	mb: {text: true},
@@ -96,19 +101,7 @@ if (typeof($)=="undefined") {
 	//console.log = function(){}
 
 	var cheerio = require('cheerio');
-	/*** Am using Object.assign now
-	/// I use jQuery's extend, add something like it
-	$.extend = function() {
-		var newObj = {};
-		for (var i=0; i<arguments.length; i++) {
-			var nextObj = arguments[i];
-			for (var k in nextObj) {
-				newObj[k] = nextObj[k];
-			}
-		}
-		return newObj;
-	}
-	***/
+	var $ = null; /// Set it up as a global, until we remove jquery/cheerio dependency from engine side
 	bu = require('./beliefUpdate_worker.js');
 	({addObjectLinks} = require('./objectlinks.js'));
 	({CPT, CDT, Equation, NodeDefinitions} = require('./definitions.js'));
@@ -533,7 +526,7 @@ Node.__fieldCopyTypes = {parents: 'shallow', children: 'shallow', submodelPath: 
 Node.makeNodeFromXdslEl = function (el, $xdsl, opts) {
 	opts = opts || {};
 	opts.engineOnly = opts.engineOnly || false;
-
+	
 	var $el = $(el);
 	var states = $el.find("state").toArray().map(function(a,i){ return new State({id:$(a).attr("id"), index: i}); });
 	var stateIndex = {}; states.forEach(function(a,i) { stateIndex[a.id] = i; });
@@ -546,6 +539,7 @@ Node.makeNodeFromXdslEl = function (el, $xdsl, opts) {
 	var funcText = null;
 	var utils = null;
 
+	console.log($el);
 	if ($el.is("cpt")) {
 		cpt = $el.find("probabilities").text()._splitNotEmpty(/\s+/).map(function(p){return parseFloat(p)});
 		def = new CPT(null, cpt);
@@ -2716,8 +2710,8 @@ Object.assign(BN.prototype, {
 		*/
 		text = text.replace(/<(\/?)caption>/g, '<$1tempcaption>');
 		if (cheerio) {
-			let $ = cheerio.load(text);
-			objs = $();
+			$ = cheerio.load(text);
+			objs = $('smile');
 		}
 		else {
 			try {
@@ -2742,7 +2736,6 @@ Object.assign(BN.prototype, {
 	load_xdsl: function(xdsl) {
 		/// 2018-03-1 I used to have .find('smile') inside loadXml. I don't seem to need it now...
 		this.objs = this.loadXml(xdsl);
-		let $ = cheerio ? this.objs.find : jQuery;
 	
 		var bn = this;
 		this.nodes = [];
@@ -3570,7 +3563,6 @@ ${nodesStr}
 		bn._rootNodes = [];
 		for (var i in bn.nodes) {
 			var node = bn.nodes[i];
-			//onsole.log(node.parents.length, node);
 			if (node.parents.length == 0) {
 				bn._rootNodes.push(node);
 			}
@@ -4619,7 +4611,7 @@ ${nodesStr}
 		jtree.compile();
 		console.timeEnd('compile');*/
 		console.time('propagate');
-		let beliefs = this.jtree.propagate(this.evidence, {crossEvidenceCaching: mbConfig.crossEvidenceCaching});
+		let beliefs = this.jtree.propagate(this.evidence, {dbg:dbg._on,...mbConfig.jtree});
 		for (let [nodeId,bels] of Object.entries(beliefs)) {
 			this.nodesById[nodeId].beliefs = bels;
 		}
@@ -4646,7 +4638,7 @@ ${nodesStr}
 		/// Just the 1 worker
 		let w = this._workers[0];
 
-		w.postMessage([1, evidenceArr, {crossEvidenceCaching: mbConfig.crossEvidenceCaching}]);
+		w.postMessage([1, evidenceArr, {dbg:dbg._on,...mbConfig.jtree}]);
 		w.onmessage = function(e) {
 			if (e.data[0]==0) {
 				var workerBeliefs = e.data[1];

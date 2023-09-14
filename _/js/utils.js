@@ -2,6 +2,13 @@
 	XXX - I need to clean out this utils.js file. Lots of unnecessary stuff.
 ***/
 
+/// Polyfills
+if (!Array.prototype.toSpliced) {
+	Object.defineProperty(Array.prototype, 'toSpliced', {value: function (...args) {
+		return Array.from(this).splice(...args);
+	}});
+}
+
 if (typeof(console)=="undefined") {
 	console = {
 		log: function() {
@@ -14,6 +21,44 @@ if (typeof(console)=="undefined") {
 		}
 	};
 }
+
+/// Arg *must* be a function (so we can ignore any computations it might do if dbg is off)
+var dbg = (arg) => {
+	if (!dbg._on)  return;
+	let res = arg(console.log);
+	/*if (res!==undefined) {
+		let errLine = new Error().stack.split(/\n/)[1];
+		errLine = errLine.replace(/@.*\//, '@');
+		console.log("%c%s", "color:#003eaa", errLine, ...(res?.[Symbol.iterator] && typeof(res)!='string' ? res : [res]));
+	}*/
+};
+dbg._on = true;
+dbg._origLog = console.log;
+// xxx: dbg._stack = [];
+Object.defineProperty(dbg, 'on', {get(){
+	console.log = dbg._origLog;
+	dbg._on=true;
+	return _=>{};
+}});
+Object.defineProperty(dbg, 'off', {get(){
+	console.log = _=>{};
+	dbg._on=false;
+	return _=>{};
+}});
+dbg.assert = (arg) => {
+	let res = arg();
+	if (!res) {
+		//debugger;
+		console.warn('Assertion failed', arg.toString());
+		console.trace();
+	}
+};
+// dbg = _=>{};
+// dbg.on = null;
+// dbg.off = null;
+// dbg.assert = _=>{};
+
+dbg.off;
 
 var counters = {
 	newFactor: 0,
@@ -28,6 +73,8 @@ var counters = {
 	unitPotentials: 0,
 	marginalHit: 0,
 	multiplyHit: 0,
+	jtreeMultiply: 0,
+	jtreeMarginalize: 0,
 	reset() {
 		for (let i in this) {
 			this[i] = 0;
@@ -54,9 +101,46 @@ function zip(...rows) {
 	return rows[0].map((_,i) => rows.map(row => row[i]));
 }
 
+function zipObject(fields, values) {
+	return Object.fromEntries(zip(fields,values));
+}
+
+function unzipObject(obj) {
+	return [Object.keys(obj),Object.values(obj)];
+}
+
+function mergeObjects(selectLeft, ...objs) {
+	let retObj = Object.assign(objs[0]);
+	for (let obj of objs.slice(1)) {
+		for (let [k,v] of Object.entries(obj)) {
+			let overwrite = !(k in retObj) || !selectLeft(retObj[k],obj[k]);
+			if (overwrite) {
+				retObj[k] = v;
+			}
+		}
+	}
+	return retObj;
+}
+
 function defaultGet(val, defaultValue) {
 	return val===null || val===undefined ? defaultValue : val;
 }
+
+var Stats = class {
+	n = 0;
+	sum = 0;
+	sumsq = 0;
+	add(...v) {
+		this.n += v.length;
+		this.sum += v.reduce((a,v)=>a+v,0);
+		this.sumsq += v.reduce((a,v)=>a+v**2,0);
+	}
+	mean() { return this.n ? this.sum/this.n : null; }
+	/// Pop
+	sd() { return this.n ? Math.sqrt(this.var()) : null; }
+	var() { return this.n ? this.sumsq/this.n - (this.sum/this.n)**2 : null; }
+	str() { return `(n=${this.n}, μ=${sigFig(this.mean(),3)}, σ=${sigFig(this.sd(),3)})`; }
+};
 
 /// I'm not sure if this guarantees a nicely formatted string.
 function sigFig(num, digits) {

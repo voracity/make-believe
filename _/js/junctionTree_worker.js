@@ -104,16 +104,35 @@ class JunctionTree {
 		this.cliques = null;
 	}
 	
-	getCliqueGraphString() {
+	getCliqueGraphString(o = {}) {
+		o.highlightPotentials ??= false;
+		
+		let cliqueId = c => c.nodes.map(n => n.id).join(', ');
+		let cliqueIdFormat = c => c.nodes.map(n => {
+			let cliqueHasPotential = c.potentials.map(p=>p.unconditionals).flat().includes(n.id);
+			if (cliqueHasPotential) {
+				return `<font color="red">${n.id}</font>`;
+			}
+			return n.id;
+		}).join(', ');
+		
+		let formatting = _=> {
+			if (o.highlightPotentials) {
+				return this.cliques.map(c => `\t"${cliqueId(c)}" [label=<${cliqueIdFormat(c)}>];\n`).join('');
+			}
+			return '';
+		};
+		
 		let roots = this.cliques.filter(c => c.parent===null);
 		let str = 'digraph jtree {\n';
+		str += formatting();
 		for (let root of roots) {
 			let cliquesToCheck = [root];
 			while (cliquesToCheck.length) {
 				let clique = cliquesToCheck.shift();
-				let fromCliqueStr = '"' + clique.nodes.map(n => n.id).join(', ') +'"';
+				let fromCliqueStr = '"' + cliqueId(clique) +'"';
 				for (let toClique of clique.children) {
-					let toCliqueStr = '"' + toClique.nodes.map(n => n.id).join(', ') + '"';
+					let toCliqueStr = '"' + cliqueId(toClique) + '"';
 					let sepStr = '"' + toClique.separator.getDomain().join(', ') + '"';
 					str += '\t' + sepStr + ' [shape=box];\n';
 					str += '\t' + fromCliqueStr + ' -> ' + sepStr + ';\n';
@@ -444,15 +463,20 @@ class JunctionTree {
 	
 	addMultiplied(p1, p2, res) {
 		// if (p2.factorNum < p1.factorNum)  [p2,p1] = [p1,p2]; // Is this supposed to be commented out?
-		p1.childFactors.push(res);
-		p2.childFactors.push(res);
+		dbg(_=>{
+			p1.childFactors.push(res);
+			p2.childFactors.push(res);
+		});
 
-		if (!this.mulCache)  this.mulCache = new Map();
-		if (!this.mulCache.has(p1))  this.mulCache.set(p1, new Map());
-		if (!this.mulCache.get(p1).has(p2))  this.mulCache.get(p1).set(p2, res);
+		if (this.options.factorCaching) {
+			if (!this.mulCache)  this.mulCache = new Map();
+			if (!this.mulCache.has(p1))  this.mulCache.set(p1, new Map());
+			if (!this.mulCache.get(p1).has(p2))  this.mulCache.get(p1).set(p2, res);
+		}
 	}
 	
 	multiply(potentials) {
+		counters.jtreeMultiply++;
 		/*if (!window.numMultiples) { window.numMultiples = 0; window.numGt1 = 0; }
 		console.log('multiply:', potentials.map(p => p.getDomain().join(',')).join(' x '), ++window.numMultiples, 'n'+potentials.length);
 		if (potentials.length>2)  window.numGt1++;*/
@@ -481,9 +505,11 @@ class JunctionTree {
 				potential = Factor.fromDef(potential);
 			}*/
 			let newPotentialRes = null;
-			if (potential.isUnitPotential()) {
+			if (this.options.useUnitPotentials && potential.isUnitPotential()) {
 				counters.unitPotentials++;
-				newPotentialRes = newPotential.addVars(potential.vars, potential.varNumStates, potential.values[0]);
+				newPotentialRes = newPotential.addVars(potential.vars, potential.varNumStates, potential.values[0], potential.conditional, potential.activeStates);
+				// /// This kind of maybe works, except when it doesn't. (Possibly when marginalising down to root nodes?)
+				// newPotentialRes = newPotential;
 			}
 			else {
 				// newPotential = newPotential.isUnitPotential() ? potential : potential.isUnitPotential() ? newPotential : newPotential.multiplyFaster(potential, this.factorCache);
@@ -514,6 +540,7 @@ class JunctionTree {
 	}
 
 	marginalize(item, itemToRemove) {
+		counters.jtreeMarginalize++;
 		/// If CPT, convert first
 		if (item.def) {
 			item = Factor.fromDef(item);
@@ -526,8 +553,10 @@ class JunctionTree {
 		}
 		
 		let marg = item.marginalize1(itemToRemove);
-		item.childFactors.push(marg);
-		this.margCache.get(item).set(itemToRemove, marg);
+		dbg(_=>item.childFactors.push(marg));
+		if (this.options.factorCaching) {
+			this.margCache.get(item).set(itemToRemove, marg);
+		}
 		return marg;
 	}
 	
@@ -563,7 +592,7 @@ class JunctionTree {
 		
 		// console.log('all potentials:', potentials, keptPotentials);
 		
-		potentials = keptPotentials;
+		if (this.options.useUnitPotentials)  potentials = keptPotentials;
 		
 		/// Remove 0 entries
 		//potentials = potentials.map(p => p.reduceZeros());
@@ -575,66 +604,245 @@ class JunctionTree {
 		for (let potential of potentials) {
 			toRemoveIds = toRemoveIds.union(new Set(potential.getDomain()).difference(nodeIdSet));
 		}
-		console.log('vars needing removal:', toRemoveIds);
-		// // /// Filter out potentials that would be reduced away anyway
-		// let preReducedAwayPotentials = potentials;
-		// potentials = potentials.filter(p => new Set(p.unconditionals).difference(toRemoveIds).size>0);
-		// console.log('potentials before/after removal:', preReducedAwayPotentials, potentials);
-		// /// Throw away toRemoveIds that no longer appear in any potentials
-		// toRemoveIds = [...toRemoveIds].filter(t => potentials.some(p => p.getDomain().includes(t)));
-		// console.log('adjusted toRemoveIds:', toRemoveIds);
-		// // /// Now note how many terms (potentials) the toRemoveIds appear in
-		let terms = {};
-		let termSizes = {};
-		for (let potential of potentials) {
-			for (let id of toRemoveIds) {
-				if (potential.getDomain().includes(id)) {
+		
+		// console.log('vars needing removal:', toRemoveIds);
+
+		let ops = [];
+		// let MULTIPLY = 'Multiply', MARGINALIZE = 'Marginalize';
+		let MULTIPLY = 0, MARGINALIZE = 1;
+		
+		let fauxMultiply = (f1,f2,pastResult) => {
+			let [vars,varNumStates] = unzipObject(mergeObjects((a,b)=>a<b, zipObject(f1.vars, f1.varNumStates),zipObject(f2.vars, f2.varNumStates)));
+			let size = varNumStates.reduce((a,v)=>a*v,1);
+			return {vars,varNumStates,size,score:(f1.score??0)+size};
+		}
+		let fauxMarginalize = (f,id,pastResult) => {
+			if (!f) {
+				let reduction = 1/pastResult.varNumStates[pastResult.vars.indexOf(id)];
+				return {vars:[id], varNumStates: [reduction], size: reduction, score:pastResult.size*reduction, score: 0};
+			}
+			let index = f.vars.indexOf(id); if (index==-1)  return null;
+			let varNumStates = f.varNumStates.toSpliced(index,1);
+			let size = f.varNumStates.reduce((a,v)=>a*v,1);
+			return {vars: f.vars.toSpliced(index,1), varNumStates, size, score:(f.score??0)+size, score: size};
+		}
+		// let estimateResult = (id,potentials,pastResult) => fauxMarginalize(potentials.length ? potentials.reduce((a,p) => fauxMultiply(a,p,a)) : null,id,pastResult);
+		// let estimateResult = (id,potentials,pastResult) => ({score:potentials.reduce((a,p)=>a*p.varNumStates.reduce((a,v)=>a*v,1),1)});
+		// No idea why, but this produces the fastest results...
+		let estimateResult = (id,potentials,pastResult) => ({score:potentials.length});
+		
+		let opPotentials = new Set(potentials);
+		let opRemoveIds = new Set(toRemoveIds);
+		let pastResult = null;
+		while (opRemoveIds.size) {
+			let terms = {};
+			opRemoveIds.forEach(id => terms[id] = []);
+			/// Work out term counts
+			for (let potential of opPotentials) {
+				potential.getDomain().forEach(id => id in terms && terms[id].push(potential));
+			}
+			dbg(_=>_({terms}));
+			// console.log('terms:',terms);
+			// debugger;
+			let termEntries = Object.entries(terms);
+			if (termEntries.length==0)  {
+				console.log('NO MORE TERMS');
+				break;
+			}
+			let countActiveStates = (facs) => {
+				return facs.map(f => f.activeStates.reduce((a,v) => v!=null ? a+1 : a,0)).reduce((a,v)=>a+v,0);
+			};
+			// console.log("terms:",terms);
+			let res;
+			let termEstimates = Object.fromEntries(termEntries.map(([id,potentials]) => [id,estimateResult(id,potentials,pastResult)]));
+			console.log(termEstimates);
+			let [marginalId,factors] = termEntries.reduce((a,v) => termEstimates[v[0]].score < termEstimates[a[0]].score ? v : a);
+			pastResult = termEstimates[marginalId];
+			// factors.sort((a,b)=>b.size()-a.size());
+			// console.log(potentials.map(p => p.toStringNodes()));
+			// if (potentials.length==7 && potentials[0].factorNum==0 && potentials[6].factorNum==10 && opRemoveIds.size==6) {
+				// debugger;
+			// }
+			if (factors.length) {
+				ops.push([MULTIPLY,factors]);
+				opPotentials = opPotentials.difference(factors);
+			}
+			ops.push([MARGINALIZE,[marginalId]]);
+			opRemoveIds.delete(marginalId);
+		}
+		/// If any opPotentials remaining, multiply them (or defer?)
+		if (opPotentials.size) {
+			ops.push([MULTIPLY, [...opPotentials]]);
+		}
+		// console.log("OPS:", ops);
+		/// Collapse together adjacent marginalisations
+		let newOps = [];
+		let lastOp = [];
+		for (let op of ops) {
+			if (op[0]==MARGINALIZE && lastOp[0]==MARGINALIZE) {
+				newOps.at(-1)[1].push(op[1]);
+			}
+			else {
+				newOps.push(op);
+			}
+			lastOp = op;
+		}
+		
+		ops = newOps;
+		console.log('NEWOPS:',newOps);
+		
+		/// XXX: I don't think this has any positive effect whatsoever! (also broken with evidence)
+		/// Remove marginalise of unconditionals
+		let curUncond = new Set();
+		let tempOps = ops;
+		opsChanges: for (let i=0; i<tempOps.length; i++) {
+			let op = tempOps[i];
+			if (op[0]==MARGINALIZE) {
+				if (curUncond.size==1 && [...curUncond][0]==op[1]) {
+					tempOps = tempOps.slice(i+1);
+					i = -1;
+					curUncond = new Set();
+				}
+				else {
+					curUncond.delete(op[1]);
+				}
+			}
+			else if (op[0]==MULTIPLY) {
+				for (let potential of op[1]) {
+					if (potential.activeStates.reduce((a,v)=>v==null && a, true)) {
+						curUncond = curUncond.union(potential.unconditionals);
+					}
+					else {
+						break opsChanges;
+					}
+				}
+			}
+		}
+		if (tempOps.length==0)  tempOps = [[[MULTIPLY], nodeIds.map(id => this.unitPotentials[id])]];
+		
+		let runOps = (ops) => {
+			let currentFactor = null;
+			for (let op of ops) {
+				if (op[0]==MULTIPLY) {
+					let factors = op[1];
+					currentFactor = this.multiply(currentFactor ? factors.concat(currentFactor) : factors);
+					// console.log(op);
+					// console.log(currentFactor.toStringShort(), currentFactor);
+				}
+				else if (op[0]==MARGINALIZE) {
+					let marginaliseIds = op[1];
+					for (let id of marginaliseIds) {
+						currentFactor = this.marginalize(currentFactor, id);
+						// console.log(op);
+						// console.log(currentFactor.toStringShort(), currentFactor);
+					}
+				}
+				else {
+					console.log('Unrecognised op', op);
+				}
+			}
+			dbg(_=>_('After ops:',currentFactor.toStringShort()));
+			
+			return currentFactor;
+		}
+		dbg(_=>_("Merged OPS:", ops.map(op => [op[0],op[1].map(f => f.toStringShort?.() ?? f).join(',')])));
+
+		/// XXX Next steps: Run through the ops (also optimise op order?)
+		// debugger;
+		let newSumProduct = true;
+		if (newSumProduct) {
+			let res = runOps(tempOps);
+			let res2 = runOps(ops);
+			dbg(_=>_("Pre-ops:", ops.map(op => [op[0],op[1].map(f => f.toStringShort?.() ?? f).join(',')])));
+			dbg(_=>_("Post-ops:", tempOps.map(op => [op[0],op[1].map(f => f.toStringShort?.() ?? f).join(',')])));
+			console.log(ops.length, tempOps.length);
+			console.log(res2.toStringShort(),res?.toStringShort?.(),res?.equals?.(res2));
+			return res2==null ? [] : [res2];
+		}
+		else {
+			/// XXX Temporary
+			let terms = {};
+			let termSizes = {};
+			for (let potential of potentials) {
+				// console.log(potential.toStringShort(),nodeIdSet);
+				let toRemoveCurrent = new Set(potential.getDomain()).difference(nodeIdSet);
+				// console.log(toRemoveCurrent);
+				for (let id of toRemoveCurrent) {
 					if (!terms[id]) { terms[id] = 0; termSizes[id] = 1; }
 					terms[id]++;
 					termSizes[id] *= potential.size();
 				}
 			}
-		}
-		// for (let potential of potentials) {
-			// console.log(potential.toStringShort(),nodeIdSet);
-			// let toRemoveCurrent = new Set(potential.getDomain()).difference(nodeIdSet);
-			// console.log(toRemoveCurrent);
-			// for (let id of toRemoveCurrent) {
-				// if (!terms[id]) { terms[id] = 0; termSizes[id] = 1; }
-				// terms[id]++;
-				// termSizes[id] *= potential.size();
-			// }
-		// }
-		console.log('term sizes:', termSizes);
-		
-		/// Remove variables that appear in the least number of terms first
-		/// (Memory usage optimisation)
-		/// XXX-todo: Take into account potential sizes
-		let toRemove = Object.entries(termSizes).sort((a,b) => a[1] - b[1]);
-		//let toRemove = Object.entries(terms);
-		toRemove = toRemove.map(t=>t[0]);
-		
-		/// Copy
-		potentials = [...potentials];		
-		for (let i=0; i<toRemove.length; i++) {
-			/// Filter out potentials that have unconditionals completely within the toRemove set. (Because they
-			/// would marginalise to 1 anyway.)
-			let id = toRemove[i];
-			let newPotential = null;
-			if (terms[id] == 1) {
+			// console.log('term sizes:', termSizes);
+			
+			/// Remove variables that appear in the least number of terms first
+			/// (Memory usage optimisation)
+			/// XXX-todo: Take into account potential sizes
+			let toRemove = Object.entries(termSizes).sort((a,b) => a[1] - b[1]);
+			//let toRemove = Object.entries(terms);
+			toRemove = toRemove.map(t=>t[0]);
+			
+			/// Copy
+			potentials = [...potentials];		
+			for (let i=0; i<toRemove.length; i++) {
+				let id = toRemove[i];
+				let newPotential = null;
 				/// Find all matching potentials and remove potentials from list
-				for (let j=0; j<potentials.length; j++) {
-					if (potentials[j].getDomain().includes(id)) {
-						newPotential = potentials[j];
-						potentials[j] = null;
-						break;
+				if (terms[id] == 1) {
+					for (let j=0; j<potentials.length; j++) {
+						if (potentials[j].getDomain().includes(id)) {
+							newPotential = potentials[j];
+							potentials[j] = null;
+							break;
+						}
 					}
+					// console.log('no multiply:', newPotential ? newPotential.toStringShort() : '<none>');
+					potentials = potentials.filter(v => v!==null);
 				}
-				console.log('no multiply:', newPotential ? newPotential.toStringShort() : '<none>');
-				potentials = potentials.filter(v => v!==null);
-			}
-			else {
-				/// Find all matching potentials and remove potentials from list
+				else {
+					let toMultiply = [];
+					for (let j=0; j<potentials.length; j++) {
+						if (potentials[j].getDomain().includes(id)) {
+							toMultiply.push(potentials[j]);
+							potentials[j] = null;
+						}
+					}
+					potentials = potentials.filter(v => v!==null);
+					// let allIds = new Set(toMultiply.map(p => p.getDomain()).flat());
+					// for (let j=0; j<potentials.length; j++) {
+						// for (let otherId of allIds) {
+							// if (otherId !== id)  continue;
+							// if (potentials[j].getDomain().includes(otherId) && potentials[j].varNumStates.every(v=>v==1)) {
+								// toMultiply.push(potentials[j]);
+								// potentials[j] = null;
+							// }
+						// }
+					// }
+					// potentials = potentials.filter(v => v!==null);
+					
+					
+					/// Multiply
+					// console.log('mulfactors:', toMultiply.map(p=>p.factorNum), toMultiply.map(p=>p.getDomain()), toMultiply);
+					// console.log('units:', toMultiply.map(p=>p.isUnitPotential()));
+					newPotential = this.multiply(toMultiply);
+					/*for (let otherId of new Set(toMultiply.map(m=>m.getDomain()).flat())) {
+						if (otherId == id)  continue;
+						terms[otherId] = terms[otherId] - toMultiply.length + 1;
+					}*/
+					// console.log("toMultiply:", ...toMultiply.map(f=>f.toStringShort()));
+					// console.log("newPotential:", newPotential.toStringShort());
+					// if (newPotential.size()>=248832)  debugger;
+					// console.log('res:',newPotential);
+				}
+				
+				/// Marginalize
+				// console.log('before marg:', newPotential, id);
+				newPotential = this.marginalize(newPotential, id);
+				// console.log("marginalized to:", newPotential.toStringShort());
+				// console.log('post marg size:', newPotential.size());
+				// console.log('after marg:', newPotential);
+
+				/*/// Find all matching potentials and remove potentials from list
 				let toMultiply = [];
 				for (let j=0; j<potentials.length; j++) {
 					if (potentials[j].getDomain().includes(id)) {
@@ -643,58 +851,24 @@ class JunctionTree {
 					}
 				}
 				potentials = potentials.filter(v => v!==null);
-				// let allIds = new Set(toMultiply.map(p => p.getDomain()).flat());
-				// for (let j=0; j<potentials.length; j++) {
-					// for (let otherId of allIds) {
-						// if (otherId !== id)  continue;
-						// if (potentials[j].getDomain().includes(otherId) && potentials[j].varNumStates.every(v=>v==1)) {
-							// toMultiply.push(potentials[j]);
-							// potentials[j] = null;
-						// }
-					// }
-				// }
-				// potentials = potentials.filter(v => v!==null);
 				
+				let newPotential = Factor.multiplyAndMarginalize(toMultiply, [id]);*/
 				
-				/// Multiply
-				// console.log('mulfactors:', toMultiply.map(p=>p.factorNum), toMultiply.map(p=>p.getDomain()), toMultiply);
-				// console.log('units:', toMultiply.map(p=>p.isUnitPotential()));
-				newPotential = this.multiply(toMultiply);
-				console.log("toMultiply:", ...toMultiply.map(f=>f.toStringShort()));
-				console.log("newPotential:", newPotential.toStringShort());
-				// if (newPotential.size()>=248832)  debugger;
-				// console.log('res:',newPotential);
+				potentials.push(newPotential);
 			}
-			
-			/// Marginalize
-			// console.log('before marg:', newPotential, id);
-			newPotential = this.marginalize(newPotential, id);
-			console.log("marginalized to:", newPotential.toStringShort());
-			// console.log('post marg size:', newPotential.size());
-			// console.log('after marg:', newPotential);
-
-			/*/// Find all matching potentials and remove potentials from list
-			let toMultiply = [];
-			for (let j=0; j<potentials.length; j++) {
-				if (potentials[j].getDomain().includes(id)) {
-					toMultiply.push(potentials[j]);
-					potentials[j] = null;
-				}
-			}
-			potentials = potentials.filter(v => v!==null);
-			
-			let newPotential = Factor.multiplyAndMarginalize(toMultiply, [id]);*/
-			
-			potentials.push(newPotential);
-		}
-		// console.log('returned potentials:', potentials);
+			// console.log('returned potentials:', potentials);
 		
 		return potentials;
+		}
 	}
 	
 	propagate(evidence = {}, o = {}) {
 		// this.mulCache = new Map();
 		// this.margCache = new Map();
+		
+		this.options = o;
+		
+		if (o.dbg)  dbg.on; else dbg.off;
 		
 		let currentFactor = Factor.factors.length;
 		
@@ -707,7 +881,7 @@ class JunctionTree {
 		
 		/// Create potentials from each node's CPT, as well as the
 		/// the evidence
-		if (this._updateFactors || !o.crossEvidenceCaching) {
+		if (this._updateFactors || !this.options.crossEvidenceCaching) {
 			this.potentials = [...this.originalBn.nodes.map(n => Factor.fromDef(n.def))];
 			this._updateFactors = false;
 		}
@@ -783,8 +957,11 @@ class JunctionTree {
 			}
 			//console.log('reducing...', totalPotentials.map(p => p.vars ? p.vars.join(',') : '['+p.id+']'));
 			//console.log('to...', clique.separator.getDomain());
-			let sepPotentials = this.reducePotentials(totalPotentials, clique.separator.getDomain());
-			clique.separator.potentialsUp.push(...sepPotentials);
+			/// XXX - Check this doesn't cause a problem. This should only be for root cliques/null parents
+			if (clique.separator.getDomain().length!=0) {
+				let sepPotentials = this.reducePotentials(totalPotentials, clique.separator.getDomain());
+				clique.separator.potentialsUp.push(...sepPotentials);
+			}
 		}
 		for (let clique of this.cliques) {
 			console.log('Clique:', clique.getString());
@@ -885,13 +1062,17 @@ class JunctionTree {
 				}
 			}*/
 		}
-		let unusedFactors = Factor.factors.slice(currentFactor).filter(f => !f.temp && !f.findDescendants().some(d => finalFactors.includes(d)));
-		let producedUnusedFactors = Factor.factors.slice(currentFactor).filter(f => !f.temp && f.findDescendants().some(d => unusedFactors.includes(d))).filter(f=>!unusedFactors.includes(f));
-		let producedPlusUnused = producedUnusedFactors.map(f => [f.factorNum, [...new Set(f.findDescendants()).intersection(unusedFactors)].map(f=>f.factorNum).join(',')]);
-		console.log('Unused factors:', unusedFactors);
-		console.log('Which produced plus their unused:', producedPlusUnused);
+		dbg(_=>{
+			let unusedFactors = Factor.factors.slice(currentFactor).filter(f => !f.temp && !f.findDescendants().some(d => finalFactors.includes(d)));
+			let producedUnusedFactors = Factor.factors.slice(currentFactor).filter(f => !f.temp && f.findDescendants().some(d => unusedFactors.includes(d))).filter(f=>!unusedFactors.includes(f));
+			let producedPlusUnused = producedUnusedFactors.map(f => [f.factorNum, [...new Set(f.findDescendants()).intersection(unusedFactors)].map(f=>f.factorNum).join(',')]);
+			console.log('Unused factors:', unusedFactors);
+			console.log('Which produced plus their unused:', producedPlusUnused);
+		});
 		
-		this.jtreeInfo();
+		dbg(_=>_(this.jtreeInfo()));
+		
+		dbg(c=>c(this.getCliqueGraphString({highlightPotentials:true})));
 		
 		// counters.log('end');
 		// console.log('nodeBeliefs:',nodeBeliefs);
@@ -906,7 +1087,7 @@ class JunctionTree {
 			Cliques:
 			${this.cliques.map((c,i) => `#${i}:\t${String(c.getDomain().reduce((a,v)=>a*this.bn.nodesById[v].states.length,1)).padStart(15)}\t${String(c.potentials.reduce((a,v)=>a+v.values.length,0)).padStart(15)}\t${c.getDomain()}`).join('\n')}
 		`.replace(/\n\s*/g, '\n');
-		console.log(str);
+		return str;
 	}
 	
 	addEvidence(evidence, potentials) {
@@ -931,9 +1112,11 @@ class JunctionTree {
 				for (let [i,p] of newPotentials.entries()) {
 					if (p.getDomain().includes(node.id)) {
 						let newPotential = p.multiplyFaster4(f); //p.select({[nodeId]: state});
-						f.childFactors.push(newPotential);
-						p.childFactors.push(newPotential);
-						console.log(newPotential);
+						dbg(_=>{
+							f.childFactors.push(newPotential);
+							p.childFactors.push(newPotential);
+							console.log(newPotential);
+						});
 						newPotentials[i] = newPotential;
 					}
 				}

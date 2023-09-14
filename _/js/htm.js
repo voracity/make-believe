@@ -9,6 +9,9 @@
 		'm': 'http://www.w3.org/1998/mathml',
 	};
 	function node(tag, ...args) {
+		/// Template string version i.e. node`div``` or node`a`({href:'mylink'})
+		/// Not a good idea, I think
+		if (Array.isArray(tag))  return (...args) => node(tag[0], args);
 		let nsParts = tag.split(/:/);
 		let ns = null;
 		if (nsParts.length>1) {

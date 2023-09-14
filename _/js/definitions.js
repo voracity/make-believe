@@ -1665,7 +1665,7 @@ var Factor = class {
 	constructor() {
 		this.factorNum = Factor.factorNum++;
 		/// For debugging:
-		Factor.factors.push(this);
+		dbg(_=>Factor.factors.push(this));
 		/// e.g. A, B, C
 		this.vars = [];
 		/// e.g. 3,6,2 means A has 3 states, B has 6 states, C has 2 states
@@ -1686,9 +1686,11 @@ var Factor = class {
 		/// Any variables that would be on the conditional side (e.g. B,C in P(A|B,C))
 		this.conditionals = [];
 		this.unconditionals = [];
-		/// Debugging
-		this.childFactors = []; /// i.e. child as a result of multiplication or marginalisation
-		this.temp = false;
+		dbg(_=>{
+			/// Debugging
+			this.childFactors = []; /// i.e. child as a result of multiplication or marginalisation
+			this.temp = false;
+		});
 	}
 	
 	findDescendants() {
@@ -1838,15 +1840,16 @@ var Factor = class {
 		}
 	}
 	
-	addVars(vars, varNumStates, mul=1) {
+	addVars(vars, varNumStates, mul=1, conditionals, activeStates) {
 		let factor = new Factor();
 		let endVars = [...new Set(vars).difference(this.vars)];
 		let endVarNumStates = endVars.map(v => varNumStates[vars.indexOf(v)]);
 		factor.vars = this.vars.concat(endVars);
 		factor.varNumStates = this.varNumStates.concat(endVarNumStates);
 		factor.values = new Float32Array(factor.varNumStates.reduce((a,v)=>a*v,1));
-		factor.activeStates = this.activeStates.slice();
-		this.childFactors.push(factor);
+		factor.conditionals = this.conditionals.concat(conditionals);
+		factor.activeStates = this.activeStates.concat(JSON.parse(JSON.stringify(activeStates)));
+		dbg(_=>{this.childFactors.push(factor);});
 		let endVarLength = endVarNumStates.reduce((a,v)=>a*v,1);
 		
 		for (let i=0; i<this.values.length; i++) {
@@ -1854,6 +1857,8 @@ var Factor = class {
 				factor.values[i*endVarLength+j] = this.values[i]*mul;
 			}
 		}
+		
+		factor.make(factor.vars, factor.varNumStates, factor.values, factor.conditionals, factor.activeStates);
 		
 		return factor;
 	}
@@ -2908,48 +2913,21 @@ var Factor = class {
 		return factor;
 	}
 	
-	marginalizeToSingle(id) {
-		counters.marginalize1++;
-
-		let factor = new Factor();
+	/// This will multiply n factors at once
+	multiplyFaster5(otherFactors) {
+		let allFactors = [this,...otherFactors];
+	}
+	
+	/// This will marginalize n variables at once
+	marginalize2(ids) {
 		
-		let varNumStates = [];
-		let numMarginalStates = 0;
-		let activeStates = [];
-		let jump = 1;
-		let vars = this.vars.filter((v,i) => {
-			let include = v != id;
-			if (include) {
-				varNumStates.push(this.varNumStates[i]);
-				activeStates.push(this.activeStates[i]==null ? this.activeStates[i] : this.activeStates[i].slice());
-				if (numMarginalStates) {
-					jump *= this.varNumStates[i];
-				}
-			}
-			else {
-				numMarginalStates = this.varNumStates[i];
-			}
-			return include;
-		});
+	}
+	
+	/// This will multiply n factors and marginalize m variables at the same time
+	/// This should, hopefully, be the fastest and last version!
+	/// (Not counting operations that start to exploit independence.)
+	multiplyAndMarginalize2(otherFactors, ids) {
 		
-		let newNumStates = varNumStates.reduce((a,v) => a*v, 1);
-		let conditionals = this.conditionals.slice();
-		
-		let values = new Float32Array(newNumStates);
-		
-		let i = 0, j = 0, group = 0;
-		let iter = 0;
-		let valueI = 0;
-		for (i=0; i<values.length; i++) {
-			group = Math.floor(i/jump)*(numMarginalStates*jump) + i%jump;
-			for (j=0; j<numMarginalStates; j++) {
-				values[i] += this.values[group + j*jump];
-			}
-		}
-		
-		factor.make(vars, varNumStates, values, conditionals, activeStates);
-		
-		return factor;
 	}
 	
 	/** This will multiply together all the given factors and marginalize down
@@ -3050,14 +3028,31 @@ var Factor = class {
 		return newFactor;
 	}
 	
+	equals(otherFactor) {
+		if (this==otherFactor)  return true;
+		otherFactor = otherFactor.moveVarsToStart2(this.vars);
+		return this.vars.length==otherFactor.vars.length
+			&& this.values.length==otherFactor.values.length
+			&& this.vars.reduce((a,v,i)=>v==otherFactor.vars[i] && a, true)
+			&& this.varNumStates.reduce((a,v,i)=>v==otherFactor.varNumStates[i] && a, true)
+			&& this.activeStates.reduce((a,v,i)=>(v==otherFactor.activeStates[i] || v.reduce((a2,v2,i2)=>v2==otherFactor.activeStates[i][i2] && a,true)) && a, true)
+			&& this.values.reduce((a,v,i)=>v==otherFactor.values[i] && a, true);
+	}
+	
 	toStringNodes() {
 		return '#F'+this.factorNum+'('+this.getDomain().join(',')+')';
 	}
 	
+	numberActiveStates() {
+		return this.activeStates.reduce((a,v) => v!=null ? a+1 : a,0);
+	}
+	
 	toStringShort() {
-		let str = 'Factor(#'+this.factorNum+', '+this.vars.join(',')+
+		let str = 'Factor(#'+this.factorNum+'; '+this.vars.join(',')+
 			' as '+this.unconditionals.join(',')+(this.conditionals?('|'+this.conditionals.join(',')):'')+
-			' - Active:'+this.activeStates.map(v => v==null?'_':v.join(':')).join(',')+')';
+			'; Active:'+this.activeStates.map(v => v==null?'_':v.join(':')).join(',')+
+			'; Size:'+this.size()+
+			'; ActiveCount:'+this.numberActiveStates()+')';
 		return str;
 	}
 	

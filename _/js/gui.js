@@ -2112,11 +2112,11 @@ Object.assign(BN.prototype, {
 		
 		return {internalArcs, crossingArcs};
 	},
-	/// random name. I should be using proper prototypal inheritance...
-	_suhfac_SetEvidence: BN.prototype.setEvidence,
+	/// Switch to gui / plain(api)? rather than plain(gui) / api? to be consistent with elsewhere.
+	apiSetEvidence: BN.prototype.setEvidence,
 	setEvidence: function(evidence, o = {}, callback = null) {
 		o.reset ??= false;
-		this._suhfac_SetEvidence(evidence, o);
+		this.apiSetEvidence(evidence, o);
 		
 		/// Update GUI
 		if (o.reset)  $('.bnview .hasEvidence').removeClass('hasEvidence');
