@@ -536,7 +536,8 @@ class JunctionTree {
 		}*/
 		
 		//return potentialQ[0];
-		return newPotential;
+		newPotential.isUnitPotential();
+		return Object.freeze(newPotential);
 	}
 
 	marginalize(item, itemToRemove) {
@@ -552,18 +553,133 @@ class JunctionTree {
 			return this.margCache.get(item).get(itemToRemove);
 		}
 		
-		let marg = item.marginalize1(itemToRemove);
+		let marg = item.marginalize1([itemToRemove]);
 		dbg(_=>item.childFactors.push(marg));
 		if (this.options.factorCaching) {
 			this.margCache.get(item).set(itemToRemove, marg);
 		}
-		return marg;
+		marg.isUnitPotential();
+		return Object.freeze(marg);
+	}
+	
+	reducePotentials2(potentials, nodeIds) {
+		/// Drop unit potentials if possible (this has a significant beneficial performance impact)
+		/// Wow, this was tricky to work out. You can't just filter out unit potentials,
+		/// you have to make sure that each node id still exists. But to get the speed benefit,
+		/// you can't just keep potentials whose domains cover the nodes needed. You need to
+		/// create new, small, (independent) unit potentials
+		let keptPotentials = [];
+		let nodeIdsMissing = new Set(nodeIds);
+		for (let potential of potentials) {
+			if (!potential.isUnitPotential || !potential.isUnitPotential()) {
+				keptPotentials.push(potential);
+				potential.getDomain().forEach(nodeId => nodeIdsMissing.delete(nodeId));
+			}
+		}
+		
+		/// Use one-node unit potentials for every missing node
+		for (let nodeId of nodeIdsMissing) {
+			keptPotentials.push(this.unitPotentials[nodeId]);
+		}
+		
+		// console.log('all potentials:', potentials, keptPotentials);
+		
+		if (this.options.useUnitPotentials)  potentials = keptPotentials;
+		
+		/// Find the variables that need to be removed
+		/// (Which is the opposite of the nodes to keep)
+		let nodeIdSet = new Set(nodeIds);
+		let toRemoveIds = new Set();
+		for (let potential of potentials) {
+			toRemoveIds = toRemoveIds.union(new Set(potential.getDomain()).difference(nodeIdSet));
+		}
+		
+		let fauxMultiply = (f1,f2) => {
+			let [vars,varNumStates] = unzipObject(mergeObjects((a,b)=>a<b, zipObject(f1.vars, f1.varNumStates),zipObject(f2.vars, f2.varNumStates)));
+			let size = varNumStates.reduce((a,v)=>a*v,1);
+			return {vars,varNumStates,size(){return size}};
+		}
+
+		let opRemoveIds = new Set(toRemoveIds);
+		/// Index all potentials by their ids
+		let terms = {};
+		potentials.forEach(p => p.getDomain().forEach(id => (terms[id]??=new Set()).add(p)));
+		let opSummary = [];
+		while (opRemoveIds.size) {
+			/// Stage 1:
+			/// See if there are factors we can marginalize now. If so, marginalize them
+			let termEntries = Object.entries(terms).filter(te => opRemoveIds.has(te[0]));
+			termEntries.sort((a,b)=>a[1].size-b[1].size);
+			while (termEntries.length && termEntries[0][1].size==1) {
+				let thisPotential = [...termEntries[0][1]][0];
+				/// See if any of the other IDs can be marginalised as well (i.e. only 1 potential, and it's this potential)
+				let allIds = termEntries.filter(([id,potentials]) => potentials.size==1 && [...potentials][0]==thisPotential).map(te=>te[0]);
+				/// Marginalise the ids XXX: replace with multi-marginalise
+				let curPotential = thisPotential;
+				dbg(_=>opSummary.push(['Marg',curPotential.toStringShort(),allIds.join(', ')]));
+				for (let id of allIds) {
+					curPotential = this.marginalize(curPotential, id);
+				}
+				/// Remove the ids we just marginalised from terms
+				allIds.forEach(id => (delete terms[id],opRemoveIds.delete(id)));
+				/// Replace the old potential with the new one in any other terms
+				termEntries = Object.entries(terms);
+				for (let [k,v] of termEntries) {
+					if (v.has(thisPotential)) {
+						v.add(curPotential).delete(thisPotential);
+					}
+				}
+				termEntries = termEntries.filter(te => opRemoveIds.has(te[0]));
+				termEntries.sort((a,b)=>a[1].size-b[1].size);
+			}
+			
+			/// Stage 2:
+			/// Find if there are any multiplications whose products are no bigger than the max size of
+			/// the two multiplicands (regardless of where the factors appear!), and choose the one
+			/// that results in the smallest sized product
+			/// And if no such product, just find the smallest product
+			let allPotentials = [...Object.values(terms).reduce((a,te)=>a.union(te),new Set())];
+			let minPair = null;
+			let minSize = Infinity;
+			let overallMinPair = null;
+			let overallMinSize = Infinity;
+			/// n**2 in the number of potentials, but this should be tiny in comparison to multiplication
+			/// Although, independence inside the factors might change that!
+			for (let i=0; i<allPotentials.length; i++) {
+				for (let j=i+1; j<allPotentials.length; j++) {
+					let p1 = allPotentials[i];
+					let p2 = allPotentials[j];
+					/// Skip factors with nothing in common
+					if (new Set(p1.getDomain()).intersection(p2.getDomain()).size==0)  continue;
+					let productSize = fauxMultiply(p1,p2).size();
+					if (productSize < minSize && (productSize <= p1.size() || productSize <= p2.size())) {
+						minPair = [p1,p2];
+						minSize = productSize;
+					}
+					if (productSize < overallMinSize) {
+						overallMinPair = [p1,p2];
+						overallMinSize = productSize;
+					}
+				}
+			}
+			let toMultiply = minPair ?? overallMinPair;
+			if (toMultiply) {
+				dbg(_=>opSummary.push(['Mul',toMultiply.map(p => p.toStringShort()).join(', ')]));
+				let curPotential = this.multiply(toMultiply);
+				for (let potential of toMultiply) {
+					potential.getDomain().forEach(id => terms[id].add(curPotential).delete(potential));
+				}
+			}
+		}
+		dbg(c=>c('OP Summary:', opSummary));
+		
+		return [...Object.values(terms).reduce((a,v)=>a.union(v),new Set())];
 	}
 	
 	/// translation from friedman to kohler:
 	/// potential = factor
 	/// domain = scope
-	reducePotentials(potentials, nodeIds) {
+	reducePotentials1(potentials, nodeIds) {
 		let N = id => id ? id[0].toUpperCase() : id;
 		// console.log(potentials.map(p => p.getDomain().map(v=>N(v)).join("")) + " down to " + nodeIds.map(v=>N(v)).join(""));
 		
@@ -626,10 +742,11 @@ class JunctionTree {
 			let size = f.varNumStates.reduce((a,v)=>a*v,1);
 			return {vars: f.vars.toSpliced(index,1), varNumStates, size, score:(f.score??0)+size, score: size};
 		}
-		// let estimateResult = (id,potentials,pastResult) => fauxMarginalize(potentials.length ? potentials.reduce((a,p) => fauxMultiply(a,p,a)) : null,id,pastResult);
-		// let estimateResult = (id,potentials,pastResult) => ({score:potentials.reduce((a,p)=>a*p.varNumStates.reduce((a,v)=>a*v,1),1)});
+		let estimateResultSumProductScore = (id,potentials,pastResult) => fauxMarginalize(potentials.length ? potentials.reduce((a,p) => fauxMultiply(a,p,a)) : null,id,pastResult);
+		let estimateResultProductScore = (id,potentials,pastResult) => ({score:potentials.reduce((a,p)=>a*p.varNumStates.reduce((a,v)=>a*v,1),1)});
 		// No idea why, but this produces the fastest results...
-		let estimateResult = (id,potentials,pastResult) => ({score:potentials.length});
+		let estimateResultNumTerms = (id,potentials,pastResult) => ({score:potentials.length});
+		let estimateResult = estimateResultNumTerms;
 		
 		let opPotentials = new Set(potentials);
 		let opRemoveIds = new Set(toRemoveIds);
@@ -862,6 +979,8 @@ class JunctionTree {
 		}
 	}
 	
+	reducePotentials = this.reducePotentials2;
+	
 	propagate(evidence = {}, o = {}) {
 		// this.mulCache = new Map();
 		// this.margCache = new Map();
@@ -885,7 +1004,7 @@ class JunctionTree {
 			this.potentials = [...this.originalBn.nodes.map(n => Factor.fromDef(n.def))];
 			this._updateFactors = false;
 		}
-		let potentials = this.potentials;
+		let potentials = this.potentials.slice();
 		
 		/// Create unit potentials for every node, in case we need them:
 		this.unitPotentials = {};
@@ -1091,35 +1210,49 @@ class JunctionTree {
 	}
 	
 	addEvidence(evidence, potentials) {
-		let newPotentials = potentials;
+		let newPotentials = potentials.slice();
 		for (let [nodeId,state] of Object.entries(evidence)) {
 			if (state >= 0) {
+				// debugger;
 				let node = this.bn.nodesById[nodeId];
-				let f = new Factor();
-				// let values = new Float32Array(node.states.length);
-				// values[state] = 1;
-				// f.make([node.id], [values.length], values);
-				let values = new Float32Array(1);
-				values[0] = 1;
-				f.make([node.id], [values.length], values, null, [[state]]);
-				// for (let clique of this.cliques) {
-					// if (clique.getDomain().includes(node.id)) {
-						// clique.potentials.push(f);
-						// //break;
-					// }
-				// }
-				// newPotentials.push(f);
-				for (let [i,p] of newPotentials.entries()) {
+				let f = null;
+				if (this.options.crossEvidenceCaching) {
+					this.evCache??=new Map();
+					if (!this.evCache.has(nodeId)) this.evCache.set(nodeId, new Map());
+					if (this.evCache.get(nodeId).has(state)) {
+						f = this.evCache.get(nodeId).get(state);
+					}
+				}
+				if (!f) {
+					f = new Factor();
+					// let values = new Float32Array(node.states.length);
+					// values[state] = 1;
+					// f.make([node.id], [values.length], values);
+					let values = new Float32Array(1);
+					values[0] = 1;
+					f.make([node.id], [values.length], values, null, [[state]]);
+					if (this.options.crossEvidenceCaching)  this.evCache.get(nodeId).set(state, f);
+					
+				}
+				for (let clique of this.cliques) {
+					if (clique.getDomain().includes(node.id)) {
+						clique.potentials.push(f);
+						break;
+					}
+				}
+				newPotentials.push(f);
+				/*for (let [i,p] of newPotentials.entries()) {
 					if (p.getDomain().includes(node.id)) {
-						let newPotential = p.multiplyFaster4(f); //p.select({[nodeId]: state});
+						let newPotential = this.multiply([p,f]); //p.select({[nodeId]: state});
 						dbg(_=>{
 							f.childFactors.push(newPotential);
 							p.childFactors.push(newPotential);
 							console.log(newPotential);
 						});
 						newPotentials[i] = newPotential;
+						break;
 					}
-				}
+				}*/
 			}
 		}
 		return newPotentials;

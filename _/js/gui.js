@@ -8089,9 +8089,9 @@ $(document).ready(function() {
 			MenuAction('<hr>', {type: 'separator'}),
 		]}),
 		Menu({label:"(Dev)", type: 'debugMenu', items: [
-			MenuAction(n('span',n('input.cecCheck', {type:'checkbox',checked:mbConfig.crossEvidenceCaching?'checked':null}), 'Between evidence caching (JTree)'), _=>{
-				mbConfig.crossEvidenceCaching = !mbConfig.crossEvidenceCaching;
-				$('.cecCheck').prop('checked', mbConfig.crossEvidenceCaching);
+			MenuAction(n('span',n('input.cecCheck', {type:'checkbox',checked:mbConfig.jtree.crossEvidenceCaching?'checked':null}), 'Between evidence caching (JTree)'), _=>{
+				mbConfig.jtree.crossEvidenceCaching = !mbConfig.jtree.crossEvidenceCaching;
+				$('.cecCheck').prop('checked', mbConfig.jtree.crossEvidenceCaching);
 			}),
 			MenuAction('# Workers: <input type="text" name="numWorkers" value="2">', function() { }),
 			MenuAction('# Perf Loops: <input type="text" name="perfLoops" value="100">', function() { }),

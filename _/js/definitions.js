@@ -2901,12 +2901,166 @@ var Factor = class {
 		let i = 0, j = 0, group = 0;
 		let iter = 0;
 		let valueI = 0;
-		for (i=0; i<values.length; i++) {
+		let vl = values.length, oldVals = this.values;
+		for (i=0; i<vl; i++) {
 			group = Math.floor(i/jump)*(numMarginalStates*jump) + i%jump;
 			for (j=0; j<numMarginalStates; j++) {
-				values[i] += this.values[group + j*jump];
+				values[i] += oldVals[group + j*jump];
 			}
 		}
+		
+		factor.make(vars, varNumStates, values, conditionals, activeStates);
+		
+		return factor;
+	}
+	
+	
+	/// This will marginalize n variables at once
+	marginalize2(ids) {
+		counters.marginalize2++;
+		let t = 0, p = 0, t2 = 0;
+		p = performance.now();
+		let vars = this.vars.filter(id => !ids.includes(id));
+		let varNumStates = vars.map(v => this.varNumStates[this.vars.indexOf(v)]);
+		let newLength = varNumStates.reduce((a,v)=>a*v,1);
+		let values = new Float32Array(newLength);
+		let conditionals = this.conditionals.slice();
+		let activeStates = vars.map(v => this.activeStates[this.vars.indexOf(v)]?.slice?.() ?? null);
+		
+		let factor = new Factor();
+		factor.vars = vars;
+		factor.varNumStates = varNumStates;
+		factor.activeStates = activeStates;
+		factor.calcPositions();
+		
+		let keepFactor = factor;
+		let removeFactor = new Factor();
+		removeFactor.vars = this.vars.filter(v => !vars.includes(v));
+		removeFactor.varNumStates = removeFactor.vars.map(v => this.varNumStates[this.vars.indexOf(v)]);
+		removeFactor.calcPositions();
+		
+		let keepValuesLength = keepFactor.varNumStates.reduce((a,v)=>a*v,1);
+		let removeValuesLength = removeFactor.varNumStates.reduce((a,v)=>a*v,1);
+		let keepIndexLength = keepFactor.vars.length-1;
+		let removeIndexLength = removeFactor.vars.length-1;
+		let keepIndexes = new Array(keepFactor.vars.length).fill(0);
+		let removeIndexes = new Array(removeFactor.vars.length).fill(0);
+		let keepNumStates = keepFactor.varNumStates;
+		let removeNumStates = removeFactor.varNumStates;
+		let keepMappedPositions = keepFactor.vars.map(v => this.positions[this.vars.indexOf(v)]);
+		let removeMappedPositions = removeFactor.vars.map(v => this.positions[this.vars.indexOf(v)]);
+		let keepOldPartialPos = 0, removeOldPartialPos = 0;
+		let i=0, j=0, k=0, m=0;
+		let oldValues = this.values;
+		t = performance.now() - p;
+		// for (i=0; i<keepValuesLength; i++) {
+			// for (j=0; j<removeValuesLength; j++) {
+				// values[i] += oldValues[keepOldPartialPos + removeOldPartialPos];
+
+				// for (k=removeIndexLength; k>=0; k--) {
+					// m = ++removeIndexes[k];
+					// if (m >= removeNumStates[k]) {
+						// removeOldPartialPos -= (m-1)*removeMappedPositions[k];
+						// removeIndexes[k] = 0;
+					// }
+					// else {
+						// removeOldPartialPos += removeMappedPositions[k];
+						// break;
+					// }
+				// }
+			// }
+			
+			// for (k=keepIndexLength; k>=0; k--) {
+				// m = ++keepIndexes[k];
+				// if (m >= keepNumStates[k]) {
+					// keepOldPartialPos -= (m-1)*keepMappedPositions[k];
+					// keepIndexes[k] = 0;
+				// }
+				// else {
+					// keepOldPartialPos += keepMappedPositions[k];
+					// break;
+				// }
+			// }
+		// }
+		let map = new Array(keepValuesLength);
+		for (j=0; j<keepValuesLength; ++j) {
+			for (k=keepIndexLength; k>=0; k--) {
+				if (++keepIndexes[k] < keepNumStates[k]) {
+					keepOldPartialPos += keepMappedPositions[k];
+					break;
+				}
+				keepOldPartialPos -= (m-1)*keepMappedPositions[k];
+				keepIndexes[k] = 0;
+			}
+			map[j] = keepOldPartialPos;
+		}
+		t2 = performance.now() - p;
+		keepValuesLength = values.length;
+		keepIndexLength = keepIndexes.length;
+		removeIndexLength = removeIndexes.length;
+		for (i=0; i<removeValuesLength; i++) {
+			for (j=0; j<keepValuesLength; j++) {
+				values[j] += oldValues[map[j] + removeOldPartialPos];
+			}
+			
+			for (k=removeIndexLength; k>=0; k--) {
+				m = ++removeIndexes[k];
+				if (m >= removeNumStates[k]) {
+					removeOldPartialPos -= (m-1)*removeMappedPositions[k];
+					removeIndexes[k] = 0;
+				}
+				else {
+					removeOldPartialPos += removeMappedPositions[k];
+					break;
+				}
+			}
+		}
+		factor.make(vars, varNumStates, values, conditionals, activeStates);
+		
+		return t2-t;
+	}
+	
+	/// This will marginalize n variables at once
+	marginalize3(ids) {
+		counters.marginalize3++;
+		
+		let vars = this.vars.filter(id => !ids.includes(id));
+		let varNumStates = vars.map(v => this.varNumStates[this.vars.indexOf(v)]);
+		let newLength = varNumStates.reduce((a,v)=>a*v,1);
+		let values = new Float32Array(newLength);
+		let conditionals = this.conditionals.slice();
+		let activeStates = vars.map(v => this.activeStates[this.vars.indexOf(v)]?.slice?.() ?? null);
+		
+		let factor = new Factor();
+		factor.vars = vars;
+		factor.varNumStates = varNumStates;
+		factor.activeStates = activeStates;
+		factor.calcPositions();
+		
+		let keepFactor = factor;
+		
+		let keepMappedPositions = keepFactor.vars.map(v => this.positions[this.vars.indexOf(v)]);
+		let keepMappedVarNumStates = keepFactor.vars.map(v => this.varNumStates[this.vars.indexOf(v)]);
+		let i=0, j=0, k=0, m=0;
+		for (i=0; i<this.values.length; i++) {
+			let newPos = 0;
+			for (j=0; j<vars.length; j++) {
+				newPos += (Math.floor(i/keepMappedPositions[j]) % keepMappedVarNumStates[j]) * factor.positions[j];
+			}
+			values[newPos] += this.values[i];
+		}
+		
+		// for (k=vars.length; k>=0; k--) {
+			// m = ++keepIndexes[k];
+			// if (keepIndexes[k] >= keepNumStates[k]) {
+				// keepOldPartialPos -= (m-1)*keepMappedPositions[k];
+				// keepIndexes[k] = 0;
+			// }
+			// else {
+				// keepOldPartialPos += keepMappedPositions[k];
+				// break;
+			// }
+		// }
 		
 		factor.make(vars, varNumStates, values, conditionals, activeStates);
 		
@@ -2917,12 +3071,6 @@ var Factor = class {
 	multiplyFaster5(otherFactors) {
 		let allFactors = [this,...otherFactors];
 	}
-	
-	/// This will marginalize n variables at once
-	marginalize2(ids) {
-		
-	}
-	
 	/// This will multiply n factors and marginalize m variables at the same time
 	/// This should, hopefully, be the fastest and last version!
 	/// (Not counting operations that start to exploit independence.)

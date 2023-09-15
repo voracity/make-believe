@@ -70,6 +70,7 @@ var counters = {
 	multiplyFaster4: 0,
 	marginalize: 0,
 	marginalize1: 0,
+	marginalize2: 0,
 	unitPotentials: 0,
 	marginalHit: 0,
 	multiplyHit: 0,
