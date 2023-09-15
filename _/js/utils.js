@@ -140,7 +140,8 @@ var Stats = class {
 	/// Pop
 	sd() { return this.n ? Math.sqrt(this.var()) : null; }
 	var() { return this.n ? this.sumsq/this.n - (this.sum/this.n)**2 : null; }
-	str() { return `(n=${this.n}, μ=${sigFig(this.mean(),3)}, σ=${sigFig(this.sd(),3)})`; }
+	se() { return this.sd()/Math.sqrt(this.n); }
+	str() { return `(n=${this.n}, μ=${sigFig(this.mean(),3)}, σ=${sigFig(this.sd(),3)}, se=${sigFig(this.se(),3)})`; }
 };
 
 /// I'm not sure if this guarantees a nicely formatted string.

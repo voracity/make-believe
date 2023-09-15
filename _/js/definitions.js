@@ -1811,10 +1811,12 @@ var Factor = class {
 	
 	isUnitPotential() {
 		if (this._isUnitPotential!=null)  return this._isUnitPotential;
-		let testVal = this.values[0];
+		let vals = this.values;
+		let valsLength = vals.length;
+		let testVal = vals[0];
 		if (testVal == 0) {
-			for (let val of this.values) {
-				if (val != 0) {
+			for (let i=0; i<valsLength; i++) {
+				if (vals[i] != 0) {
 					this._isUnitPotential = false;
 					return false;
 				}
@@ -1825,12 +1827,14 @@ var Factor = class {
 		else {
 			// If there is at least one selection on this factor,
 			// this is not a unit potential
-			for (let a of this.activeStates) {
-				if (a != null)  return false;
+			let activeStates = this.activeStates;
+			let activeStatesLength = this.activeStates.length;
+			for (let i=0; i<activeStatesLength; i++) {
+				if (activeStates[i] != null)  return false;
 			}
 			let epsilon = 0.001;
-			for (let val of this.values) {
-				if (Math.abs(val/testVal  - 1) > epsilon) {
+			for (let i=0; i<valsLength; i++) {
+				if (Math.abs(vals[i]/testVal  - 1) > epsilon) {
 					this._isUnitPotential = false;
 					return false;
 				}
@@ -2648,15 +2652,6 @@ var Factor = class {
 
 		let leftFactor = this;
 		let rightFactor = otherFactor;
-		let leftZeroCount = 0, rightZeroCount = 0;
-		for (let i=0;i<leftFactor.values.length && i<20;i++){
-			if (leftFactor.values[i]==0) leftZeroCount++;
-		}
-		for (let i=0;i<rightFactor.values.length && i<20;i++){
-			if (rightFactor.values[i]==0) rightZeroCount++;
-		}
-		if (rightZeroCount>leftZeroCount) [leftFactor,rightFactor] = [rightFactor,leftFactor];
-
 
 		/// Find common factors
 		let common = new Set(leftFactor.vars).intersection(rightFactor.vars);
@@ -2713,12 +2708,13 @@ var Factor = class {
 		let conditionals = [...new Set(leftFactor.conditionals).difference(rightFactor.unconditionals).union(new Set(rightFactor.conditionals).difference(leftFactor.unconditionals))];
 		
 		let i=0, j=0, k=0, m=0;
-		let commonNumStates = new Uint32Array(commonFactor.varNumStates);
-		let leftDiffNumStates = new Uint32Array(leftDiffFactor.varNumStates);
-		let rightDiffNumStates = new Uint32Array(rightDiffFactor.varNumStates);
-		let commonIndexes = new Uint32Array(commonFactor.varNumStates.length);
-		let leftDiffIndexes = new Uint32Array(leftDiffFactor.varNumStates.length);
-		let rightDiffIndexes = new Uint32Array(rightDiffFactor.varNumStates.length);
+		/// Array *might* be faster than Uint32Array (It's certainly not slower)
+		let commonNumStates = Array.from(commonFactor.varNumStates);
+		let leftDiffNumStates = Array.from(leftDiffFactor.varNumStates);
+		let rightDiffNumStates = Array.from(rightDiffFactor.varNumStates);
+		let commonIndexes = new Array(commonFactor.varNumStates.length).fill(0);
+		let leftDiffIndexes = new Array(leftDiffFactor.varNumStates.length).fill(0);
+		let rightDiffIndexes = new Array(rightDiffFactor.varNumStates.length).fill(0);
 		/// Map the common state index for each v, to a position in leftFactor (or rightFactor) for that v
 		let commonLeftPositions = commonFactor.vars.map(v => leftFactor.positions[leftFactor.vars.indexOf(v)] ?? 0);
 		let commonRightPositions = commonFactor.vars.map(v => rightFactor.positions[rightFactor.vars.indexOf(v)] ?? 0);
@@ -2729,6 +2725,8 @@ var Factor = class {
 		let rdiLength = rightDiffIndexes.length-1, ldiLength = leftDiffIndexes.length-1, ciLength = commonIndexes.length-1;
 		let leftDiffValues = new Float32Array(leftDiffLength);
 		let rightDiffValues = new Float32Array(rightDiffLength);
+		let leftFactorValues = leftFactor.values;
+		let rightFactorValues = rightFactor.values;
 		let identityMap = num => Array.from({length:num},(_,i)=>i);
 		let leftIndexMap = commonFactor.activeStates.map((active,k) => {
 			if (active==null)  return identityMap(commonFactor.varNumStates[k]);
@@ -2748,12 +2746,12 @@ var Factor = class {
 			commonLeftPartialPos += leftIndexMap[k][0]*commonLeftPositions[k];
 			commonRightPartialPos += rightIndexMap[k][0]*commonRightPositions[k];
 		}
-		// console.log(commonLeftPartialPos, commonRightPartialPos, commonFactor.activeStates);
-		// debugger;
-		for (i=0; i<commonLength; i++) {
-
+		/// Pre-computing these is a *teensy* bit faster (maybe ~10%, with ~80% win rate in 100 trials of 1000)
+		let rightDiffPartialPosMap = new Array(rightDiffLength).fill(0);
+		let leftDiffPartialPosMap = new Array(leftDiffLength).fill(0);
+		// (_=>{
 			for (k=0; k<rightDiffLength; k++) {
-				rightDiffValues[k] = rightFactor.values[commonRightPartialPos + rightDiffPartialPos];
+				rightDiffPartialPosMap[k] = rightDiffPartialPos;
 				/// Manually inling this is way faster (and no stack use at all)
 				for (m=rdiLength; m>=0; m--) {
 					rightDiffIndexes[m]++;
@@ -2767,10 +2765,8 @@ var Factor = class {
 					}
 				}
 			}
-
 			for (k=0; k<leftDiffLength; k++) {
-				leftDiffValues[k] = leftFactor.values[commonLeftPartialPos + leftDiffPartialPos];
-				/// Manually inling this is way faster (and no stack use at all)
+				leftDiffPartialPosMap[k] = leftDiffPartialPos;
 				for (m=ldiLength; m>=0; m--) {
 					leftDiffIndexes[m]++;
 					if (leftDiffIndexes[m] >= leftDiffNumStates[m]) {
@@ -2782,6 +2778,19 @@ var Factor = class {
 						break;
 					}
 				}
+			}
+		// })();
+		// console.log(commonLeftPartialPos, commonRightPartialPos, commonFactor.activeStates);
+		// debugger;
+		for (i=0; i<commonLength; i++) {
+
+			for (k=0; k<rightDiffLength; k++) {
+				rightDiffValues[k] = rightFactorValues[commonRightPartialPos + rightDiffPartialPosMap[k]];
+			}
+
+			for (k=0; k<leftDiffLength; k++) {
+				leftDiffValues[k] = leftFactorValues[commonLeftPartialPos + leftDiffPartialPosMap[k]];
+				/// Manually inling this is way faster (and no stack use at all)
 			}
 
 			commonGroup = i*diffLength;

@@ -50,52 +50,81 @@ var tests = {
 	perf_marginalize() {
 		dbg.off;
 		let iters = 10000;
-		let f = Factor.makeTestFactor(6);
-		// f.marginalize1('C');
-		// f.marginalize2('C');
-		// return;
-		console.log('Single');
-		let res = {marginalize1: new Stats(), marginalize2: new Stats()};
-		let arr = ['A'];
-		for (let i=0; i<iters; i++) {
-			if (Math.random()<0.5) {
-				p = performance.now();
-				f.marginalize1('A');
-				res.marginalize1.add(performance.now()-p);
+		{
+			console.log('Single');
+			let f = Factor.makeTestFactor(10);
+			let res = {marginalize1: new Stats(), marginalize1a: new Stats(), m1a: new Stats()};
+			let t = 0;
+			for (let i=0; i<iters; i++) {
+				if (Math.random()<0.5) {
+					p = performance.now();
+					f.marginalize1('A');
+					res.marginalize1.add(performance.now()-p);
+				}
+				else {
+					p = performance.now();
+					t = f.marginalize1a('A');
+					// console.info(t);
+					res.marginalize1a.add(performance.now()-p);
+					res.m1a.add(t);
+				}
 			}
-			else {
-				p = performance.now();
-				f.marginalize2(arr);
-				res.marginalize2.add(performance.now()-p);
+			for (let [method,perf] of Object.entries(res)) {
+				console.info(method, perf.str());
 			}
-		}
-		for (let [method,perf] of Object.entries(res)) {
-			console.info(method, perf.str());
-		}
-		console.log('Multiple');
-		f = Factor.makeTestFactor(10);
-		res = {marginalize1: new Stats(), marginalize2: new Stats(), m2: new Stats()};
-		arr = ['C'];
-		let t = 0;
-		let x = null;
-		for (let i=0; i<iters; i++) {
-			if (Math.random()<0.5) {
-				p = performance.now();
-				f.marginalize3(['A','B','C','D','E','F','G','H','I']);
-				// x = new Function('f', 'for (let i=0; i<'+i+'; i++) console.log(i)');
-				res.marginalize2.add(performance.now()-p);
-				// res.m2.add(t);
-			}
-			else {
-				p = performance.now();
-				f.marginalize1('A').marginalize1('B').marginalize1('C').marginalize1('D').marginalize1('E').marginalize1('F').marginalize1('G').marginalize1('H').marginalize1('I');
-				res.marginalize1.add(performance.now()-p);
-			}
-		}
-		for (let [method,perf] of Object.entries(res)) {
-			console.info(method, perf.str());
 		}
 		dbg.on;
+	},
+
+	perf_multiply() {
+		dbg.off;
+		let iters = 1000;
+		{
+			console.log('Single');
+			let f = Factor.makeTestFactor(6);
+			let f2 = Factor.makeTestFactor(6);
+			f2.vars = ['D','E','F','G','H','I'];
+			let res = {multiplyFaster4: new Stats(), multiplyFaster4a: new Stats()};
+			let t = 0;
+			for (let i=0; i<iters; i++) {
+				if (Math.random()<0.5) {
+					p = performance.now();
+					f.multiplyFaster4(f2);
+					res.multiplyFaster4.add(performance.now()-p);
+				}
+				else {
+					p = performance.now();
+					f.multiplyFaster4a(f2);
+					// console.info(t);
+					res.multiplyFaster4a.add(performance.now()-p);
+				}
+			}
+			for (let [method,perf] of Object.entries(res)) {
+				console.info(method, perf.str());
+			}
+			return res;
+		}
+		dbg.on;
+	},
+	
+	compare(method, iters = 100) {
+		let winners;
+		for (let i=0; i<iters; i++) {
+			let res = method();
+			winners ??= Object.fromEntries(Object.keys(res).map(k=>[k,0]));
+			let minMean = Infinity;
+			let minMethod = null;
+			for (let [method,perf] of Object.entries(res)) {
+				if (perf.mean()<minMean) {
+					minMean = perf.mean();
+					minMethod = method;
+				}
+			}
+			winners[minMethod]++;
+		}
+		dbg.on;
+		console.info(winners);
+		dbg.off;
 	},
 
 	check_factorEquality() {

@@ -15,6 +15,7 @@ var src = fs.readFileSync('./test/small_bns/12nodegrid.xdsl').toString();
 // (async _=> {
 // for (let i=0;i<10;i++)await tests.perfTestEvidence_12nodegrid(bn);
 // })();
-(async _=> {
-for (let i=0;i<1;i++)await tests.perf_marginalize();
-})();
+/*(async _=> {
+for (let i=0;i<1;i++)await tests.perf_multiply();
+})();*/
+tests.compare(tests.perf_multiply);
