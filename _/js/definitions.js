@@ -27,7 +27,7 @@ var Definition = class {
 		/// too does the net
 		this._needsCompile = _needsCompile;
 		//onsole.log(this.node, this.node && this.node.net);
-		if (this.node && this.node.net)  this.node.net.needsCompile = true;
+		if (this.node && this.node.net)  this.node.net.needsCompile ||= _needsCompile;
 	}
 	get needsCompile() { return this._needsCompile; }
 	
@@ -2916,6 +2916,35 @@ var Factor = class {
 			for (j=0; j<numMarginalStates; j++) {
 				values[i] += oldVals[group + j*jump];
 			}
+		}
+		
+		factor.make(vars, varNumStates, values, conditionals, activeStates);
+		
+		return factor;
+	}
+	
+	marginalizeToSingle(id) {
+		counters.marginalizeToSingle++;
+
+		let factor = new Factor();
+		let varPos = this.vars.indexOf(id);
+		
+		let vars = [id];
+		let varNumStates = [this.varNumStates[varPos]];
+		let numStates = varNumStates[0];
+		let values = new Float32Array(numStates);
+		let activeStates = [this.activeStates[varPos]];
+		let conditionals = this.conditionals.slice();
+		let numMarginalStates = 0;
+		let jump = 1;
+		
+		let oldValues = this.values;
+		let oldValuesLength = oldValues.length;
+		let oldVarPos = this.positions[varPos];
+		let oldI = 0, newI = 0;
+		for (oldI=0; oldI<oldValuesLength; oldI++) {
+			newI = Math.floor(oldI/oldVarPos) % numStates;
+			values[newI] += oldValues[oldI];
 		}
 		
 		factor.make(vars, varNumStates, values, conditionals, activeStates);

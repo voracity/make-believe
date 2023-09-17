@@ -53,6 +53,22 @@ dbg.assert = (arg) => {
 		console.trace();
 	}
 };
+dbg.withOff = (func) => {
+	let wasOn = dbg._on;
+	dbg.off;
+	
+	func();
+	
+	if (wasOn)  dbg.on;
+};
+dbg.withOn = (func) => {
+	let wasOff = !dbg._on;
+	dbg.on;
+	
+	func();
+	
+	if (wasOff)  dbg.off;
+};
 // dbg = _=>{};
 // dbg.on = null;
 // dbg.off = null;
@@ -70,7 +86,7 @@ var counters = {
 	multiplyFaster4: 0,
 	marginalize: 0,
 	marginalize1: 0,
-	marginalize2: 0,
+	marginalizeToSingle: 0,
 	unitPotentials: 0,
 	marginalHit: 0,
 	multiplyHit: 0,
@@ -110,6 +126,17 @@ function unzipObject(obj) {
 	return [Object.keys(obj),Object.values(obj)];
 }
 
+function transformObject(obj, func) {
+	let newObj = {};
+	for (let [k,v] of Object.entries(obj)) {
+		newObj[k] = func(v);
+		if (typeof(newObj[k])=='object' && newObj[k]!=null) {
+			newObj[k] = transformObject(newObj[k], func);
+		}
+	}
+	return newObj;
+}
+
 function mergeObjects(selectLeft, ...objs) {
 	let retObj = Object.assign(objs[0]);
 	for (let obj of objs.slice(1)) {
@@ -123,6 +150,35 @@ function mergeObjects(selectLeft, ...objs) {
 	return retObj;
 }
 
+function wrapText(text, cols) {
+	let wrapped = '';
+	let currentInput = text.replace(/[ \t]+/g, ' ').trim();
+	let lastSpace = 0;
+	let i = 0;
+	let ignore = 0;
+	while (i < currentInput.length) {
+		if (currentInput[i]==' ') {
+			lastSpace = i;
+		}
+		else if (currentInput[i]=='<') {
+			let endBracket = currentInput.slice(i).indexOf('>');
+			i += endBracket+1;
+			ignore += endBracket+1;
+			continue;
+		}
+		if (i >= cols+ignore) {
+			wrapped += currentInput.slice(0, (lastSpace || i+1)) + '\n';
+			currentInput = currentInput.slice((lastSpace || i+1)).trim();
+			i = -1;
+			lastSpace = 0;
+			ignore = 0;
+		}
+		i++;
+	}
+	wrapped += currentInput;
+	return wrapped.trim();
+}
+		
 function defaultGet(val, defaultValue) {
 	return val===null || val===undefined ? defaultValue : val;
 }
@@ -218,6 +274,33 @@ function isElementInViewport (el) {
         rect.bottom <= (window.innerHeight || document.documentElement.clientHeight) && /* or $(window).height() */
         rect.right <= (window.innerWidth || document.documentElement.clientWidth) /* or $(window).width() */
     );
+}
+
+function makeDraggable(el) {
+	let events = new ListenerGroup();
+	events.add(el, 'mousedown', event => {
+		let hasMoving = false;
+		if (event.button==2) {
+			let [origX, origY] = [event.clientX, event.clientY];
+			let [origLeft, origTop] = [q(el).scrollLeft, q(el).scrollTop];
+			events.add(document, 'mousemove.canvasMove', event => {
+				hasMoving = true;
+				let [curX, curY] = [event.clientX, event.clientY];
+				let [deltaX, deltaY] = [curX-origX, curY-origY];
+				q(el).scrollLeft = origLeft - deltaX;
+				q(el).scrollTop = origTop - deltaY;
+			});
+			/*document.addEventListener('contextmenu', event => {
+			}, true);*/
+			events.add(document, 'contextmenu.canvasMove mouseup.canvasMove', event => {
+				if (hasMoving) {
+					event.preventDefault();
+					event.stopPropagation();
+				}
+				events.remove(event.type+'.canvasMove mousemove.canvasMove');
+			}, {capture: true});
+		}
+	}, {capture: true});
 }
 
 /* innerText, etc., Firefox/Chrome, wow, much hurt. */
@@ -618,6 +701,12 @@ class Listeners {
 	
 	remove(typeGroup, func) {
 		let [type,group='$$default$$'] = this.getTypeGroup(typeGroup);
+		if (Array.isArray(type)) {
+			let allRemoved = [];
+			type.forEach((typei,i) => allRemoved.push(...this.remove([typei,group[i]], func)));
+			console.info('a:',type);
+			return allRemoved;
+		}
 		if (type && !this.typeOk(type))  { console.error(`${type} not a recognised listener |Listener.remove|.`); }
 		let predList = [];
 		if (group!='$$default$$') {
@@ -655,8 +744,13 @@ class DOMListeners extends Listeners {
 	}
 	
 	add(typeGroup, func, opts = null) {
-		let [type,group] = this.getTypeGroup(typeGroup);
+		let [type,group,listenerGroup] = this.getTypeGroup(typeGroup);
+		if (Array.isArray(type)) {
+			type.forEach((type,i) => this.add([type,group[i],listenerGroup], func, opts));
+			return this;
+		}
 		super.add(typeGroup, func);
+		console.info(opts, this.el, type, func);
 		this.el.addEventListener(type, func, opts);
 		return this;
 	}
@@ -664,8 +758,12 @@ class DOMListeners extends Listeners {
 	remove(typeGroup, func) {
 		let [type,group] = this.getTypeGroup(typeGroup);
 		let removed = super.remove(typeGroup, func);
+		console.info(removed);
 		for (let {type, func} of removed) {
+			/// 2023-09-17: Undecided whether to provide option, or just remove
+			/// both capturing and non-capturing versions all the time
 			this.el.removeEventListener(type, func);
+			this.el.removeEventListener(type, func, {capture:true});
 		}
 	}
 }
@@ -673,14 +771,15 @@ class DOMListeners extends Listeners {
 class ListenerGroup extends Listeners {
 	add(obj, typeGroup, func, opts = null) {
 		let listeners = obj.listeners instanceof Listeners ? obj.listeners : q(obj.jquery ? obj[0] : obj).listeners;
-		listeners.add(this.getTypeGroup(typeGroup).concat([this]), func);
+		if (!Array.isArray(typeGroup))  typeGroup = [typeGroup,null];
+		listeners.add(typeGroup.concat([this]), func, opts);
 		return this;
 	}
 	
 	remove(obj, typeGroup, func) {
 		if (obj!=undefined && !Array.isArray(obj) && typeof(obj)!='string') {
 			let listeners = obj.listeners instanceof Listeners ? obj.listeners : q(obj.jquery ? obj[0] : obj).listeners;
-			listeners.remove(this.getTypeGroup(typeGroup), func);
+			listeners.remove(typeGroup, func);
 		}
 		return super.remove(...arguments);
 	}

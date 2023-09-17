@@ -54,6 +54,10 @@ class Clique {
 		return this.potentials.reduce((a,v)=>a*v.size(),1);
 	}
 	
+	getNodeCombinationSize() {
+		return this.nodes.reduce((a,n)=>a*n.states.length,1);
+	}
+	
 	getFullSize() {
 		let clique = this;
 		let totalPotentials = [...clique.potentials, ...clique.separator.potentialsDown];
@@ -107,18 +111,22 @@ class JunctionTree {
 	getCliqueGraphString(o = {}) {
 		o.highlightPotentials ??= false;
 		
-		let cliqueId = c => c.nodes.map(n => n.id).join(', ');
-		let cliqueIdFormat = c => c.nodes.map(n => {
+		let cliqueId = c => '#'+c.cliqueNum+' '+c.nodes.map(n => n.id).join(',');
+		let cliqueIdFormat = c => wrapText('#'+c.cliqueNum+' '+c.nodes.map(n => {
 			let cliqueHasPotential = c.potentials.map(p=>p.unconditionals).flat().includes(n.id);
 			if (cliqueHasPotential) {
 				return `<font color="red">${n.id}</font>`;
 			}
 			return n.id;
-		}).join(', ');
+		}).join(', '), 30).replace(/\n/g, '<br/>')+`<br/>Size: ${Number(c.getNodeCombinationSize()).toLocaleString()}`;
+		let sepId = (p,c) => '#' + p.cliqueNum + ' ' + c.separator.getDomain().join(', ') + ''
 		
 		let formatting = _=> {
 			if (o.highlightPotentials) {
-				return this.cliques.map(c => `\t"${cliqueId(c)}" [label=<${cliqueIdFormat(c)}>];\n`).join('');
+				return this.cliques.map(c => {
+					return `\t"${cliqueId(c)}" [label=<${cliqueIdFormat(c)}>];\n` +
+						(c.parent ? `\t"${sepId(c.parent, c)}" [label=<${wrapText(sepId(c.parent, c), 30).replace(/\n/g, '<br/>')}>];\n` : '')
+				}).join('');
 			}
 			return '';
 		};
@@ -133,7 +141,7 @@ class JunctionTree {
 				let fromCliqueStr = '"' + cliqueId(clique) +'"';
 				for (let toClique of clique.children) {
 					let toCliqueStr = '"' + cliqueId(toClique) + '"';
-					let sepStr = '"' + toClique.separator.getDomain().join(', ') + '"';
+					let sepStr = '"'+sepId(clique, toClique)+'"';
 					str += '\t' + sepStr + ' [shape=box];\n';
 					str += '\t' + fromCliqueStr + ' -> ' + sepStr + ';\n';
 					str += '\t' + sepStr + ' -> ' + toCliqueStr + ';\n';
@@ -142,6 +150,8 @@ class JunctionTree {
 			}
 		}
 		str += '}\n';
+		
+		debugger;
 		
 		return str;
 	}
@@ -225,28 +235,84 @@ class JunctionTree {
 	triangulate() {
 		console.log(this.getBnString());
 		let remainingNodes = this.bn.nodes.slice();
+		let getFam = n => n.parents.concat(n.children);
+		let famSize = n => n.parents.length+n.children.length;
+		let famSizeRem = n => getFam(n).filter(m => remainingNodes.includes(m)).length;
 		let toEliminate = this.findSimplicialNodes(remainingNodes);
+		let selected = new Set();
+		let minDegree = nodes => nodes.reduce((a,n)=>famSize(n)<famSize(a)?n:a);
+		let minDegreeRemaining = nodes => nodes.reduce((a,n)=>famSizeRem(n)<famSizeRem(a)?n:a);
+		let minFill = nodes => {
+			let minFilled = Infinity;
+			let minNode = null;
+			for (let node of nodes) {
+				let fam = getFam(node).filter(n => remainingNodes.includes(n));
+				let countNotLinked = 0;
+				for (let i=0; i<fam.length; i++) {
+					for (let j=i+1; j<fam.length; j++) {
+						countNotLinked += !isLinked(fam[i],fam[j]);
+					}
+				}
+				if (countNotLinked < minFilled) {
+					minFilled = countNotLinked;
+					minNode = node;
+				}
+			}
+			console.log({minFilled});
+			return minNode;
+		};
 		while (remainingNodes.length) {
 			remainingNodes = remainingNodes.filter(a => !toEliminate.includes(a));
 			if (remainingNodes.length) {
-				let minFamNode = null; /// Node with smallest family
-				let minFamSize = Infinity;
-				for (let node of remainingNodes) {
-					let currentFamSize = node.parents.length + node.children.length;
-					if (currentFamSize < minFamSize) {
-						minFamNode = node;
-						minFamSize = currentFamSize;
+				/// I think I'm getting this very wrong. It performs horribly.
+				let maxCardinality = nodes => {
+					let maxCard = -Infinity;
+					let maxNode = null;
+					let minNeigh = Infinity;
+					for  (let node of nodes) {
+						let fam = getFam(node);
+						let selectedFam = fam.filter(n => selected.has(n));
+						let neighborsSelected = selectedFam.length;
+						if (neighborsSelected > maxCard) {
+							maxCard = neighborsSelected;
+							maxNode = node;
+							minNeigh = fam.length;
+						}
+						else if (neighborsSelected == maxCard && fam.length < minNeigh) {
+							maxCard = neighborsSelected;
+							maxNode = node;
+							minNeigh = fam.length;
+						}
 					}
-				}
+					console.log(maxCard);
+					selected.add(maxNode);
+					return maxNode;
+				};
+				// let minFamNode = null; /// Node with smallest family
+				// let minFamSize = Infinity;
+				// for (let node of remainingNodes) {
+					// let currentFamSize = node.parents.length + node.children.length;
+					// if (currentFamSize < minFamSize) {
+						// minFamNode = node;
+						// minFamSize = currentFamSize;
+					// }
+				// }
+				let choiceOpts = {
+					minDegree,
+					minDegreeRemaining,
+					minFill,
+				};
+				let getBestNode = choiceOpts[this.options.triangulationChoice];
+				let nextNode = getBestNode(remainingNodes);
 				
 				/// Connect this node's family (ONLY including variables not yet
 				/// eliminated)
-				let fam = minFamNode.parents.concat(minFamNode.children).filter(a => remainingNodes.includes(a));
+				let fam = getFam(nextNode).filter(a => remainingNodes.includes(a));
 				this.connectNodes(fam);
 				
 				/// We can't create simplicial nodes outside of the family we just connected,
 				/// so restrict search to family
-				toEliminate = [minFamNode, ...this.findSimplicialNodes(fam)];
+				toEliminate = [nextNode, ...this.findSimplicialNodes(fam)];
 			}
 		}
 		console.log("Triangulated: " + this.getBnString());
@@ -255,6 +321,7 @@ class JunctionTree {
 	makeJoinTree() {
 		/// Create a new graph (using 'connected' property)
 		/// so we can destroy it to create the join tree
+		console.log('MAKIE');
 		let graph = this.bn.nodes.slice();
 		for (let node of graph) {
 			node.connected = node.parents.concat(node.children);
@@ -262,14 +329,135 @@ class JunctionTree {
 		
 		//console.log("CONNECTEDS:", graph.map(a=>a.id+": "+a.connected.map(a=>a.id).join(",")));
 		
+		// let checkConnected = nodes => {
+			// for (var i=0; i<nodes.length; i++) {
+				// for (var j=i+1; j<nodes.length; j++) {
+					// if (!isLinked(nodes[i], nodes[j])) {
+						// return false;
+					// }
+				// }
+			// }
+			// return true;
+		// };
+		
+		let checkConnected = nodes => this.checkConnected(nodes, (a,b)=> a.connected.includes(b));
+		
 		let _this = this;
-		function findSimplicial() {
+		let findSimplicial = null;
+		let findSimplicialLookahead = () => {
+			let maxConverted = -Infinity;
+			let minConnected = Infinity;
+			let maxNode = null;
+			let isSimplicial = new Set();
 			for (let node of graph) {
-				if (_this.checkConnected(node.connected, (a,b)=> a.connected.includes(b))) {
+				if (checkConnected(node.connected))  isSimplicial.add(node);
+			}
+			for (let node of isSimplicial) {
+				let nonsimplicialNeighbors = node.connected.filter(n=>!isSimplicial.has(n));
+				let conversionCount = 0;
+				for (let neigh of nonsimplicialNeighbors) {
+					if (checkConnected(neigh.connected.filter(v => v!=node))) {
+						conversionCount++;
+					}
+				}
+				if (conversionCount > maxConverted) {
+					maxConverted = conversionCount;
+					maxNode = node;
+					minConnected = node.connected.length;
+				}
+				else if (conversionCount == maxConverted && node.connected.length < minConnected) {
+					maxNode = node;
+					minConnected = node.connected.length;
+				}
+			}
+			return maxNode;
+		}
+		let findSimplicialMinDegree = () => {
+			let minSize = Infinity;
+			let minNode = null;
+			let cliqueSizes = new Map();
+			for (let node of graph) {
+				if (checkConnected(node.connected)) {
+					cliqueSizes.set(node, node.connected.concat(node).reduce((a,n)=>a*n.states.length,1));
+				}
+			}
+			let maxCliqueSize = Math.max(...cliqueSizes.values());
+			dbg(_=>console.log('mcs:',maxCliqueSize));
+			for (let node of graph) {
+				if (checkConnected(node.connected)) {
+					if (node.connected.length < minSize) {
+						minSize = node.connected.length;
+						minNode = node;
+					}
+				}
+			}
+			return minNode;
+		}
+		let findSimplicialTreeWidth = () => {
+			let minNode = null;
+			dbg(_=>{
+				let cliqueSizes = new Map();
+				for (let node of graph) {
+					if (checkConnected(node.connected)) {
+						cliqueSizes.set(node, node.connected.concat(node).reduce((a,n)=>a*n.states.length,1));
+					}
+				}
+				let maxCliqueSize = Math.max(...cliqueSizes.values());
+				console.log('mcs:',maxCliqueSize);
+				let newMaxCliqueSizes = new Map();
+				for (let node of cliqueSizes.keys()) {
+					let newMaxSize = -Infinity;
+					for (let otherNode of graph) {
+						let withoutNode = otherNode.connected.filter(v=>v!=node);
+						if (checkConnected(withoutNode)) {
+							let newCliqueSize = withoutNode.reduce((a,n)=>a*n.states.length,1);
+							newMaxSize = newCliqueSize > newMaxSize ? newCliqueSize : newMaxSize;
+						}
+					}
+					newMaxCliqueSizes.set(node, newMaxSize);
+				}
+				newMaxCliqueSizes = new Map([...newMaxCliqueSizes.entries()].sort((a,b)=>a[1]-b[1]));
+				console.log(newMaxCliqueSizes);
+				let minSize = Infinity;
+				let lastSize = Infinity;
+				for (let [node,size] of newMaxCliqueSizes) {
+					if (size>lastSize)  break;
+					if (node.connected.length < minSize) {
+						minSize = node.connected.length;
+						minNode = node;
+					}
+				}
+			});
+			return minNode;
+		}
+		let findSimplicialMaxDegree = () => {
+			let maxSize = -Infinity;
+			let maxNode = null;
+			for (let node of graph) {
+				if (checkConnected(node.connected)) {
+					if (node.connected.length > maxSize) {
+						maxSize = node.connected.length;
+						maxNode = node;
+					}
+				}
+			}
+			return maxNode;
+		}
+		let findSimplicialArbitrary = () => {
+			for (let node of graph) {
+				if (checkConnected(node.connected)) {
 					return node;
 				}
 			}
 		}
+		let findOpts = {arbitrary: findSimplicialArbitrary,
+			lookahead: findSimplicialLookahead,
+			minDegree: findSimplicialMinDegree,
+			maxDegree: findSimplicialMaxDegree,
+			treeWidth: findSimplicialTreeWidth,
+		}
+		findSimplicial = findOpts[this.options.simplicialChoice];
+		// console.log(this.options.elimChoice, findSimplicial.toString());
 		
 		function eliminate(node) {
 			for (let c of node.connected) {
@@ -540,26 +728,51 @@ class JunctionTree {
 		return Object.freeze(newPotential);
 	}
 
-	marginalize(item, itemToRemove) {
+	marginalize(potential, itemsToRemove) {
 		counters.jtreeMarginalize++;
-		/// If CPT, convert first
-		if (item.def) {
-			item = Factor.fromDef(item);
+		/// If CPT, convert first XXX: not used now?
+		if (potential.def) {
+			potential = Factor.fromDef(potential);
 		}
 		if (!this.margCache)  this.margCache = new Map();
-		if (!this.margCache.has(item))  this.margCache.set(item, new Map());
-		if (this.margCache.get(item).has(itemToRemove)) {
-			counters.marginalHit++;
-			return this.margCache.get(item).get(itemToRemove);
+		
+		let newPotential = null;
+		if (itemsToRemove.length+1==potential.vars.length) {
+			let itemCacheKey = itemsToRemove.join('|');
+			if (!this.margCache.has(potential))  this.margCache.set(potential, new Map());
+			if (this.margCache.get(potential).has(itemCacheKey)) {
+				counters.marginalHit++;
+				newPotential = this.margCache.get(potential).get(itemCacheKey);
+			}
+			else {
+				let id = [...new Set(potential.vars).difference(itemsToRemove)][0];
+				newPotential = potential.marginalizeToSingle(id);
+				if (this.options.factorCaching) {
+					this.margCache.get(potential).set(itemCacheKey, newPotential);
+				}
+			}
+		}
+		else {
+			newPotential = potential;
+			for (let id of itemsToRemove) {
+				let origPotential = newPotential;
+				if (!this.margCache.has(origPotential))  this.margCache.set(origPotential, new Map());
+				if (this.margCache.get(origPotential).has(id)) {
+					counters.marginalHit++;
+					newPotential = this.margCache.get(origPotential).get(id);
+				}
+				else {
+					newPotential = origPotential.marginalize1(id);
+					if (this.options.factorCaching) {
+						this.margCache.get(origPotential).set(id, newPotential);
+					}
+				}
+			}
 		}
 		
-		let marg = item.marginalize1([itemToRemove]);
-		dbg(_=>item.childFactors.push(marg));
-		if (this.options.factorCaching) {
-			this.margCache.get(item).set(itemToRemove, marg);
-		}
-		marg.isUnitPotential();
-		return Object.freeze(marg);
+		dbg(_=>potential.childFactors.push(newPotential));
+		newPotential.isUnitPotential();
+		return Object.freeze(newPotential);
 	}
 	
 	reducePotentials2(potentials, nodeIds) {
@@ -617,9 +830,7 @@ class JunctionTree {
 				/// Marginalise the ids XXX: replace with multi-marginalise
 				let curPotential = thisPotential;
 				dbg(_=>opSummary.push(['Marg',curPotential.toStringShort(),allIds.join(', ')]));
-				for (let id of allIds) {
-					curPotential = this.marginalize(curPotential, id);
-				}
+				curPotential = this.marginalize(curPotential, allIds);
 				/// Remove the ids we just marginalised from terms
 				allIds.forEach(id => (delete terms[id],opRemoveIds.delete(id)));
 				/// Replace the old potential with the new one in any other terms
@@ -981,13 +1192,11 @@ class JunctionTree {
 	
 	reducePotentials = this.reducePotentials2;
 	
-	propagate(evidence = {}, o = {}) {
+	propagate(evidence = {}) {
 		// this.mulCache = new Map();
 		// this.margCache = new Map();
 		
-		this.options = o;
-		
-		if (o.dbg)  dbg.on; else dbg.off;
+		if (this.options.dbg)  dbg.on; else dbg.off;
 		
 		let currentFactor = Factor.factors.length;
 		
@@ -1306,29 +1515,36 @@ onmessage = function(e) {
 	//onsole.log(junctionTree);
 	// Worker has been sent the BN
 	if (e.data[0]==0) {
-		junctionTree = new JunctionTree(makeBnForUpdates(e.data[1]));
-		junctionTree.compile();
+		var opts = e.data[2] ?? {};
 		console.log('COMPILING');
+		junctionTree = new JunctionTree(makeBnForUpdates(e.data[1]));
+		junctionTree.options = opts;
+		junctionTree.compile();
 		junctionTree._updateFactors = true;
+		postMessage([0,'OK']);
 	}
 	//Worker has been sent the evidence (for belief update)
 	else if (e.data[0]==1) {
-		var evidenceArr = e.data[1];
 		var opts = e.data[2] ?? {};
+		junctionTree.options = opts;
+		var evidenceArr = e.data[1];
 		/// I'm converting back and forth needlessly here
 		var evidence = {};
 		for (let i=0; i<junctionTree.originalBn.nodes.length; i++) {
 			let node = junctionTree.originalBn.nodes[i];
 			evidence[node.id] = evidenceArr[i];
 		}
-		let beliefs = junctionTree.propagate(evidence, opts);
+		let beliefs = junctionTree.propagate(evidence);
 		let allBeliefs = [];
 		for (let [nodeId,bels] of Object.entries(beliefs)) {
 			allBeliefs.push(bels);
 		}
-		postMessage([0,allBeliefs]);
+		postMessage([1,allBeliefs]);
 		counters.log();
 		counters.reset();
+	}
+	else if (e.data[0]==2) {
+		postMessage([2,junctionTree.getCliqueGraphString({highlightPotentials:true})]);
 	}
 	//onsole.log(junctionTree);
 }

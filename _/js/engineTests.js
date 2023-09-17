@@ -34,6 +34,67 @@ var tests = {
 		dbg.on;
 	},
 	
+	async generalPerfTest(arms, configs, mbConfig, iters = 10) {
+		dbg.withOff(async _=>{
+			let origConfig = JSON.stringify(mbConfig);
+			
+			let res = Object.fromEntries(arms.map(arm => [arm.name,
+				Object.fromEntries(Object.keys(configs).map(k => [k, new Stats()]))
+			]));
+			
+			for (let i=0; i<iters; i++) {
+				process.stdout.write(i+(i!=iters-1?',':''));
+				for (let arm of arms) {
+					for (let [k,config] of Object.entries(configs)) {
+						let retT;
+						let t = performance.now();
+						retT = await arm.run(mbConfig, config);
+						res[arm.name][k].add(retT != null ? retT : performance.now() - t);
+					}
+				}
+			}
+			
+			Object.assign(mbConfig, JSON.parse(origConfig));
+			
+			console.info(transformObject(res, v => v instanceof Stats ? v.str() : v));
+			
+			return res;
+		});
+	},
+	
+	async perf_jtreeVariableElimination(bns, mbConfig) {
+		let evNodes = new Map([[bns['12node'],'E4'],[bns['watershort'],'E4'],[bns['covid_omi'],'st']]);
+		let makeNoEv = (schoice,tchoice) => {
+			return {name:'No evidence - '+schoice+' - '+tchoice, async run(m,bn) {
+				m.jtree.simplicialChoice = schoice;
+				m.jtree.triangulationChoice = tchoice;
+				await bn.compile(true);
+				let t = performance.now();
+				await new Promise(r => bn.updateBeliefs(r));
+				return performance.now()-t;
+			}};
+		};
+		let makeEv = (schoice,tchoice) => {
+			return {name:'Evidence on leaf - '+schoice+' - '+tchoice, async run(m,bn) {
+				m.jtree.simplicialChoice = schoice;
+				m.jtree.triangulationChoice = tchoice;
+				await bn.compile(true);
+				let id = evNodes.get(bn);
+				bn.setEvidence({[id]:0});
+				let t = performance.now();
+				await new Promise(r => bn.updateBeliefs(r));
+				bn.clearEvidence();
+				return performance.now()-t;
+			}};
+		};
+		let scs = ['arbitrary','minDegree','maxDegree'];
+		let tcs = ['minDegree','minDegreeRemaining','minFill'];
+		this.generalPerfTest([
+			scs.map(sc => tcs.map(tc => makeNoEv(sc, tc))),
+			scs.map(sc => tcs.map(tc => makeEv(sc, tc))),
+		].flat().flat(), bns, mbConfig, 100);
+	},
+	
 	check_marginalize() {
 		let f = new Factor(); f.make(['a','b','c'], [2,1,2], [0.03,0.04,0.05,.14], null, [null,[1],null])
 		console.log(f.toString());
@@ -97,6 +158,33 @@ var tests = {
 					f.multiplyFaster4a(f2);
 					// console.info(t);
 					res.multiplyFaster4a.add(performance.now()-p);
+				}
+			}
+			for (let [method,perf] of Object.entries(res)) {
+				console.info(method, perf.str());
+			}
+			return res;
+		}
+		dbg.on;
+	},
+	
+	perf_marginalizeToSingle() {
+		dbg.off;
+		let iters = 10000;
+		{
+			let f = Factor.makeTestFactor(5);
+			let res = {marginalize1: new Stats(), marginalizeToSingle: new Stats()};
+			let t = 0;
+			for (let i=0; i<iters; i++) {
+				if (Math.random()<0.5) {
+					p = performance.now();
+					f.marginalize1('A').marginalize1('B').marginalize1('C').marginalize1('E');
+					res.marginalize1.add(performance.now()-p);
+				}
+				else {
+					p = performance.now();
+					f.marginalizeToSingle('D');
+					res.marginalizeToSingle.add(performance.now()-p);
 				}
 			}
 			for (let [method,perf] of Object.entries(res)) {

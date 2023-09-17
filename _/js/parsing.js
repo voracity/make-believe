@@ -1,4 +1,4 @@
-(function() {
+(function(exports) {
 /**
 OM = object model.
 
@@ -693,6 +693,6 @@ Object.defineProperty(Object.prototype, '_findObjects', {value: function(criteri
 	return foundObjs;
 }});
 
-window.Grammar = Grammar;
-window.OBJECTVALUE = OBJECTVALUE;
-})();
+exports.Grammar = Grammar;
+exports.OBJECTVALUE = OBJECTVALUE;
+})(typeof(exports)!="undefined"?exports:window);

@@ -11,9 +11,11 @@ var mbConfig = {
 	sigFig(num) { return sigFig(num, 4); },
 	/// These normally for debugging
 	jtree: {
+		triangulationChoice: 'minFill',
+		simplicialChoice: 'minDegree',
 		factorCaching: true,
 		crossEvidenceCaching: false,
-		useUnitPotentials: true, 
+		useUnitPotentials: true,
 	}
 };
 var FILE_EXTENSIONS = {
@@ -107,6 +109,7 @@ if (typeof($)=="undefined") {
 	({CPT, CDT, Equation, NodeDefinitions} = require('./definitions.js'));
 	({JunctionTree} = require('./junctionTree_worker.js'));
 	({makeBnForUpdates} = require('./engineCommon.js'));
+	({Grammar,OBJECTVALUE} = require('./parsing.js'));
 
 	function genPass(length) {
 		var pwd;
@@ -2943,11 +2946,32 @@ Object.assign(BN.prototype, {
 		var bn = this;
 		//parsing_debug(true);
 		console.time('parsing');
-		var grammar = new Grammar($('.dneGrammar')[0].textContent);
+		var grammar = new Grammar(String.raw`
+			DNE = DNE_ITEM*
+			DNE_ITEM! = COMMENT | STATEMENT@ | BLANK
+			COMMENT! = /\/\/.*/ EOL
+			WSC! = /\s*/ COMMENT? /\s*/
+			WSC_REQ! = /\s+/ COMMENT? /\s*/ | /\s*/ COMMENT? /\s+/
+			BLANK = WSC EOL
+			EOL = /\r?\n|$/
+			STATEMENT! = ASSIGN_STATEMENT@ | BLOCK_STATEMENT@
+			BLOCK_STATEMENT = WSC BLOCK_TYPE WSC_REQ NAME WSC /\{/! WSC BLOCK_BODY WSC /\}/! WSC /;/! WSC
+			ANON_BLOCK_EXPR = WSC BLOCK_TYPE WSC /\{/! WSC BLOCK_BODY WSC /\}/! WSC
+			BLOCK_BODY = DNE_ITEM*
+			ASSIGN_STATEMENT = WSC NAME WSC /=/ WSC ASSIGN_EXPR WSC /;/! WSC
+			ASSIGN_EXPR! = ANON_BLOCK_EXPR@ | BASIC_EXPR@
+			BASIC_EXPR = /"/ DQ_VALUE@! /"/ | /'/ SQ_VALUE@! /'/ | UQ_VALUE@!
+			DQ_VALUE = /(\\.|[^"])*/
+			SQ_VALUE = /(\\.|[^'])*/
+			UQ_VALUE = /[^;]*/
+			NAME! = ID@
+			BLOCK_TYPE! = ID@
+			ID! = /[a-zA-Z0-9][a-zA-Z0-9_]*/@
+		`);
 		//onsole.log(dneText);
-		window.globalDneText = dneText;
+		globalThis.globalDneText = dneText;
 		var om = grammar.createTree(dneText);
-		window.globalOm = om;
+		globalThis.globalOm = om;
 		console.timeEnd('parsing');
 		console.time('searching');
 		//onsole.log(om);
@@ -3472,8 +3496,9 @@ ${nodesStr}
 
 		This is now basically a compile function. Update: Hence why it's now called 'compile'. :)
 		**/
-	compile(force) {
+	async compile(force) {
 		if (!force && !this.needsCompile)  return;
+		this.needsCompile = false;
 		console.log('Compiling...');
 
 		var bn = this;
@@ -3498,14 +3523,12 @@ ${nodesStr}
 		this.updateMethodActual = updateMethod;
 
 		let compileMethod = 'compile_'+this.updateMethodActual;
-		if (this[compileMethod])  this[compileMethod]();
-
-		this.needsCompile = false;
+		if (this[compileMethod])  await this[compileMethod]();
 	},
-	compile_off() {
+	async compile_off() {
 		// pass
 	},
-	compile_likelihoodWeighting() {
+	async compile_likelihoodWeighting() {
 		if (this.useWorkers) {
 			console.log('Using workers');
 			var numWorkers = this.numWorkers;
@@ -3532,14 +3555,15 @@ ${nodesStr}
 			}
 		}
 	},
-	compile_junctionTree() {
+	async compile_junctionTree() {
 		if (this.useWorkers) {
 			this._workers = [new Worker("_/js/junctionTree_worker.js")];
 			let bnToPass = makeBnForUpdates(this, true);
+			let w = this._workers[0];
 			try {
 				//onsole.log("BNTOPASS:", bnToPass);
 				//onsole.log(problemWithObjectClone(bnToPass));
-				this._workers[0].postMessage([0, bnToPass]);
+				w.postMessage([0, bnToPass, {dbg:dbg._on,...mbConfig.jtree}]);
 			}
 			catch (e) {
 				if (e.name == "DataCloneError") {
@@ -3548,9 +3572,18 @@ ${nodesStr}
 				}
 				else { throw e; }
 			}
+			await new Promise(r => {
+				w.addEventListener('message', function getMessage(e) {
+					if (e.data[0] == 0) {
+						w.removeEventListener('message', getMessage);
+						r();
+					}
+				});
+			});
 		}
 		else {
 			let jtree = new JunctionTree(makeBnForUpdates(this));
+			jtree.options = mbConfig.jtree;
 			console.time('compile');
 			jtree.compile();
 			console.timeEnd('compile');
@@ -3998,6 +4031,9 @@ ${nodesStr}
 		}
 
 		return this;
+	},
+	clearEvidence() {
+		this.setEvidence({},{reset:true});
 	},
 	addNodes(data) {
 		let bn = this;
@@ -4639,8 +4675,9 @@ ${nodesStr}
 		let w = this._workers[0];
 
 		w.postMessage([1, evidenceArr, {dbg:dbg._on,...mbConfig.jtree}]);
-		w.onmessage = function(e) {
-			if (e.data[0]==0) {
+		w.addEventListener('message', function getMessage(e) {
+			if (e.data[0]==1) {
+				w.removeEventListener('message', getMessage);
 				var workerBeliefs = e.data[1];
 				for (var i=0; i<workerBeliefs.length; i++) {
 					bn.nodes[i].beliefs = workerBeliefs[i];
@@ -4648,10 +4685,7 @@ ${nodesStr}
 				bn.updateExpectedValue();
 				if (callback)  callback(bn, 1);
 			}
-			else if (e.data[0] == 1) {
-				console.log(e.data);
-			}
-		};
+		});
 	},
 	/// Run a belief update, using worker threads to
 	/// perform the computations in parallel
@@ -5942,4 +5976,5 @@ if (typeof(exports)!="undefined") {
 	exports.BN = BN;
 	exports.Node = Node;
 	exports.Submodel = Submodel;
+	exports.mbConfig = mbConfig;
 }

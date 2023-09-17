@@ -7257,6 +7257,58 @@ var app = {
 				/// Info from whatever engine is being used:
 			},
 		},
+		jtree: {
+			name: 'View Junction Tree',
+			init() {
+				let init = async _=> {
+					let w = currentBn._workers[0];
+					let viz = new Viz();
+					w.postMessage([2]);
+					let func;
+					w.addEventListener('message', func = async event => {
+						if (event.data[0]==2) {
+							let dotStr = event.data[1];
+							let graph = await viz.renderSVGElement(dotStr);
+							q('.jtreeView .canvas').append(graph);
+							w.removeEventListener('message', func);
+							makeDraggable(q('.jtreeView'));
+						}
+					});
+				};
+				let jtreeView = n('div.jtreeView',
+					n('style', `
+						.bnmidview { display: none; }
+						.jtreeView { flex: 1; display: flex; flex-direction: column; overflow: auto; }
+						.canvas { flex: 1; display: flex; align-items: center; justify-content: center; }
+						.canvas svg { width: 100%; height: 100%; }
+					`),
+					n('script', {src: 'https://cdnjs.cloudflare.com/ajax/libs/viz.js/2.1.2/viz.js'}),
+					n('script', {on_load: init}, {src: 'https://cdnjs.cloudflare.com/ajax/libs/viz.js/2.1.2/full.render.js'}),
+					n('div.titlebar',
+						n('h2', 'Junction Tree View'),
+						n('button', 'X', {on_click: _=>jtreeView.remove()}),
+					),
+					n('div.canvas'),
+				);
+				q('.bnouterview').append(jtreeView);
+			},			
+		},
+		SIMPLEEXAMPLEFULLWINDOW_TODO: {
+			name: 'View Junction Tree',
+			init() {
+				let jtreeView = n('div.jtreeView',
+					n('style', `
+						.bnmidview { display: none; }
+					`),
+					n('script', {src: 'https://cdnjs.cloudflare.com/ajax/libs/viz.js/1.8.1/viz-lite.js'}),
+					n('div.titlebar',
+						n('h2', 'Junction Tree View'),
+						n('button', 'X', {on_click: _=>jtreeView.remove()}),
+					),
+				);
+				$('.bnouterview').append(jtreeView);
+			},			
+		},
 		compareCpts: {
 			name: 'Compare CPTs',
 			get rootEl() { return q('.sidebar .compareCpts'); },
@@ -8124,6 +8176,7 @@ $(document).ready(function() {
 			MenuAction('Variable Dictionary Helper', _=>{app.helpers.varDict.init(); dismissActiveMenus()}),
 			MenuAction('Network Information', _=>{app.helpers.stats.init(); dismissActiveMenus()}),
 			MenuAction('Compare BN CPTs', _=>{app.helpers.compareCpts.init(); dismissActiveMenus()}),
+			MenuAction('View Junction Tree', _=>{app.helpers.jtree.init(); dismissActiveMenus()}),
 			MenuAction('<hr>', {type: 'separator'}),
 			Menu({label:'Themes', items: [
 				MenuAction(n('div',
@@ -8253,6 +8306,9 @@ $(document).ready(function() {
 		currentBn.notifyEvidenceChanged();
 	});
 	
+	/** Move current canvas around **/
+	makeDraggable(q('.bnmidview'));
+	
 	/** Item movement **/
 	/** (and a little item selection) **/
 	var mx = 0, my = 0;
@@ -8261,6 +8317,7 @@ $(document).ready(function() {
 	var snapOn = true;
 	var snapGridSize = 5;
 	$(".bnview").on("mousedown touchstart", ".node h6, .submodel:not(.parent), .textBox", function(event) {
+		if (event.button!=0)  return;
 		if (event.target.closest('.editMode'))  return;
 		let getOffset = el => ({left: el.offsetLeft, top: el.offsetTop});
 		if (!event.originalEvent.touches)  event.preventDefault();
@@ -8540,6 +8597,7 @@ $(document).ready(function() {
 
 	/** Select multiple objects (currently only includes nodes) **/
 	$(".bnmidview").on('mousedown', function(event) {
+		if (event.button!=0)  return;
 		if (!$(event.target).closest('.item').length) {
 			if (!event.shiftKey && !event.altKey && event.button==0 && !event.target.closest('.menu'))  currentBn.clearSelection();
 			var turnOn = !event.altKey ? true : false;
@@ -8992,17 +9050,18 @@ $(document).ready(function() {
 		return false;
 	});
 
-	$(document).on("contextmenu", ".node, .submodel, .textBox", function(event) {
-		if (event.shiftKey)  return true;
-		if (event.ctrlKey || event.target.closest('.submodel')) {
-			var $displayItem = $(this);
-			var item = currentBn.getItemById($displayItem.attr("id").replace(/^display_/, ''));
-			item.contextMenu(event);
-			return false;
+	q('.bnouterview').listeners.add("contextmenu", event => {
+		if (event.target.closest(".node, .submodel, .textBox")) {
+			if (event.shiftKey)  return true;
+			if (event.ctrlKey || event.target.closest('.submodel')) {
+				var $displayItem = $(this);
+				var item = currentBn.getItemById($displayItem.attr("id").replace(/^display_/, ''));
+				item.contextMenu(event);
+				return false;
+			}
 		}
 	});
-	
-	$(document).on("contextmenu", ".dependencyClickArea", function(event) {
+	$('.bnouterview').on("contextmenu", ".dependencyClickArea", function(event) {
 		if (event.shiftKey)  return false;
 		$(this).data('path').data('arcSelector').contextMenu(event);
 		return false;
@@ -9024,7 +9083,7 @@ $(document).ready(function() {
 		$('.itemList').addClass('unfocusMenu');
 		$(this).closest('.menuAction').addClass('focusMenu');
 		var $range = $(evt.target);
-		$(".bnview").css({transformOrigin: 'top left', transform: 'scale('+$range.val()+')'});
+		$(q('.jtreeView .canvas') ?? q('.bnview')).css({transformOrigin: 'top left', transform: 'scale('+$range.val()+')'});
 		$(".viewZoomText").text(Math.round($range.val()*100)+"%");
 	}).on('change mouseup', function(evt) {
 		$('.itemList').removeClass('unfocusMenu');
