@@ -500,7 +500,7 @@ var Node = class {
 	
 	get state() {
 		return this.statesById;
-	}	
+	}
 }
 Node.__fieldCopyTypes = {parents: 'shallow', children: 'shallow', submodelPath: 'deep'};
 /// Use this if the node hasn't been set up yet. Otherwise,
@@ -543,6 +543,7 @@ Node.makeNodeFromXdslEl = function (el, $xdsl, opts) {
 	var utils = null;
 
 	console.log($el);
+	var stateSpace = {};
 	if ($el.is("cpt")) {
 		cpt = $el.find("probabilities").text()._splitNotEmpty(/\s+/).map(function(p){return parseFloat(p)});
 		def = new CPT(null, cpt);
@@ -566,7 +567,8 @@ Node.makeNodeFromXdslEl = function (el, $xdsl, opts) {
 	}
 	else if ($el.is("utility")) {
 		utils = $el.find("utilities").text()._splitNotEmpty(/\s+/).map(function(p){return parseFloat(p)});
-		states = utils.map(function(a,i){ return new State({id: a, index: i}) });
+		states = utils.map(function(a,i){ return new State({id: a, index: i, value: a}) });
+		stateSpace = {stateSpace: {type: 'point'}};
 		funcTable = [];
 		for (var i in utils) {
 			funcTable[i] = i;
@@ -642,6 +644,7 @@ Node.makeNodeFromXdslEl = function (el, $xdsl, opts) {
 		comment: comment,
 		format: format,
 		submodelPath: submodelPath,
+		...stateSpace,
 	});
 
 	return node;
@@ -682,7 +685,7 @@ Object.assign(Node.prototype, {
 		}
 
 		/// Convert states, if needed
-		if (node.states.length && !node.states[0].id) {
+		if (node.states.length && node.states[0].id == undefined) {
 			var statesById = {};
 			var stateObjects = [];
 			for (var i=0; i<node.states.length; i++) {
@@ -698,7 +701,7 @@ Object.assign(Node.prototype, {
 			node.def.node = node;
 		}
 		
-		/// Observe by default
+		/// Should evidence be added as an intervention. By default, no (treat as observed only)
 		node.intervene = false;
 
 		/// Setup the vectors needed for the inference (needed even if using workers)
@@ -2943,6 +2946,7 @@ Object.assign(BN.prototype, {
 	/// The plan is to support some extra features (possibly DBNs and continuous variables), but these
 	/// ideas will be translated into whatever is most natural in the typical Make-Believe context.
 	load_dne: function(dneText) {
+		dbg.on;
 		var bn = this;
 		//parsing_debug(true);
 		console.time('parsing');
@@ -2974,6 +2978,13 @@ Object.assign(BN.prototype, {
 		globalThis.globalOm = om;
 		console.timeEnd('parsing');
 		console.time('searching');
+		
+		let kindMap = {
+			NATURE: 'nature',
+			DECISION: 'decision',
+			UTILITY: 'utility',
+		};
+		
 		//onsole.log(om);
 		var bnet = om._findObject({type: 'BLOCK_STATEMENT', children: {0: 'bnet'}});
 		var comment = bnet._findObject({children: {0: "comment", 2: {children: {0: OBJECTVALUE}}}}, {recursive: false});
@@ -2997,34 +3008,36 @@ Object.assign(BN.prototype, {
 			var nodeId = omNode.children[1];
 			var isTextNode = false;
 			console.log(nodeId, omNode);
+			let kind = omNode._findObject({children: {0: "kind", 2: {children: {0: OBJECTVALUE}}}});
+
 			/// ASSUME represents a text node?
 			/// I didn't save a test case for this, and can't replicate.
-			var skipNode = false;
-			try {
-				skipNode = omNode._findObject({children: {0: "kind", 2: {children: {0: "ASSUME"}}}});
-				//skipNode = JSON.search(omNode, '//*[children[1]="kind"]/children[3]/children')[0]=="ASSUME";
-			}
-			catch (e) { skipNode = true; }
-			if (skipNode)  continue;
+			if (kind=='ASSUME')  continue;
+			
+			let type = kindMap[kind];
+			
+			dbg(_=>console.log({kind}));
 			/// Try to find the visual position. If none has been specified, just assign 0,0.
 			var centerPos = [0,0];
 			try {
-				//console.log( omNode._findObject({children: {0: "center", 2: {children: {0: OBJECTVALUE}}}}) );
 				centerPos = omNode._findObject({children: {0: "center", 2: {children: {0: OBJECTVALUE}}}}).replace(/[\(\)\s]/g, '')._splitNotEmpty(/,/);
-				//centerPos = JSON.search(omNode, '//*[children[1]="center"]/children[3]/children')[0].replace(/[\(\)\s]/g, '')._splitNotEmpty(/,/);
 			}
 			catch (e) {}
+			
+			/// Look for states, levels or functable
+			let stateSpace = {type:'categorical'};
 			var states = omNode._findObject({children: {0: "states", 2: {children: {0: OBJECTVALUE}}}});
 			var stateTitles = omNode._findObject({children: {0: "statetitles", 2: {children: {0: OBJECTVALUE}}}});
 			if (states || stateTitles) {
 				/// Make-believe doesn't currently support state labels (although, it's
 				/// almost the very next thing to go in)
 				if (states) {
-					states = states.replace(/[\(\)\s]/g, '')._splitNotEmpty(/,/);
+					states = states.replace(/[\(\)\s]/g, '')._splitNotEmpty(/,/).map(s => new State({id:s}));
 				}
-				else if (stateTitles) {
+				if (stateTitles) {
 					states = [];
 					stateTitles.replace(/"((?:\\.|[^"])*)"/g, (m,p1) => states.push(p1.replace(/\\(.)/g, '$1')));
+					states.forEach((s,i) => s.label = stateTitles[i]);
 					//states = stateTitles.replace(/[\(\)\s]/g, '')._splitNotEmpty(/,/);
 				}
 			}
@@ -3034,45 +3047,76 @@ Object.assign(BN.prototype, {
 					levels = levels.replace(/[\(\)\s]/g, '')._splitNotEmpty(/,/);
 					states = [];
 					for (var li=0; li<levels.length-1; li++) {
-						states.push(levels[li]+"_"+levels[li+1]);
+						states.push(new State({id:levels[li]+"_"+levels[li+1]}));
 					}
 				}
 				else {
-					console.log("Could not find states or levels for '"+nodeId+"' node. Skipping.");
-					isTextNode = true;
-					//continue;
-				}
-			}
-			//var states = JSON.search(omNode, '//*[children[1]="states"]/children[3]/children')[0].replace(/[\(\)\s]/g, '')._splitNotEmpty(/,/);
-			if (!isTextNode) {
-				states = states.map(function(x,i){ return new State({id: x, index: i}) });
-				var cpt = null;
-				var funcTable = null;
-				try {
-					var cptStr = omNode._findObject({children: {0: "probs", 2: {children: {0: OBJECTVALUE}}}});
-					if (cptStr) {
-						//var cptStr = JSON.search(omNode, '//*[children[1]="probs"]/children[3]/children')[0];
-						/// defiantjs converts all new lines to &#13;, presumably for xpath compatibility
-						cptStr = cptStr.replace(/&#13;/g, '\n');
+					let funcTableStr = omNode._findObject({children: {0: "functable", 2: {children: {0: OBJECTVALUE}}}});
+					if (funcTableStr) {
 						/// Remove all comments
-						cptStr = cptStr.replace(/\/\/.*/g, '');
-						/// XXX Need to do more to support the various types of .dne 'probs' formats
-						//onsole.log( cptStr );
-						cpt = cptStr.replace(/[\(\)\s\n\r]|&[^&;]+;/g, '')._splitNotEmpty(/,/);
+						funcTableStr = funcTableStr.replace(/\/\/.*/g, '');
+						
+						funcTable = funcTableStr.replace(/[\(\)\s]/g, '')._splitNotEmpty(/,/);
+						/// Make unique, and sort
+						funcTable = [...new Set(funcTable)];
+						if (!isNaN(parseFloat(funcTable[0]))) {
+							funcTable.sort((a,b) => a-b);
+						}
+						else {
+							funcTable.sort((a,b) => String.localeCompare(a,b));
+						}
+						states = [];
+						for (var li=0; li<funcTable.length; li++) {
+							states.push(new State({id:funcTable[li], value:funcTable[li]}));
+						}
+						stateSpace = {type: 'point'};
 					}
 					else {
-						var funcTableStr = omNode._findObject({children: {0: "functable", 2: {children: {0: OBJECTVALUE}}}});
-						if (funcTableStr) {
-							/// Remove all comments
-							funcTableStr = funcTableStr.replace(/\/\/.*/g, '');
-							/// XXX Need to do more to support the various types of .dne 'probs' formats
-							//onsole.log( funcTableStr );
-							funcTable = funcTableStr.replace(/[\(\)\s\n\r]|&[^&;]+;/g, '')._splitNotEmpty(/,/);
-							funcTable = funcTable.map(stateName => states.findIndex(s => s.id==stateName));
-						}
+						console.log("Could not find states, levels or function table for '"+nodeId+"' node. Skipping.");
+						isTextNode = true;
 					}
 				}
-				catch (e) {}
+			}
+			
+			//var states = JSON.search(omNode, '//*[children[1]="states"]/children[3]/children')[0].replace(/[\(\)\s]/g, '')._splitNotEmpty(/,/);
+			var cpt = null;
+			var funcTable = null;
+			if (!isTextNode) {
+				/// Annotate with state indexes
+				states.forEach((s,i) => s.index = i);
+				/// Decision nodes will have funcTables that are outputs, rather than specifications (in a roundabout way,
+				/// it models certain things correctly, but I don't think ideal)
+				if (type == 'decision') {
+					cpt = states.map(_=>1/states.length);
+					funcTable = null;
+				}
+				else {
+					try {
+						var cptStr = omNode._findObject({children: {0: "probs", 2: {children: {0: OBJECTVALUE}}}});
+						if (cptStr) {
+							//var cptStr = JSON.search(omNode, '//*[children[1]="probs"]/children[3]/children')[0];
+							/// defiantjs converts all new lines to &#13;, presumably for xpath compatibility
+							cptStr = cptStr.replace(/&#13;/g, '\n');
+							/// Remove all comments
+							cptStr = cptStr.replace(/\/\/.*/g, '');
+							/// XXX Need to do more to support the various types of .dne 'probs' formats
+							//onsole.log( cptStr );
+							cpt = cptStr.replace(/[\(\)\s\n\r]|&[^&;]+;/g, '')._splitNotEmpty(/,/);
+						}
+						else {
+							var funcTableStr = omNode._findObject({children: {0: "functable", 2: {children: {0: OBJECTVALUE}}}});
+							if (funcTableStr) {
+								/// Remove all comments
+								funcTableStr = funcTableStr.replace(/\/\/.*/g, '');
+								/// XXX Need to do more to support the various types of .dne 'probs' formats
+								//onsole.log( funcTableStr );
+								funcTable = funcTableStr.replace(/[\(\)\s\n\r]|&[^&;]+;/g, '')._splitNotEmpty(/,/);
+								funcTable = funcTable.map(stateName => states.findIndex(s => s.id==stateName));
+							}
+						}
+					}
+					catch (e) {}
+				}
 				var comment = null;
 				try {
 					//comment = JSON.search(omNode, '//*[children[1]="comment"]/children[3]/children')[0];
@@ -3118,15 +3162,17 @@ Object.assign(BN.prototype, {
 				var node = new Node({
 					net: this,
 					id: nodeId,
-					label: label,
+					label,
+					type,
 					//parents: JSON.search(omNode, '//*[children[1]="parents"]/children[3]/children')[0].replace(/[\(\)\s]/g, '')._splitNotEmpty(/,/),
 					parents: omNode._findObject({children: {0: "parents", 2: {children: {0: OBJECTVALUE}}}}).replace(/[\(\)\s]/g, '')._splitNotEmpty(/,/),
-					states: states,
-					def: def,
+					stateSpace,
+					states,
+					def,
 					pos: {x: Number(centerPos[0]), y: Number(centerPos[1])},
-					size: size,
-					format: format,
-					comment: comment,
+					size,
+					format,
+					comment,
 				});
 				/// Check for any empty CPTs, and set to a useful initial
 				//if (!cpt)  node.def.setInitial();
@@ -3165,6 +3211,7 @@ Object.assign(BN.prototype, {
 			if (hasPos)  break;
 		}
 		if (!hasPos)  bn.doAutoLayout = true;
+		dbg.off;
 	},
 	save_dne() {
 		let nodesStr = '';
@@ -4594,22 +4641,41 @@ ${nodesStr}
 	},
 	/// This updates the expected value for the current network,
 	/// given the current evidence.
-	updateExpectedValue: function() {
-				console.log('xxx');
+	updateExpectedValue() {
 		/// XXXXXX Calculating net's current expected value
+		/// Decisions are assumed randomised
 		if (this._utilityNodes.length) {
 			var totalUtility = 0;
 			for (var i=0; i<this._utilityNodes.length; i++) {
-				console.log('ttt', this._utilityNodes.length, new Date());
 				var uNode = this._utilityNodes[i];
 				var ev = 0;
-				for (var j in uNode.values) {
-				console.log('zzz');
-					ev += uNode.values[j]*uNode.beliefs[j];
+				for (var j=0; j<uNode.states.length; j++) {
+					ev += uNode.states[j].value*uNode.beliefs[j];
 				}
 				totalUtility += ev;
 			}
 			this.expectedValue = totalUtility;
+		}
+	},
+	async updateDecisionNodes() {
+		//let bnCopy = new BN(this);
+		/// Need to handle precedence
+		let dNode = null;
+		for (let i=0; i<this._decisionNodes.length; i++) {
+			dNode = this._decisionNodes[i];
+			if (!dNode.hasEvidence()) {
+				break;
+			}
+		}
+		if (dNode) {
+			let dNodeEus = [];
+			for (let s=0; s<dNode.states.length; s++) {
+				this.setEvidence({[dNode.id]: s});
+				await new Promise(r => this.updateBeliefs(r));
+				dNodeEus.push(this.expectedValue);
+			}
+			this.setEvidence({[dNode.id]: null});
+			dNode.expectedValues = dNodeEus;
 		}
 	},
 	/// FIX: I'm pretty sure this needs to be removed

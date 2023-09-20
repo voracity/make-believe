@@ -203,6 +203,8 @@ var Stats = class {
 /// I'm not sure if this guarantees a nicely formatted string.
 function sigFig(num, digits) {
 	if (num==0)  return 0;
+	let numSign = Math.sign(num);
+	num = Math.abs(num);
 	/// Get a multiplier based on the log position of most sig digit (add 1 to avoid 100...0 not being rounded up)
 	var mul = Math.pow(10,Math.floor(Math.log10(num)));
 	var sigPow = Math.pow(10,digits-1);
@@ -217,7 +219,7 @@ function sigFig(num, digits) {
 		v = v*d;
 	}
 
-	return v;
+	return numSign*v;
 }
 
 /// This will replace a method with a method with listener hooks, and add the listener requested.

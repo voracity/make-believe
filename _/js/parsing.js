@@ -14,6 +14,19 @@ OM = object model.
 
  BASE = NUM /\s+/ NUM
  NUM = /\d+/
+ 
+ ! hides the rule
+ @ hoists a child up to take the parent's place (in the object model)
+ 
+ e.g. The following would be equivalent to the very first example. 
+ 
+ BASE = NUM /\s+/ NUM
+ NUM! = /\d+/
+ 
+ as would this:
+ 
+ BASE = NUM /\s+/ NUM
+ NUM = @/\d+/
 
  (but produce a different object model).
 */

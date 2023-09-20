@@ -184,7 +184,8 @@
 
 	/** Other node styles (e.g. Decision and utility) **/
 	.node.decision { background: #A5BEF2; }
-	.node.decision .state .prob { visibility: hidden; }
+	/*.node.decision .state .prob { visibility: hidden; }*/
+	.node.decision .state.maxEv { font-weight: bold; }
 	.node.decision .state .beliefBar { visibility: hidden; }
 	.node.decision.hasEvidence .state .beliefBar { visibility: visible; }
 	.node.utility { background: #F3A5CD; }

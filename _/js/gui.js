@@ -1222,8 +1222,9 @@ Object.assign(BN.prototype, {
 			$('.status .numNodes').text(`${bn.nodes.length} nodes`);
 
 		}
-		this.updateBeliefs((bn, totalIterationsRun) => {
+		this.updateBeliefs(async (bn, totalIterationsRun) => {
 			inferenceTime = performance.now() - start;
+			await this.updateDecisionNodes();
 			bn.displayBeliefs(outputEl);
 			displayPerf(totalIterationsRun);
 			if (callback)  callback(bn);
@@ -1268,6 +1269,19 @@ Object.assign(BN.prototype, {
 				$(".status").append('<span class=expectedValue title="Expected value (or utility) of the current network">Expected value: <span class=val></span></span>');
 			}
 			$(".status .expectedValue .val").text(mbConfig.sigFig(this.expectedValue));
+		}
+		if (this._decisionNodes.length) {
+			let dNode = null;
+			for (let i=0; i<this._decisionNodes.length; i++) {
+				dNode = this._decisionNodes[i];
+				if (!dNode.hasEvidence()) {
+					break;
+				}
+			}
+			q(dNode.el()).qa('.state').forEach(s => s.classList.remove('maxEv'));
+			let maxEv = dNode.expectedValues.reduce((a,ev,i) => a.ev > ev ? a : {ev, i}, {ev:-Infinity});
+			q(dNode.el()).qa('.state')[maxEv.i].classList.add('maxEv');
+			dNode.el().find('.prob').each(function(i){ $(this).text(dNode.expectedValues[i]) });
 		}
 		
 		if (redrawArcs) {
@@ -2113,8 +2127,8 @@ Object.assign(BN.prototype, {
 		return {internalArcs, crossingArcs};
 	},
 	/// Switch to gui / plain(api)? rather than plain(gui) / api? to be consistent with elsewhere.
-	apiSetEvidence: BN.prototype.setEvidence,
-	setEvidence: function(evidence, o = {}, callback = null) {
+	// apiSetEvidence: BN.prototype.setEvidence,
+	guiSetEvidence: function(evidence, o = {}, callback = null) {
 		o.reset ??= false;
 		this.apiSetEvidence(evidence, o);
 		
@@ -2129,8 +2143,8 @@ Object.assign(BN.prototype, {
 		
 		return this;
 	},
-	clearEvidence(o, callback) {
-		this.setEvidence({}, Object.assign({},o,{reset:true}), callback);
+	guiClearEvidence(o, callback) {
+		this.guiSetEvidence({}, Object.assign({},o,{reset:true}), callback);
 	},
 	async guiFindAllDConnectedPaths2(sourceNode, destNode, o = {}) {
 		let paths = this.findAllDConnectedPaths2(sourceNode, destNode, o);
@@ -6658,7 +6672,7 @@ var app = {
 		$(".dialog .okButton").one("click", dismissDialogs);
 	},
 	clearEvidence: function() {
-		currentBn.setEvidence({},{reset:true});
+		currentBn.guiSetEvidence({},{reset:true});
 	},
 	storeEvidence: function() {
 		var evCopy = Object.assign({}, currentBn.evidence);
@@ -6725,7 +6739,7 @@ var app = {
 				},
 			}}
 		), function() {
-			currentBn.setEvidence(evidence, {reset:true});
+			currentBn.guiSetEvidence(evidence, {reset:true});
 		}, {type: 'evidenceItem'});
 		
 		let item = ma.make();
