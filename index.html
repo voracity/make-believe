@@ -76,8 +76,10 @@
 	html, body { height: 100%; width: 100%; margin: 0; padding: 0; overflow: hidden; }
 
 	body { font-size: 8pt; font-family: arial; }
-	.bnComponent { width: 100%; height: 100%; position: relative; display: flex; flex-direction: column; }
-	.bnview { width: 100%; height: 100%; position: relative; }
+	.bnComponent { width: 100%; height: 100%; position: relative; display: flex; flex-direction: column;
+		font-size: 16px;
+		--px: calc(1em / 12); --pt: calc(1em / 12); }
+	.bnview { width: 100%; height: 100%; position: relative; font-size: 100%; }
 
 	/* Give h6 a normal size by default */
 	h6 { font-size: 1em; }
@@ -91,8 +93,8 @@
 
 	/* Node formatting */
 	.node { position: absolute; padding: 0 0; border-radius: 0; border: solid 1px #444;
-		background: var(--node-background); color: var(--node-text); z-index: 1; font-family: tahoma; font-size: 9pt; width: max-content; display: grid; grid-template-columns: auto auto auto;
-		align-items: stretch; align-content: center; }
+		background: var(--node-background); color: var(--node-text); z-index: 1; font-family: tahoma; font-size: 1em; }
+	.node .inner { display: grid; grid-template-columns: auto auto auto; align-items: stretch; align-content: center; width: max-content; }
 	.node, .submodel, .status { user-select: none; }
 	.submodel { cursor: pointer; }
 	.node.editMode { user-select: initial; }
@@ -115,16 +117,16 @@
 	.node .state { display: contents; }
 	.node .state .stateName:hover { cursor: pointer; opacity: 0.5; }
 	.node .state .stateName[contenteditable]:hover { cursor: text; }
-	.node .state > div { display: table-cell; vertical-align: middle; padding: 1px 5px 2px; }
+	.node .state > div { display: table-cell; vertical-align: middle; padding: 0.1em 0.5em 0.2em; }
 	.node .state .prob { width: 2.6em; text-align: right; padding-left: 5px; overflow: hidden; white-space: pre; display: inline-block; padding-right: 3px; justify-self: end; }
-	.node .state .beliefBarView { min-width: 50px; position: relative; border-left: solid 1px black; padding: 1px 0; background: #7772; display: flex; flex-direction: column; align-items: start; justify-content: center; }
-	.node.dynamic .state .beliefBarView { min-width: 100px; height: 26px; }
+	.node .state .beliefBarView { min-width: 4em; position: relative; border-left: solid 1px black; padding: 1px 0; background: #7772; display: flex; flex-direction: column; align-items: start; justify-content: center; }
+	.node.dynamic .state .beliefBarView { min-width: 100px; height: 2.1em; }
 	.node .state .beliefBar { background: #000c; height: 0.9em; width: 0px; }
 	.node .state .beliefBar2 { background: gray; height: 10px; width: 0px; }
 	.node *[contenteditable] { display: block; }
 	
 	/** I'm not sure why I don't have it this way all the time ? **/
-	.node h6 { text-align: left; overflow: visible; white-space: normal; padding: 2px 6px 2px 5px; }
+	.node h6 { text-align: left; overflow: visible; white-space: normal; padding: 0.1em 0.5em 0.1em 0.4em; }
 
 	/** Node selection **/
 	.node.dconnected, .node.evidenceSetHighlight { box-shadow: 0 0 0 4px red; }

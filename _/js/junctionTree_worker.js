@@ -1,8 +1,8 @@
 if (typeof(importScripts)!="undefined") {
+	importScripts('utils.js');
 	importScripts('definitions.js');
 	importScripts('equationFunctions.js');
 	importScripts('engineCommon.js');
-	importScripts('utils.js');
 }
 else if (typeof(exports)!="undefined") {
 	({Factor} = require('./definitions.js'));

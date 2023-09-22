@@ -44,6 +44,12 @@ var Definition = class {
 }
 
 var CPT = class extends Definition {
+	static Convert = addMixin(this, Convert);
+	static convert = {
+		toJSON: {
+			_omit: ['node'],
+		},
+	};
 	constructor(nodeOrDef, cpt) {
 		super();
 		let node = nodeOrDef ? (nodeOrDef.node || nodeOrDef) : null;

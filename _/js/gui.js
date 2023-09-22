@@ -10,10 +10,13 @@ var draw = {
 	arrowHeadWidth: 10,
 	arrowHeadHeight: 10,
 	/// Create the SVG canvas for all arrows
+	/// Takes a width and height in BN (or canvas) co-ordinate space
 	createSvg: function(outputEl, x, y, width, height, cls) {
 		let aw = this.arrowHeadWidth;
 		let ah = this.arrowHeadHeight;
-		return $(`<svg width="${width}" height="${height}"><defs>
+		// let pxWidth = this.viewToPx(width);
+		// let pxHeight = this.viewToPx(height);
+		return $(`<svg style="width: ${draw.pxToView(width)}; height: ${draw.pxToView(height)}" viewBox="0 0 ${width} ${height}"><defs>
 				<marker id='arrowhead' viewBox='0 0 ${aw} ${ah}' refX='1' refY='${ah/2}'
 				markerUnits='userSpaceOnUse' orient='auto'
 				markerWidth='${aw}' markerHeight='${ah-1}'>
@@ -23,6 +26,24 @@ var draw = {
 			.attr("class", cls)
 			.css({left: x, top: y, position: "absolute"})
 			.appendTo(outputEl);
+	},
+	/// Takes a width and height in BN (or canvas) co-ordinate space
+	resizeCanvas($svg, width, height) {
+		$svg = $($svg);
+		$svg.css({width: draw.pxToView(width), height: draw.pxToView(height)});
+		$svg.attr('viewBox', `0 0 ${width} ${height}`);
+	},
+	pxToView(px) {
+		return `calc(${px} * var(--px))`;
+	},
+	ptToView(pt) {
+		return `calc(${pt} * var(--pt))`;
+	},
+	/// 2023-09-23: This needs to pick it up from whatever svg is appropriate. (Wonder if I should make draw into a class?)
+	viewToPx(view) {
+		let fs = parseFloat($('.bnview').css('font-size'));
+		let scale = 12/fs;
+		return scale*view;
 	},
 	getDistance(point1, point2) {
 		let d = 0;
@@ -78,10 +99,10 @@ var draw = {
 		if (r < 0)  r += 2*Math.PI;
 		return r;
 	},
-	getBox: function(el) {
+	getBox: function(el, viewSpace = false) {
 		el = $(el)[0];
 		var r;
-		var cachedBox = $(el).data('cachedBox');
+		// var cachedBox = null; //$(el).data('cachedBox');
 		var elLeft = null;
 		var elTop = null;
 		/// offset* is *way* faster than jQuery's position(), but is not defined for some
@@ -95,15 +116,17 @@ var draw = {
 			elLeft = pos.left;
 			elTop = pos.top;
 		}
-		if (cachedBox) {
+		/*if (cachedBox) {
 			box = cachedBox;
 			box.x = elLeft;
 			box.y = elTop;
 		}
-		else {
+		else {*/
 			/// More reliable than (currently possessed) jQuery for width/height
 			box = el.getBoundingClientRect();
+			/// Translate view to bn space
 			let scale = el.offsetWidth ? el.offsetWidth/box.width : 1;
+			// let scale = 1;
 			/// position() is *seriously* slow, and worse in 3.2 than 2.x. It's odd because
 			/// position() should just return offsetLeft/offsetTop.
 			//box.x = el.position().left;
@@ -119,6 +142,16 @@ var draw = {
 			if (r > box.width/2)  r = box.width/2;
 			if (r > box.height/2)  r = box.height/2;
 			box.borderRadius = r;
+		//}
+
+		if (!viewSpace) {
+			box.width = this.viewToPx(box.width);
+			box.height = this.viewToPx(box.height);
+			box.left = this.viewToPx(box.left);
+			box.right = this.viewToPx(box.right);
+			box.x = this.viewToPx(box.x);
+			box.y = this.viewToPx(box.y);
+			box.borderRadius = this.viewToPx(box.borderRadius);
 		}
 
 		return box;
@@ -796,7 +829,7 @@ Object.assign(DisplayItem.prototype, {
 				exec(current) {
 					let item = this.net.find(this.itemId);
 					item.apiMoveTo(current.x, current.y);
-					item.el().css({left: item.pos.x, top: item.pos.y});
+					item.el().css({left: `calc(${item.pos.x} * var(--px))`, top: `calc(${item.pos.y} * var(--px))`});
 					if (item.isGraphItem())  this.net.redrawArcs(item.el());
 				},
 			});
@@ -804,7 +837,7 @@ Object.assign(DisplayItem.prototype, {
 		else {
 			let item = this;
 			item.apiMoveTo(x, y);
-			item.el().css({left: item.pos.x, top: item.pos.y});
+			item.el().css({left: `calc(${item.pos.x} * var(--px))`, top: `calc(${item.pos.y} * var(--px))`});
 			if (item.isGraphItem())  this.net.redrawArcs(item.el());
 		}
 	},
@@ -1099,27 +1132,28 @@ Object.assign(BN.prototype, {
 		currentBn.display();
 		currentBn.displayBeliefs();
 	},
+	guiAddNodeRaw(id, states, opts) {
+		let node = this.addNode(id, states, opts);
+
+		if (!node.isHidden()) {
+			node.displayItem(this.outputEl);
+			this.updateArcs(node);
+		}
+		
+		return node;
+	},
 	guiAddNode(id, states, opts) {
 		let node = null;
 
 		this.changes.addAndDo({
 			net: this,
-			node: null,
-			/*opts: {...pick(opts, ...'def pos size label type comment format submodelPath values'.split(/\s+/)),
-					...{parents: BN.getIds(opts.parents), children: BN.getIds(opts.children)}},*/
+			args: [id, states, Node.prototype.toJSON.apply(opts)],
 			name: "Add Node",
-			redo(current) {
-				if (!this.node)  this.node = this.net.addNode(id, states, opts);
-				else             this.node.addToNet(this.net);
-
-				if (!this.node.isHidden()) {
-					this.node.displayItem(this.net.outputEl);
-					this.net.updateArcs(this.node);
-				}
-				node = this.node;
+			redo() {
+				node = this.net.guiAddNodeRaw(...this.args);
 			},
-			undo(current) {
-				this.node.guiDelete();
+			undo() {
+				this.net.node[this.args[0]].guiDeleteRaw();
 			},
 		});
 		
@@ -1631,7 +1665,8 @@ Object.assign(BN.prototype, {
 
 		/// Resize the SVG
 		//console.log(maxX, maxY);
-		$(".netSvgCanvas").attr("width", maxX + CANVASPAD).attr("height", maxY + CANVASPAD);
+		draw.resizeCanvas($('.netSvgCanvas'), maxX + CANVASPAD, maxY + CANVASPAD);
+		// $(".netSvgCanvas").attr("width", maxX + CANVASPAD).attr("height", maxY + CANVASPAD);
 
 		/// Not sure this belongs here. I'm thinking |display()| should just be
 		/// responsible for displaying the BN graph, not associated extras
@@ -1662,8 +1697,8 @@ Object.assign(BN.prototype, {
 		if (!width) {
 			// console.trace();
 			// console.log('no width height');
-			width = parseFloat($(".netSvgCanvas").attr("width"));
-			height = parseFloat($(".netSvgCanvas").attr("height"));
+			({width, height} = draw.getBox($('.netSvgCanvas'))); //parseFloat($(".netSvgCanvas").attr("width"));
+			// height = parseFloat($(".netSvgCanvas").attr("height"));
 		}
 		
 		/// Find the maxX and maxY for the canvas as a whole
@@ -1725,7 +1760,8 @@ Object.assign(BN.prototype, {
 		}
 		
 		if (maxX != width || maxY != height) {
-			$(".netSvgCanvas").attr("width", maxX).attr("height", maxY);
+			draw.resizeCanvas($('.netSvgCanvas'), maxX, maxY);
+			// $(".netSvgCanvas").attr("width", maxX).attr("height", maxY);
 		}
 		
 		return {maxX, maxY};
@@ -1990,7 +2026,7 @@ Object.assign(BN.prototype, {
 	},
 	resizeCanvasToFit: function() {
 		var m = this.measureCanvasNeeds();
-		$(".netSvgCanvas").attr("width", m.maxX).attr("height", m.maxY);
+		draw.resizeCanvas($(".netSvgCanvas"), m.maxX, m.maxY);
 	},
 	showSidebar(doShow) {
 		doShow ??= !!$('.sidebar .boxes')[0].childElementCount;
@@ -2210,7 +2246,7 @@ Object.assign(Submodel.prototype, {
 				if (cur.id && cur.id != this.id) {
 					this.rename(cur.id);
 				}
-				if (cur.submodelPath && cur.submodelPath != this.submodelPath) {
+				if (cur.submodelPath && BN.makeSubmodelPathStr(cur.submodelPath) != BN.makeSubmodelPathStr(this.submodelPath)) {
 					this.moveToSubmodel(cur.submodelPath);
 					extraMsg.submodelPathChanged = true;
 				}
@@ -2222,12 +2258,14 @@ Object.assign(Submodel.prototype, {
 	
 	updateView(m, extraMsg = {}) {
 		console.log('updateView');
+		//debugger;
 		let el = q(this.el());
+		let elInner = el.q('.inner');
 		if (m.size?.width!=null) {
-			el.style.width = m.size.width+'px';
+			el.style.width = draw.pxToView(m.size.width);
 		}
 		if (m.size?.height!=null) {
-			el.style.height = m.size.height+'px';
+			el.style.height = draw.pxToView(m.size.height);
 		}
 		if (m.id!=null) {
 			el.id = 'display_'+this.id;
@@ -2240,7 +2278,7 @@ Object.assign(Submodel.prototype, {
 			this.guiMoveToSubmodelVisual();
 		}
 		if (m.format!=null) {
-			el.style.set({
+			elInner.style.set({
 					background: m.format.backgroundColor,
 					border: m.format.borderColor && m.format.borderColor+' 1px solid',
 					color: m.format.fontColor,
@@ -2260,10 +2298,12 @@ Object.assign(Submodel.prototype, {
 		var submodel = this;
 		if (!$displayItem) {
 			$displayItem = $("<div class='submodel item' id=display_"+submodel.id+">")
-				.css({left: submodel.pos.x+"px", top: submodel.pos.y+"px"})
-				.css({width: submodel.size.width+"px", height: submodel.size.height+"px"})
+				.css({left: draw.pxToView(submodel.pos.x), top: draw.pxToView(submodel.pos.y)})
+				.css({width: draw.pxToView(submodel.size.width), height: draw.pxToView(submodel.size.height)})
 				.append(
-					$("<h6>").text(submodel.net.headerFormat(submodel.id, submodel.label))
+					$('<div class=inner>').append(
+						$("<h6>").text(submodel.net.headerFormat(submodel.id, submodel.label))
+					)
 				)
 				/// Add back a pointer to the submodel data structure
 				.data("submodel", submodel)
@@ -2276,7 +2316,7 @@ Object.assign(Submodel.prototype, {
 			if (submodel.format.backgroundColor)  $displayItem.css('background', submodel.format.backgroundColor);
 			if (submodel.format.fontColor)  $displayItem.css('color', submodel.format.fontColor);
 			if (submodel.format.fontFamily)  $displayItem.css('font-family', submodel.format.fontFamily);
-			if (submodel.format.fontSize)  $displayItem.css('font-size', submodel.format.fontSize+'pt');
+			if (submodel.format.fontSize)  $displayItem.find('.inner').css('font-size', submodel.format.fontSize+'pt');
 		}
 
 		return $displayItem;
@@ -2588,7 +2628,7 @@ Object.assign(Node.prototype, DisplayItem.prototype, {
 			if (f.borderColor)  this._elCached.css('borderColor', f.borderColor);
 			if (f.fontColor)  this._elCached.css('color', f.fontColor);
 			if (f.fontFamily)  this._elCached.css('fontFamily', f.fontFamily);
-			if (f.fontSize)  this._elCached.css('fontSize', f.fontSize+'pt');
+			if (f.fontSize)  this._elCached.find('.inner').css('fontSize', f.fontSize+'pt');
 			if (f.displayStyle) {
 				/// Remove the existing displayStyle class if present
 				removeMatchingClasses(this._elCached[0], c => c.startsWith('ds_'));
@@ -2676,14 +2716,16 @@ Object.assign(Node.prototype, DisplayItem.prototype, {
 		
 		if (!$displayNode) {
 			$displayNode = $("<div class='node item' id=display_"+node.id+">")
-				.css({left: node.pos.x+"px", top: node.pos.y+"px"})
+				.css({left: draw.pxToView(node.pos.x), top: draw.pxToView(node.pos.y)})
 				.append(
-					$('<div class=controlBar>').append(
-						$("<h6>").text(node.net.headerFormat(node.id, node.label)),
-						$(`<div class=hotSpotParent>
-							<div class=hotSpotReverse></div>
-							<div class=hotSpot></div>
-						</div>`)
+					$('<div class="inner">').append(
+						$('<div class=controlBar>').append(
+							$("<h6>").text(node.net.headerFormat(node.id, node.label)),
+							$(`<div class=hotSpotParent>
+								<div class=hotSpotReverse></div>
+								<div class=hotSpot></div>
+							</div>`)
+						)
 					)
 				)
 				.appendTo(outputEl);
@@ -2695,7 +2737,7 @@ Object.assign(Node.prototype, DisplayItem.prototype, {
 			if (node.format.backgroundColor)  $displayNode.css('background', node.format.backgroundColor);
 			if (node.format.fontColor)  $displayNode.css('color', node.format.fontColor);
 			if (node.format.fontFamily)  $displayNode.css('font-family', node.format.fontFamily);
-			if (node.format.fontSize)  $displayNode.css('font-size', node.format.fontSize+'pt');
+			if (node.format.fontSize)  $displayNode.find('.inner').css('font-size', draw.ptToView(node.format.fontSize));
 			removeMatchingClasses($displayNode[0], c => c.startsWith('ds_'));
 			$displayNode.attr('data-display-style', null);
 			if (node.format.displayStyle) {
@@ -2714,7 +2756,7 @@ Object.assign(Node.prototype, DisplayItem.prototype, {
 		$displayNode.addClass(node.type);
 		/// Clear out any existing states first
 		$displayNode.find(".state").remove();
-		$states = $displayNode.append('<div class="states">').find('.states');
+		$states = $displayNode.find('.inner').append('<div class="states">').find('.states');
 		for (var j=0; j<node.states.length; j++) {
 			var state = node.states[j];
 			$states.append(
@@ -3674,57 +3716,51 @@ Object.assign(Node.prototype, DisplayItem.prototype, {
 		});
 		return this;
 	},
+	guiDeleteRaw() {
+		/// Remove objects for node and arcs (and probably more in future)
+		this.el().remove();
+		this.removePaths();
+		//this.net.outputEl.find('#display_'+node.id).remove();
+		// for (let p of node.pathsIn)  this.net.outputEl.find('#'+p.pathId).data('arcSelector').removePath();
+		// for (let p of node.pathsOut)  this.net.outputEl.find('#'+p.pathId).data('arcSelector').removePath();
+		this.pathsIn.length = 0;
+		this.pathsOut.length = 0;
+		
+		/// Remove from selections if there
+		this.net.selected.delete(this);
+
+		/// Delete base object
+		this.delete();
+	},
 	guiDelete: function(o = {}) {
 		o = {
 			prompt: false,
 			display: true,
 			...o
 		};
-
+		
 		/// I think I should remove nodeOrig eventually?
-		let node = this.nodeOrig ? this.nodeOrig : this;
-		let net = node.net;
+		let node = this;
+		let net = this.net;
 			
 		let doDelete = _=> {
 			net.changes.addAndDo({
-				net: net, node: node,
+				extern: {net},
+				node: node.toJSON(),
 				childDefs: node.children.map(c => c.def.duplicate()),
-				/*net: net, nodeId: node.id,
-				childDefs: node.children.map(c => c.def.duplicate()),
-				states: node.states.map(s => s.id),
-				opts: {...pick(node, ...'def pos size label type comment format submodelPath values'.split(/\s+/)),
-						...{parents: BN.getIds(node.parents), children: BN.getIds(node.children)}},*/
 				redo() {
 					console.log('START REDO DELETE');
-					//let node = this.net.find(this.nodeId);
-
-					/// Remove objects for node and arcs (and probably more in future)
-					this.node.el().remove();
-					this.node.removePaths();
-					//this.net.outputEl.find('#display_'+node.id).remove();
-					// for (let p of node.pathsIn)  this.net.outputEl.find('#'+p.pathId).data('arcSelector').removePath();
-					// for (let p of node.pathsOut)  this.net.outputEl.find('#'+p.pathId).data('arcSelector').removePath();
-					this.node.pathsIn.length = 0;
-					this.node.pathsOut.length = 0;
-					
-					/// Remove from selections if there
-					this.node.net.selected.delete(this);
-
-					/// Delete base object
-					this.node.delete();
+					this.extern.net.node[this.node.id].guiDeleteRaw();
 					console.log('END REDO DELETE');
 				},
 				undo() {
 					console.log('START UNDO DELETE');
-					/// Hmmm, not sure whether addNode should take ownership of the arrays passed into opts
-					/// or not.
-					//let node = this.net.guiAddNode(this.nodeId, this.states, this.opts);
-					this.node.guiAddToNet(this.net);
+					let node = this.extern.net.guiAddNodeRaw(this.node.id, this.node.states, this.node);
 					/// Restore child definitions
-					for (let [i,child] of Object.entries(this.node.children)) {
+					for (let [i,child] of Object.entries(node.children)) {
 						child.def = this.childDefs[i].duplicate();
 					}
-					this.net.updateArcs(this.node);
+					//this.extern.net.updateArcs(this.node);
 					console.log('END UNDO DELETE');
 				},
 			});
@@ -4171,20 +4207,21 @@ Object.assign(TextBox.prototype, {
 	updateView(m) {
 		console.log('updateView');
 		let el = q(this.el());
+		let elInner = el.q('.inner');
 		if (m.text!=null) {
-			el.innerTextTEMPFIX = m.text;
+			elInner.innerTextTEMPFIX = m.text;
 		}
 		if (m.size?.width!=null) {
-			el.style.width = m.size.width+'px';
+			el.style.width = draw.pxToView(m.size.width)+'px';
 		}
 		if (m.size?.height!=null) {
-			el.style.height = m.size.height+'px';
+			el.style.height = draw.pxToView(m.size.height)+'px';
 		}
 		if (m.id!=null) {
 			el.id = 'display_'+this.id;
 		}
 		if (m.format!=null) {
-			el.style.set({
+			elInner.style.set({
 					background: m.format.backgroundColor,
 					border: m.format.borderColor && m.format.borderColor+' 1px solid',
 					color: m.format.fontColor,
@@ -4193,7 +4230,7 @@ Object.assign(TextBox.prototype, {
 					fontWeight: m.format.bold,
 					fontStyle: m.format.italic,
 					textAlign: m.format.align,
-					padding: m.format.padding,
+					padding: m.format.padding, /// 2023-09:23: Padding in px should be added to outer, in em to inner
 			}, {null:false});
 		}
 	},
@@ -4205,12 +4242,13 @@ Object.assign(TextBox.prototype, {
 		var textBox = this;
 		if (!$displayNode) {
 			$displayNode = $("<div class='textBox item' id=display_"+textBox.id+">")
-				.css({left: textBox.pos.x+"px", top: textBox.pos.y+"px"})
+				.css({left: draw.pxToView(textBox.pos.x), top: draw.pxToView(textBox.pos.y)})
 				.css({
-					width: textBox.size.width==-1 ? null : (textBox.size.width+"px"),
-					height: textBox.size.height==-1 ? null : (textBox.size.height+"px")
+					width: textBox.size.width==-1 ? null : draw.pxToView(textBox.size.width),
+					height: textBox.size.height==-1 ? null : draw.pxToView(textBox.size.height)
 				})
-				.appendTo(outputEl);
+				.appendTo(outputEl)
+				.append($('<div class=inner>'));
 			this._elCached = $displayNode;
 			this.updateView(this);
 		}
@@ -8167,9 +8205,7 @@ $(document).ready(function() {
 			MenuAction("Load Data...", function(){ $('#openDataFile').change(function() {
 				app.readChosenFile(this, (fileData,fileName) => app.loadData(fileData, {fileName}));
 			}).click(); dismissActiveMenus(); }),
-			Menu({label:"Tests", items: [
-				MenuAction('Run Tests', function() { alert('Check JavaScript console for results'); testing.runTests(); }),
-			]}),
+			MenuAction("GUI Testing...", _=>{ testing.init(); dismissActiveMenus(); }),
 			MenuAction(n('span', n('input.alosCheck', {type:'checkbox',checked:app.autoLayoutOnStructure?'checked':null}), 'Auto-Layout On Structure'), _=>{
 				app.autoLayoutOnStructure = !app.autoLayoutOnStructure;
 				$('.alosCheck').prop('checked', app.autoLayoutOnStructure);
@@ -8253,7 +8289,8 @@ $(document).ready(function() {
 	});
 
 	/** Evidence **/
-	$(".bnview").on("mousedown", ".stateName, .beliefBar", function() {
+	$(".bnview").on("mousedown", ".stateName, .beliefBar", function(event) {
+		if (event.originalEvent && event.originalEvent.button != 0)  return;
 		var nodeId = $(this).closest(".node").attr("id").replace(/^display_/, '');
 		var node = currentBn.nodesById[nodeId];
 		var stateI = node.statesById[$(this).closest('.state').find('.stateName').text()].index;
@@ -8341,7 +8378,8 @@ $(document).ready(function() {
 		//onsole.log("mousedown:", mx, my);
 		var $item = $(this).closest(".node, .submodel, .textBox");
 		var o = getOffset($item[0]);
-		var scale = Math.round($item[0].offsetWidth)/Math.round($item[0].getBoundingClientRect().width);
+		// var scale = Math.round($item[0].offsetWidth)/Math.round($item[0].getBoundingClientRect().width);
+		var scale = 1; //parseFloat($('.bnComponent').css('font-size'))/12;
 		disableSelect = 2;
 
 		let focusedItem = currentBn.findItem($item[0]);
@@ -8369,7 +8407,7 @@ $(document).ready(function() {
 			if (graphItem.isHidden && graphItem.isHidden())  continue;
 			if (("display_"+graphItem.id)==$item.attr("id"))  continue;
 			var $graphItem = $("#display_"+graphItem.id);
-			var n = draw.getBox($graphItem);
+			var n = draw.getBox($graphItem, true);
 			maxX = Math.max(maxX, n.x+n.width);
 			maxY = Math.max(maxY, n.y+n.height);
 			if (currentBn.selected.has(graphItem))  continue;
@@ -8433,7 +8471,7 @@ $(document).ready(function() {
 						newTop = otherItem[0];
 						if (otherItem[2])  $("#display_"+otherItem[2].id).addClass("aligning");
 						if (!$(".hAlignLine").length)  $("<div class=hAlignLine>").appendTo(".bnview");
-						$(".hAlignLine").show()[0].style.top = newTop+'px';
+						$(".hAlignLine").show()[0].style.top = (newTop)+'px';
 						break;
 					}
 					else if (Math.floor(otherItem[0]/snapGridSize)==Math.floor((newTop+$item.outerHeight())/snapGridSize)) {
@@ -8481,8 +8519,8 @@ $(document).ready(function() {
 			
 			$('.hAlignLine').css('width', (scale*100)+'%');
 			$('.vAlignLine').css('height', (scale*100)+'%');
-			$item[0].style.left = newLeft+'px';
-			$item[0].style.top = newTop+'px';
+			$item[0].style.left = (newLeft)+'px';
+			$item[0].style.top = (newTop)+'px';
 			//$item.offset({left: newLeft, top: newTop});
 			let deltaX = newLeft - o.left;
 			let deltaY = newTop - o.top;
@@ -8523,8 +8561,8 @@ $(document).ready(function() {
 				/// Now it's final, update the net object
 				var n = currentBn.getGraphItemById($item.attr("id").replace(/^display_/,""));
 				var bn = n.net
-				var dLeft = (newLeft - o.left);
-				var dTop = (newTop - o.top);
+				var dLeft = draw.viewToPx(newLeft - o.left);
+				var dTop = draw.viewToPx(newTop - o.top);
 				
 				
 				var els = document.elementsFromPoint(event.clientX ?? event.changedTouches[0].clientX, event.clientY ?? event.changedTouches[0].clientY);
@@ -9065,12 +9103,14 @@ $(document).ready(function() {
 	});
 
 	q('.bnouterview').listeners.add("contextmenu", event => {
-		if (event.target.closest(".node, .submodel, .textBox")) {
+		let displayItem = event.target.closest(".node, .submodel, .textBox");
+		if (displayItem) {
 			if (event.shiftKey)  return true;
 			if (event.ctrlKey || event.target.closest('.submodel')) {
-				var $displayItem = $(this);
+				var $displayItem = $(displayItem);
 				var item = currentBn.getItemById($displayItem.attr("id").replace(/^display_/, ''));
 				item.contextMenu(event);
+				event.preventDefault();
 				return false;
 			}
 		}
@@ -9097,7 +9137,13 @@ $(document).ready(function() {
 		$('.itemList').addClass('unfocusMenu');
 		$(this).closest('.menuAction').addClass('focusMenu');
 		var $range = $(evt.target);
-		$(q('.jtreeView .canvas') ?? q('.bnview')).css({transformOrigin: 'top left', transform: 'scale('+$range.val()+')'});
+		let jtc = q('.jtreeView .canvas');
+		if (jtc) {
+			$(jtc).css({transformOrigin: 'top left', transform: 'scale('+$range.val()+')'});
+		}
+		else {
+			q('.bnview').style.fontSize = ($range.val()*100)+'%';
+		}
 		$(".viewZoomText").text(Math.round($range.val()*100)+"%");
 	}).on('change mouseup', function(evt) {
 		$('.itemList').removeClass('unfocusMenu');

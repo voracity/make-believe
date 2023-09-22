@@ -56,7 +56,7 @@ function copyTo(from, to, o = {}) {
 					to[k] = objs.get(v);
 				}
 				else {
-					if (typeof(to[k])!='object' || to[k]==null)  to[k] = {};
+					if (typeof(to[k])!='object' || to[k]==null)  to[k] = new v.constructor();
 					_copyTo(v, to[k]);
 				}
 			}
@@ -298,6 +298,7 @@ function makeValidId(str) {
    also be added to state in future (like, for example, values and intervals).
 **/
 var State = class {
+	static Convert = addMixin(this, Convert);
 	constructor(o = {}) {
 		/// The state's ID (as per GeNIe)
 		this.id = null;
@@ -378,15 +379,27 @@ DisplayItem.prototype = {
 	},
 };
 
-/// Adds mix-in to a classObj/constructor AND updates prototype
-function addMixin(classObj, mixin) {
-	Object.assign(classObj.prototype, mixin.prototype);
-	return (thisObj, ...args) => mixin.apply(thisObj, args);
-}
-
 /** To create a node, call new Node({opt1:...,opt2:...}) **/
 var Node = class {
 	static DisplayItem = addMixin(this, DisplayItem);
+	static Convert = addMixin(this, Convert);
+	static convert = {
+		toJSON: {
+			_omit: ['net','statesById','samples','sampleWeights','dynamicParents',
+				'pathsIn','pathsOut','_elCached', /// These should go to the GUI class or the mixin or somewhere more appropriate
+			],
+			parents(val) { return val.map(p => p.id); },
+			children(val) { return val.map(c => c.id); },
+		},
+		from: {
+			_context: ['net'],
+			/// when: allNodesAdded
+			parents(val) { return val.map(pId => this.net.node[pId]); },
+			children(val) { return val.map(cId => this.net.node[cId]); },
+			states(val) { return val.map(s => State.from(s)); },
+			def(val) { return NodeDefinitions[val.type].from(val, {node: this}); },
+		},
+	};
 	constructor(o = {}) {
 		/*
 			Member vars and their defaults
@@ -459,7 +472,7 @@ var Node = class {
 		/// Does the display need updating?
 		this._updateDisplay = false;
 
-		/// For arc drawing/updating
+		/// For arc drawing/updating XXX-GUI only?
 		this.pathsIn = [];
 		this.pathsOut = [];
 
@@ -497,6 +510,41 @@ var Node = class {
 		// if (!o.__noinit && new.target)  this.init({addToCanvas: o.addToCanvas, submodelPath: o.submodelPath});
 		if (!o.__noinit)  this.init({addToCanvas: o.addToCanvas, submodelPath: o.submodelPath});
 	}
+	
+	/// toJSON basically means creating a JS object in memory that can be serialized then unserialized without
+	/// loss of important information. ("important" meaning things *not* like caches, stats, large dynamic data, which can be dropped)
+	/// It could be called toSerializable or toJSONable
+	toJSON() {
+		return convertToJson(this, {
+			omit: ['net','statesById','samples','sampleWeights','dynamicParents',
+				'pathsIn','pathsOut','_elCached', /// These should go to the GUI class or the mixin or somewhere more appropriate
+			],
+			convert: {
+				parents(val) { return val.map(p => p.id); },
+				children(val) { return val.map(c => c.id); },
+			}
+		});
+	}
+	/// obj or string (assumed JSON)
+	static from(obj, context) {
+		return newFromObject(this, obj, context, {
+			context: ['net'],
+			convert: {
+				/// when: allNodesAdded
+				parents(val) { return val.map(pId => this.net.node[pId]); },
+				children(val) { return val.map(cId => this.net.node[cId]); },
+				states(val) { return val.map(s => State.from(s)); },
+				def(val) { return NodeDefinitions[val.type].from(val, {node: this}); },
+			},
+		});
+		/*if (context)  return this.from(Object.assign({}, obj, pick(context, ['net'])));
+		let newObj = new this();
+		obj = Object.assign({}, obj, context);
+		obj.def = 
+		return new Node(obj);*/
+	}
+	stringify() { return JSON.stringify(this); }
+	//static parse(str, props) { return this.fromJSON(JSON.parse(str), props); }
 	
 	get state() {
 		return this.statesById;
@@ -686,16 +734,19 @@ Object.assign(Node.prototype, {
 
 		/// Convert states, if needed
 		if (node.states.length && node.states[0].id == undefined) {
-			var statesById = {};
 			var stateObjects = [];
 			for (var i=0; i<node.states.length; i++) {
 				var state = new State({id: node.states[i], index: i});
 				stateObjects.push(state);
-				statesById[node.states[i]] = state;
 			}
 			node.states = stateObjects;
-			node.statesById = statesById;
 		}
+		var statesById = {};
+		for (var i=0; i<node.states.length; i++) {
+			statesById[node.states[i]] = node.states[i];
+		}
+		node.statesById = statesById;
+		
 
 		if (node.def) {
 			node.def.node = node;
@@ -4660,6 +4711,7 @@ ${nodesStr}
 	async updateDecisionNodes() {
 		//let bnCopy = new BN(this);
 		/// Need to handle precedence
+		let ev = (this.updateExpectedValue(), this.expectedValue);
 		let dNode = null;
 		for (let i=0; i<this._decisionNodes.length; i++) {
 			dNode = this._decisionNodes[i];
@@ -4677,6 +4729,7 @@ ${nodesStr}
 			this.setEvidence({[dNode.id]: null});
 			dNode.expectedValues = dNodeEus;
 		}
+		this.expectedValue = ev;
 	},
 	/// FIX: I'm pretty sure this needs to be removed
 	updateBeliefs(callback, iterations) {

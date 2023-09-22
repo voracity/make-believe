@@ -110,8 +110,184 @@ function allocFloat32(length) {
 	return new Float32Array(length);
 }
 
-function pick(o, ...props) {
-    return Object.assign({}, ...props.map(prop => typeof(o[prop])!=="undefined" ? {[prop]: o[prop]} : {}));
+function Convert() {}
+Convert.prototype = {
+	toJSON() {
+		return convertToJson(this, this.constructor.convert);
+	},
+	/// Note sure if really necessary, since JSON.stringify(obj) obviously works just fine
+	stringify() { return JSON.stringify(this); },
+}
+/// obj or string (assumed JSON)
+Convert.from = function(obj, context) {
+	obj = typeof(obj)=='string' ? JSON.parse(obj) : obj;
+	return newFromObject(this, obj, context, this?.convert?.from);
+}
+
+/// Adds mix-in to a classObj/constructor AND updates prototype
+function addMixin(classObj, mixin) {
+	/// Copy *static* properties from the mixin (ie, globals attached to classObj)
+	Object.assign(classObj, mixin);
+	/// Copy *prototype* properties from the mixin (ie, also globals, but accessible by instances via this)
+	Object.assign(classObj.prototype, mixin.prototype);
+	/// Allow the mixin to be called, so as to assign *instance* properties to the mixin
+	/// (ie, things available via this, unique to each instance)
+	return (thisObj, ...args) => mixin.apply(thisObj, args);
+}
+
+function pick(obj, ...props) {
+	let ret = {};
+	for (let prop of props) {
+		if (typeof(obj[prop])!=='undefined') {
+			ret[prop] = obj[prop];
+		}
+	}
+    return ret;
+}
+
+function omit(obj, ...omitProps) {
+	omitProps = new Set(omitProps);
+	let ret = {};
+	for (let prop of Object.keys(obj)) {
+		if (!omitProps.has(prop)) {
+			ret[prop] = obj[prop];
+		}
+	}
+    return ret;
+}
+
+function newFromObject(classObj, fromObj, context, convertFrom) {
+	let newObj = new classObj(); /// Default constructor required
+	Object.assign(newObj, fromObj);
+	if (convertFrom?._context) {
+		for (let key of convertFrom._context) {
+			newObj = context[key]
+		}
+	}
+	if (convertFrom) {
+		for (let [key,func] of convertFrom) {
+			if (key[0]=='_')  continue;  /// Skip keys that start with _
+			newObj(key) = convertFrom[key](newObj(key));
+		}
+	}
+	return newObj;
+}
+
+function convertToJson(obj, convert = {}) {
+	let seen = new Set();
+	let e = new Error(' - convertToJson stack too big');
+	{ let i=0; e.stack.replace(/\n/g, _=>++i); if (i>100)  throw e; }
+	let _do = (obj, convert = {}) => {
+		if (seen.has(obj))  throw new Error('Circular reference in convertToJson');
+		if (obj instanceof HTMLElement)  throw new Error('HTMLElement in convertToJson: '+obj.outerHTML);
+		seen.add(obj);
+		let toOmit = convert?.toJSON?._omit ?? null;
+		let toPick = convert?.toJSON?._pick ?? null;
+		let converters = convert?.toJSON;
+		
+		let isArr = a => Array.isArray(a) || (a?.length && a?.slice && typeof(a)!='string');
+		let isObjOrArr = x => isArr(x) || typeof(x)=='object' && x!=null;
+		
+		let newObj = {};
+		if (toOmit)       newObj = omit(obj, ...toOmit);
+		else if (toPick)  newObj = pick(obj, ...toPick);
+		else              newObj = isArr(obj) ? Array.from(obj) : Object.assign({}, obj);   /// Otherwise, shallow copy everything
+		
+		for (let [k,v] of Object.entries(newObj)) {
+			try {
+				if (converters?.[k])  newObj[k] = converters[k](v);  /// Convert, if convert function for this key specified
+				else if (v?.toJSON)  newObj[k] = v.toJSON();     /// Run toJSON if value has a toJSON specified
+				else if (isObjOrArr(v))  newObj[k] = _do(v); /// If object/array, run convertToJson recursively
+				/// Else, pass through unchanged
+			} catch (e) {
+				e.message = `${k}/${e.message}`;
+				throw e;
+			}
+		}
+		/// assert to check that it's plain JSON?
+		return newObj;
+	};
+	
+	return _do(obj, convert);
+}
+
+function checkObjectsEqual(obj1, obj2, dontThrow) {
+	let isArr = a => Array.isArray(a) || (a?.length && a?.slice && typeof(a)!='string');
+	let isObjOrArr = x => isArr(x) || typeof(x)=='object' && x!=null;
+		
+	let _do = (v1, v2) => {
+		let msg;
+		if (isArr(v1)) {
+			if (!isArr(v2) || v1.length !== v2.length)  return ' - Array lengths not equal';
+			for (let i=0; i<v1.length; i++) {
+				if ( (msg = _do(v1[i], v2[i])) )  return `${i}/${msg}`;
+			}
+			return null;
+		}
+		else if (isObjOrArr(v1)) {
+			let v1Keys = Object.keys(v1);
+			let v2Keys = Object.keys(v2);
+			if (!isObjOrArr(v2) || v1Keys.length !== v2Keys.length)  return ' - Object.keys.length not equal';
+			for (let i=0; i<v1Keys.length; i++) {
+				if ( (msg = _do(v1[v1Keys[i]], v2[v1Keys[i]])) )  return `${v1Keys[i]}/${msg}`;
+			}
+			return null;
+		}
+		else if (v1 === v2) {
+			return null;
+		}
+		return ' - Primitives not equal';
+	};
+	let msg = _do(obj1, obj2)?.replace?.(/^ - /, '');
+	if (msg)  if (!dontThrow) { throw new Error(msg); } else { return msg; }
+	return null;
+}
+
+function checkJsonRoundtrip(obj, dontThrow) {
+	let msg;
+	if ((msg = checkJson(obj, dontThrow))!==true)  return msg;
+	let testObj = JSON.parse(JSON.stringify(obj));
+	let eq = checkObjectsEqual(obj, testObj, dontThrow);
+	if (!eq)  if (!dontThrow) { throw new Error(eq); } else { return eq; }
+	return null;
+}
+
+function checkJson(obj, dontThrow) {
+	let seen = new Set();
+	
+	let _do = obj => {
+		let msg;
+		if (obj === null) {
+			return null;
+		}
+		else if (obj === undefined) {
+			return ' - Not a valid isJson type: undefined';
+		}
+		else if (obj.constructor === Object) {
+			if (seen.has(obj))  return ' - Circular reference';
+			seen.add(obj);
+			for (let k in obj) {
+				if ((msg = _do(obj[k])))  return `${k}/${msg}`;
+			}
+			return null;
+		}
+		else if (obj.constructor === Array) {
+			if (seen.has(obj))  return ' - Circular reference';
+			seen.add(obj);
+			for (let k=0; k<obj.length; k++) {
+				if ((msg = _do(obj[k])))  return `${k}/${msg}`;
+			}
+			return null;
+		}
+		else if ([String,Boolean,Number].includes(obj.constructor)) {
+			return null;
+		}
+		return ' - Not a valid isJson type: '+obj.constructor.name;
+	};
+	
+	let msg = _do(obj)?.replace?.(/^ - /, '');
+	if (msg)  if (!dontThrow) { throw new Error(msg); } else { return msg; }
+	return null;
 }
 
 function zip(...rows) {

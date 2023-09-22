@@ -11,6 +11,7 @@ if (typeof(exports)!='undefined') {
 }
 
 if (typeof(importScripts)!="undefined") {
+	importScripts('utils.js');
 	importScripts('definitions.js');
 	importScripts('equationFunctions.js');
 	importScripts('engineCommon.js');
