@@ -20,7 +20,7 @@
 		</decision>
 		<utility id="Hapiness">
 			<parents>Weather Umbrella</parents>
-			<utilities>80 0 90 100</utilities>
+			<utilities>70 0 20 100</utilities>
 		</utility>
 	</nodes>
 	<extensions>
