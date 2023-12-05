@@ -156,19 +156,44 @@ function omit(obj, ...omitProps) {
     return ret;
 }
 
+/// XXX: Use an extra underscore if the real variable starts with an underscore (fix)
 function newFromObject(classObj, fromObj, context, convertFrom) {
+	/// If no context, then make it for children.
+	if (!context)  context = {events: new Listeners()};
+	else if (!context.events)  context = {events: new Listeners(), ...context};
 	let newObj = new classObj(); /// Default constructor required
 	Object.assign(newObj, fromObj);
-	if (convertFrom?._context) {
-		for (let key of convertFrom._context) {
-			newObj = context[key]
+	if (convertFrom?._init) {
+		convertFrom._init.call(newObj, context);
+	}
+	else if (convertFrom?._extern) {
+		// convertFrom._context.call(newObj, context);
+		for (let key of convertFrom._extern) {
+			newObj[key] = context.extern[key]
+		}
+	}
+	let omitWhen = new Set();
+	if (convertFrom?._when) {
+		for (let [eventName,blockedMethods] of Object.entries(convertFrom._when)) {
+			omitWhen = omitWhen.union(blockedMethods);
+			for (let bmKey of blockedMethods) {
+				context.events.add(eventName, _=> newObj[bmKey] = convertFrom[bmKey].call(newObj, newObj[bmKey], context));
+			}
 		}
 	}
 	if (convertFrom) {
-		for (let [key,func] of convertFrom) {
-			if (key[0]=='_')  continue;  /// Skip keys that start with _
-			newObj(key) = convertFrom[key](newObj(key));
+		for (let [key,func] of Object.entries(convertFrom)) {
+			let realKey = key;
+			if (key[0]=='_') { /// Skip keys that start with _
+				if (key[1]=='_')  realKey = key.slice(1);
+				else              continue;
+			}
+			if (omitWhen.has(realKey))  continue; 
+			newObj[realKey] = convertFrom[key].call(newObj, newObj[realKey], context);
 		}
+	}
+	if (convertFrom?._final) {
+		convertFrom._final.call(newObj, context);
 	}
 	return newObj;
 }
@@ -193,15 +218,30 @@ function convertToJson(obj, convert = {}) {
 		else if (toPick)  newObj = pick(obj, ...toPick);
 		else              newObj = isArr(obj) ? Array.from(obj) : Object.assign({}, obj);   /// Otherwise, shallow copy everything
 		
+		let convertersRun = new Set();
 		for (let [k,v] of Object.entries(newObj)) {
+			let convKey = k;
+			if (k[0]=='_')  convKey = '_'+k;
 			try {
-				if (converters?.[k])  newObj[k] = converters[k](v);  /// Convert, if convert function for this key specified
+				if (converters?.[convKey]) { convertersRun.add(convKey); newObj[k] = converters[convKey](v,obj); }  /// Convert, if convert function for this key specified
 				else if (v?.toJSON)  newObj[k] = v.toJSON();     /// Run toJSON if value has a toJSON specified
 				else if (isObjOrArr(v))  newObj[k] = _do(v); /// If object/array, run convertToJson recursively
 				/// Else, pass through unchanged
 			} catch (e) {
 				e.message = `${k}/${e.message}`;
 				throw e;
+			}
+		}
+		/// Run converters that weren't associated with any values (obviously, passing nothing,
+		/// but it will create an entry in the JSON obj).
+		if (converters)  for (let convKey of Object.keys(converters)) {
+			let k = convKey;
+			if (convKey[0]=='_') {
+				if (convKey[1]=='_')  k = convKey.slice(1);
+				else                  continue;
+			}
+			if (!convertersRun.has(convKey)) {
+				newObj[k] = converters[convKey](null,obj);
 			}
 		}
 		/// assert to check that it's plain JSON?
@@ -211,14 +251,25 @@ function convertToJson(obj, convert = {}) {
 	return _do(obj, convert);
 }
 
-function checkObjectsEqual(obj1, obj2, dontThrow) {
+function checkObjectsEqual(obj1, obj2, dontThrow, o = {}) {
+	o.omit ??= (key,obj)=>false;
+	o.checkMethods ??= false;
 	let isArr = a => Array.isArray(a) || (a?.length && a?.slice && typeof(a)!='string');
 	let isObjOrArr = x => isArr(x) || typeof(x)=='object' && x!=null;
+	
+	let seenMatched = new Map();
 		
 	let _do = (v1, v2) => {
 		let msg;
+		if (isObjOrArr(v1)) {
+			if (seenMatched.has(v1)) {
+				if (seenMatched.get(v1)===v2)  return null;
+				else  return ` - obj1 contains cycle that doesn't match obj2`;
+			}
+			seenMatched.set(v1, v2);
+		}
 		if (isArr(v1)) {
-			if (!isArr(v2) || v1.length !== v2.length)  return ' - Array lengths not equal';
+			if (!isArr(v2) || v1.length !== v2.length)  return ` - Array lengths not equal (${v1.length} - ${v2.length})`;
 			for (let i=0; i<v1.length; i++) {
 				if ( (msg = _do(v1[i], v2[i])) )  return `${i}/${msg}`;
 			}
@@ -227,9 +278,22 @@ function checkObjectsEqual(obj1, obj2, dontThrow) {
 		else if (isObjOrArr(v1)) {
 			let v1Keys = Object.keys(v1);
 			let v2Keys = Object.keys(v2);
-			if (!isObjOrArr(v2) || v1Keys.length !== v2Keys.length)  return ' - Object.keys.length not equal';
+			v1Keys = v1Keys.filter(k => !o.omit(k, v1));
+			v2Keys = v2Keys.filter(k => !o.omit(k, v2));
+			if (!isObjOrArr(v2) || v1Keys.length !== v2Keys.length)  return ' - Object.keys.length not equal'+v1Keys+':'+v2Keys;
 			for (let i=0; i<v1Keys.length; i++) {
 				if ( (msg = _do(v1[v1Keys[i]], v2[v1Keys[i]])) )  return `${v1Keys[i]}/${msg}`;
+			}
+			if (v1.constructor !== v2.constructor) {
+				return ` Objects have different constructors: ${v1.constructor.name}:${v2.constructor.name}`;
+			}
+			if (o.checkMethods) {
+				let v1Methods = getMethods(v1).toSorted();
+				let v2Methods = getMethods(v2).toSorted();
+				let diff = new Set(v1Methods).symmetricDifference(v2Methods);
+				if (diff.size>0) {
+					return ` - Objects have different methods: ${[...diff].join(', ')}`;
+				}
 			}
 			return null;
 		}
@@ -245,10 +309,10 @@ function checkObjectsEqual(obj1, obj2, dontThrow) {
 
 function checkJsonRoundtrip(obj, dontThrow) {
 	let msg;
-	if ((msg = checkJson(obj, dontThrow))!==true)  return msg;
+	if ((msg = checkJson(obj, dontThrow))!==null)  return msg;
 	let testObj = JSON.parse(JSON.stringify(obj));
 	let eq = checkObjectsEqual(obj, testObj, dontThrow);
-	if (!eq)  if (!dontThrow) { throw new Error(eq); } else { return eq; }
+	if (eq!==null)  return eq;
 	return null;
 }
 
@@ -288,6 +352,58 @@ function checkJson(obj, dontThrow) {
 	let msg = _do(obj)?.replace?.(/^ - /, '');
 	if (msg)  if (!dontThrow) { throw new Error(msg); } else { return msg; }
 	return null;
+}
+
+/// Check hydration roundtrip checks that the application object appObj can be converted to a JSON object, then
+/// serialised to a JSON string, then deserialized to a JSON object, then 'hydrated' (re-contextualised and integrated) to 
+/// become a fully active application object again.
+/// NOTE: You can't properly check hydration on *part* of a graph (or any other partial structure),
+///       so you have to omit those parts (and check with something that can contain the whole
+///       structure)
+function checkHydrationRoundtrip(appObj, dontThrow, o = {}) {
+	o.omit ??= (key,obj)=>false;
+	o.events ??= []; /// Not sure this is so useful.
+	let handleError = (msg,e) => { if (dontThrow) { msg } else { throw (e ?? new Error(msg)) } };
+	let msg = null, jsonObj = null;
+	if (!appObj?.toJSON)  msg = 'No toJSON method';
+	if (msg) return handleError(msg);
+	try {
+		jsonObj = appObj.toJSON();
+	}
+	catch (e) {
+		return handleError(e.message, e);
+	}
+	if ((msg = checkJson(jsonObj, dontThrow))!==null)  return msg;
+	let newJsonObj = JSON.parse(JSON.stringify(jsonObj));
+	let eq = checkObjectsEqual(jsonObj, newJsonObj, dontThrow);
+	if (eq!==null)  handleError(eq);
+	let newAppObj = null;
+	try {
+		let context = {extern:appObj, events:new Listeners()};
+		newAppObj = appObj.constructor.from(newJsonObj, context);
+		o.events.forEach(e => context.events.notify(e));
+	}
+	catch (e) {
+		handleError(e.message, e);
+	}
+	let omitter = {omit(key, obj) {
+		if (o.omit(key,obj)) return true;
+		let _omit = new Set(obj.constructor?.convert?.toJSON?._omit);
+		_omit = _omit.difference(obj.constructor?.convert?.from?.context ?? []);
+		if (_omit.has(key))  return true;
+		return false;
+	}};
+	checkObjectsEqual(appObj, newAppObj, dontThrow, {...omitter,checkMethods:true});
+	return null;
+}
+
+function flip(obj, valConvert = _=>_) {
+	let ret = {};
+	for (let [k,v] of Object.entries(obj)) {
+		let kFloat = parseFloat(k);
+		ret[valConvert(v)] = !isNaN(kFloat) ? kFloat : k;
+	}
+	return ret;
 }
 
 function zip(...rows) {
@@ -354,6 +470,13 @@ function wrapText(text, cols) {
 	wrapped += currentInput;
 	return wrapped.trim();
 }
+
+/// From angular: https://github.com/angular/angular.js/blob/29a05984fe46c2c18ca51404f07c866dd92d1eec/src/auto/injector.js#L73
+function extractArgs(fn) {
+  var fnText = fn.toString().replace(STRIP_COMMENTS, ''),
+      args = fnText.match(ARROW_ARG) || fnText.match(FN_ARGS);
+  return args;
+}
 		
 function defaultGet(val, defaultValue) {
 	return val===null || val===undefined ? defaultValue : val;
@@ -396,6 +519,13 @@ function sigFig(num, digits) {
 	}
 
 	return numSign*v;
+}
+
+function getMethods(object) {
+	let objList = [object];
+	let curObj = object;
+	while ( (curObj = Object.getPrototypeOf(curObj)) )  objList.push(curObj);
+	return [...new Set(objList.toReversed().map(o => Object.getOwnPropertyNames(o).filter(n => typeof object[n]=='function')).flat())];
 }
 
 /// This will replace a method with a method with listener hooks, and add the listener requested.
@@ -882,7 +1012,6 @@ class Listeners {
 		if (Array.isArray(type)) {
 			let allRemoved = [];
 			type.forEach((typei,i) => allRemoved.push(...this.remove([typei,group[i]], func)));
-			console.info('a:',type);
 			return allRemoved;
 		}
 		if (type && !this.typeOk(type))  { console.error(`${type} not a recognised listener |Listener.remove|.`); }
@@ -936,7 +1065,6 @@ class DOMListeners extends Listeners {
 	remove(typeGroup, func) {
 		let [type,group] = this.getTypeGroup(typeGroup);
 		let removed = super.remove(typeGroup, func);
-		console.info(removed);
 		for (let {type, func} of removed) {
 			/// 2023-09-17: Undecided whether to provide option, or just remove
 			/// both capturing and non-capturing versions all the time
@@ -1162,6 +1290,12 @@ class UndoList {
 		}
 	}
 	
+	/// XXX: If the undos are tied to graphical actions, this may be a bit messy
+	/// Need some principled way of suppressing graphical updates to the end before can do this
+	moveIndexTo(index) {
+		
+	}
+	
 	reset() {
 		this.list.length = 0;
 		this.index = 0;
@@ -1305,6 +1439,15 @@ Set.prototype.difference = function(setB) {
     var difference = new Set(this);
     for (var elem of setB) {
         difference.delete(elem);
+    }
+    return difference;
+}
+
+Set.prototype.symmetricDifference = function(setB) {
+    var difference = new Set(this);
+    for (var elem of setB) {
+		if (!difference.has(elem))  difference.add(elem);
+        else                       difference.delete(elem);
     }
     return difference;
 }

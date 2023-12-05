@@ -176,6 +176,8 @@ MenuAction.prototype = {
 			item.append(n('div.shortcut', this.shortcut));
 		}
 		item.addEventListener('click', event => {
+			/// Disabled items are just a no-op if clicked
+			if (event.target.closest('.menuAction')?.classList?.contains?.('disabled'))  return;
 			if (typeof(this.action)=='function')  this.action(event);
 			if (this.closeAfter) {
 				closeMenus();

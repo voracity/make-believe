@@ -19,10 +19,16 @@
   "license": "MIT",
   "homepage": "http://voracity.org/make-believe/",
   "devDependencies": {
-    "electron-prebuilt": "^0.36.0"
+    "electron-prebuilt": "^0.36.0",
+    "esbuild": "^0.19.4",
+    "sqlite": "^5.0.1",
+    "sqlite3": "^5.1.6"
   },
   "dependencies": {
     "cheerio": "^1.0.0-rc.12",
+    "dom-to-svg": "^0.12.2",
+    "html-to-image": "^1.11.11",
+    "idb-keyval": "^6.2.1",
     "jsdom": "^22.1.0"
   }
 }

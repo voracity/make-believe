@@ -151,8 +151,6 @@ class JunctionTree {
 		}
 		str += '}\n';
 		
-		debugger;
-		
 		return str;
 	}
 

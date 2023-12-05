@@ -22,6 +22,15 @@ var Sampling = class {
 /// Try to avoid putting anything in the base class.
 /// I'm not especially happy that I have a base class.
 var Definition = class {
+	static Convert = addMixin(this, Convert);
+	static convert = {
+		toJSON: {
+			node:val => val.id,
+		},
+		from: {
+			_extern: ['node'],
+		},
+	};
 	set needsCompile(_needsCompile) {
 		/// Enforce constraint that whenever a node needs compiling, so
 		/// too does the net
@@ -44,12 +53,6 @@ var Definition = class {
 }
 
 var CPT = class extends Definition {
-	static Convert = addMixin(this, Convert);
-	static convert = {
-		toJSON: {
-			_omit: ['node'],
-		},
-	};
 	constructor(nodeOrDef, cpt) {
 		super();
 		let node = nodeOrDef ? (nodeOrDef.node || nodeOrDef) : null;

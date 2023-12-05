@@ -386,18 +386,24 @@ var Node = class {
 	static convert = {
 		toJSON: {
 			_omit: ['net','statesById','samples','sampleWeights','dynamicParents',
-				'pathsIn','pathsOut','_elCached', /// These should go to the GUI class or the mixin or somewhere more appropriate
+				'pathsIn', 'pathsOut','_elCached', /// These should go to the GUI class or the mixin or somewhere more appropriate
 			],
 			parents(val) { return val.map(p => p.id); },
 			children(val) { return val.map(c => c.id); },
+			movePointsIn(val,old) { return Object.fromEntries(old.pathsIn.map(a => [a.parentItem.id, a.arcSelector.path.getPathData()])); },
 		},
 		from: {
-			_context: ['net'],
-			/// when: allNodesAdded
+			_extern: ['net'],
+			// Could do this programatically as follows. But then can't reason about what the externs are.
+			// _init(context) { Object.assign(this, context.extern); },
+			_when: {allNodesAvailable: ['parents','children']},
+			
 			parents(val) { return val.map(pId => this.net.node[pId]); },
 			children(val) { return val.map(cId => this.net.node[cId]); },
 			states(val) { return val.map(s => State.from(s)); },
-			def(val) { return NodeDefinitions[val.type].from(val, {node: this}); },
+			statesById(val) { return Object.fromEntries(this.states.map(s=>[s.id,s])); },
+			def(val) { return NodeDefinitions[val.type].from(val, {extern:{node: this}}); },
+			parentStates(val) { return Float32Array.from(val); },
 		},
 	};
 	constructor(o = {}) {
@@ -511,40 +517,40 @@ var Node = class {
 		if (!o.__noinit)  this.init({addToCanvas: o.addToCanvas, submodelPath: o.submodelPath});
 	}
 	
-	/// toJSON basically means creating a JS object in memory that can be serialized then unserialized without
-	/// loss of important information. ("important" meaning things *not* like caches, stats, large dynamic data, which can be dropped)
-	/// It could be called toSerializable or toJSONable
-	toJSON() {
-		return convertToJson(this, {
-			omit: ['net','statesById','samples','sampleWeights','dynamicParents',
-				'pathsIn','pathsOut','_elCached', /// These should go to the GUI class or the mixin or somewhere more appropriate
-			],
-			convert: {
-				parents(val) { return val.map(p => p.id); },
-				children(val) { return val.map(c => c.id); },
-			}
-		});
-	}
-	/// obj or string (assumed JSON)
-	static from(obj, context) {
-		return newFromObject(this, obj, context, {
-			context: ['net'],
-			convert: {
-				/// when: allNodesAdded
-				parents(val) { return val.map(pId => this.net.node[pId]); },
-				children(val) { return val.map(cId => this.net.node[cId]); },
-				states(val) { return val.map(s => State.from(s)); },
-				def(val) { return NodeDefinitions[val.type].from(val, {node: this}); },
-			},
-		});
-		/*if (context)  return this.from(Object.assign({}, obj, pick(context, ['net'])));
-		let newObj = new this();
-		obj = Object.assign({}, obj, context);
-		obj.def = 
-		return new Node(obj);*/
-	}
-	stringify() { return JSON.stringify(this); }
-	//static parse(str, props) { return this.fromJSON(JSON.parse(str), props); }
+	// /// toJSON basically means creating a JS object in memory that can be serialized then unserialized without
+	// /// loss of important information. ("important" meaning things *not* like caches, stats, large dynamic data, which can be dropped)
+	// /// It could be called toSerializable or toJSONable
+	// toJSON() {
+		// return convertToJson(this, {
+			// omit: ['net','statesById','samples','sampleWeights','dynamicParents',
+				// 'pathsIn','pathsOut','_elCached', /// These should go to the GUI class or the mixin or somewhere more appropriate
+			// ],
+			// convert: {
+				// parents(val) { return val.map(p => p.id); },
+				// children(val) { return val.map(c => c.id); },
+			// }
+		// });
+	// }
+	// /// obj or string (assumed JSON)
+	// static from(obj, context) {
+		// return newFromObject(this, obj, context, {
+			// context: ['net'],
+			// convert: {
+				// /// when: allNodesAdded
+				// parents(val) { return val.map(pId => this.net.node[pId]); },
+				// children(val) { return val.map(cId => this.net.node[cId]); },
+				// states(val) { return val.map(s => State.from(s)); },
+				// def(val) { return NodeDefinitions[val.type].from(val, {node: this}); },
+			// },
+		// });
+		// /*if (context)  return this.from(Object.assign({}, obj, pick(context, ['net'])));
+		// let newObj = new this();
+		// obj = Object.assign({}, obj, context);
+		// obj.def = 
+		// return new Node(obj);*/
+	// }
+	// stringify() { return JSON.stringify(this); }
+	// //static parse(str, props) { return this.fromJSON(JSON.parse(str), props); }
 	
 	get state() {
 		return this.statesById;
@@ -2001,8 +2007,19 @@ Object.assign(Node.prototype, {
 
 var TextBox = class {
 	static DisplayItem = addMixin(this, DisplayItem);
+	static Convert = addMixin(this, Convert);
+	static convert = {
+		toJSON: {
+			_omit: ['net','listeners','_elCached'],
+		},
+		from: {
+			_extern: ['net'],
+		},
+	};
 	constructor(o = {}) {
 		this._type = "TextBox";
+		
+		this.net = null;
 
 		/// Defaults
 		this.id = genPass(10);
@@ -2503,6 +2520,39 @@ var __newBnIndex = 1;
 
 /// A BN is also a submodel (of course...)
 var BN = class extends Submodel {
+	static Convert = addMixin(this, Convert);
+	static convert = {
+		toJSON: {
+			_omit: ['outputEl','objs','onload','saveListeners','saveListeners','listeners','changes','el','expectedValue',
+				'nodesById','needsCompile','source','_workers'],
+			// nodes(val) { return val. },
+			subNodes(val) { return val.map(n => n.id); },
+			subItems(val) { return val.map(i => i.id); },
+			selected(val) { return [...val].map(i => i.id); },
+			__utilityNodes(val) { return val.map(n => n.id); },
+			__decisionNodes(val) { return val.map(n => n.id); },
+			__rootNodes(val) { return val.map(n => n.id); },
+			__nodeOrdering(val) { return val.map(n => n.id); },
+		},
+		/// Current check: checkHydrationRoundtrip(currentBn, null, {omit:key => ['movePointsIn','updateViewer'].includes(key)})
+		from: {
+			nodes(val, context) { return val.map(n => Node.from(n, {...context, extern:{net: this}})); },
+			nodesById(val, context) { return Object.fromEntries(this.nodes.map(n=>[n.id,n])); },
+			basicItems(val, context) { return val.map(b => BN.ItemTypes[b._type].from(b, {...context, extern:{net: this}})); },
+			subNodes(val) { return val.length ? val.map(nId => this.node[nId]) : this.nodes.slice(); },
+			subItems(val) { return val.length ? val.map(id => this.basicItems.find(item => item.id == id)) : this.basicItems.slice(); },
+			__utilityNodes(val) { return val.map(nId => this.node[nId]); },
+			__decisionNodes(val) { return val.map(nId => this.node[nId]); },
+			__rootNodes(val) { return val.map(nId => this.node[nId]); },
+			__nodeOrdering(val) { return val.map(nId => this.node[nId]); },
+			selected(val) { return val.map ? new Set(val.map(id => this.getItemById(id))) : val; },
+			updateViewer(val) { return true; },
+			_final(context) { context.events.notify('allNodesAvailable'); },
+		},
+	};
+	/// These are all registered at the end of this file
+	static ItemTypes = {};
+	
 	constructor(o = {}) {
 		console.log("BNINDEX", __newBnIndex);
 		/// This implements the 'submodel' interface ({id/node/submodels/pos/size})
@@ -2521,6 +2571,9 @@ var BN = class extends Submodel {
 		this.useWorkers = mbConfig.useWorkers;
 		this._workers = [];
 		this.numWorkers = mbConfig.numWorkers;
+		/// Can't recall what these were for
+		this.updateMethodActual = null;
+		this.updateMethodActualTitle = null;
 
 		this.evidence = {};
 		/// This is just saved sets of evidence (or saved scenarios)
@@ -2529,7 +2582,7 @@ var BN = class extends Submodel {
 		this.selected = new Set();
 
 		/// Does the cache information need updating?
-		this.needsCompile = false;
+		this.needsCompile = true;
 		/// (To update the net, call the modification functions
 		/// (once they're all written!) or change this.objs and then set this.needsCompile.)
 		this.nodes = [];
@@ -2541,6 +2594,9 @@ var BN = class extends Submodel {
 		this._decisionNodes = [];
 		this._rootNodes = [];
 		this._nodeOrdering = [];
+		
+		/// XXX: To be removed, in favour of either leaving in GUI, or using Listeners
+		this.onload = null;
 
 		/// GUI-oriented properties
 		this.outputEl = null;
@@ -3309,7 +3365,7 @@ Object.assign(BN.prototype, {
 		
 		let nodeIds = {};
 		function uniqueNodeId(id) {
-			let newId = makeValidId(id);
+			let newId = makeValidId(id).substr(0, 30);
 			while (newId in nodeIds) {
 				let m = newId.match(/_(\d+)/);
 				if (!m) {
@@ -3743,6 +3799,30 @@ ${nodesStr}
 		var bn = this;
 		/// Topological, because GeNIe can be fussy about this
 		var sortedNodes = this.topologicalSort(this.nodes);
+		
+		/// GeNIe doesn't like some IDs (e.g. starting with an underscore). Map to genie friendly IDs
+		let nodeIds = {};
+		function uniqueNodeId(id) {
+			let baseId = makeValidId(id);
+			if (baseId[0]=='_')  baseId = 'x'+baseId;
+			let newId = baseId;
+			let i = 0;
+			while (newId in nodeIds) {
+				newId = `${baseId}_${i}`;
+				i++;
+			}
+			nodeIds[newId] = true;
+			return newId;
+		}
+		let nodeIdMap = {};
+		for (let node of this.nodes) {
+			nodeIdMap[node.id] = uniqueNodeId(node.id);
+		}
+		/// unique id of any displayitem, really
+		let submodelIdMap = {};
+		for (let submodelId of Object.keys(this.submodelsById)) {
+			submodelIdMap[submodelId] = uniqueNodeId(submodelId);
+		}
 
 		var $smile = $("<smile version='1.0' id='sub0'>")
 			/// XXX Clarify the difference btw numsamples/discsamples
@@ -3755,7 +3835,7 @@ ${nodesStr}
 				if (node.def.cpt) {
 					var $el = null;
 					$smile.find("> nodes").append(
-						$el = $("<cpt>").attr("id", node.id)
+						$el = $("<cpt>").attr("id", nodeIdMap[node.id])
 					);
 					(function(){
 					for (var i=0; i<node.states.length; i++) {
@@ -3765,7 +3845,7 @@ ${nodesStr}
 					var $parents = $("<parents>");
 					var p = "";
 					for (var i=0; i<node.parents.length; i++) {
-						p += (i!=0?" ":"") + node.parents[i].id;
+						p += (i!=0?" ":"") + nodeIdMap[node.parents[i].id];
 					}
 					if (p!=="")  $el.append($parents.text(p));
 					$el.append(
@@ -3776,7 +3856,7 @@ ${nodesStr}
 				else if (node.def.funcTable) {
 					var $el = null;
 					$smile.find("> nodes").append(
-						$el = $("<deterministic>").attr("id", node.id)
+						$el = $("<deterministic>").attr("id", nodeIdMap[node.id])
 					);
 					(function(){
 					for (var i=0; i<node.states.length; i++) {
@@ -3786,7 +3866,7 @@ ${nodesStr}
 					var $parents = $("<parents>");
 					var p = "";
 					for (var i=0; i<node.parents.length; i++) {
-						p += (i!=0?" ":"") + node.parents[i].id;
+						p += (i!=0?" ":"") + nodeIdMap[node.parents[i].id];
 					}
 					if (p!=="")  $el.append($parents.text(p));
 					$el.append(
@@ -3797,17 +3877,19 @@ ${nodesStr}
 				else if (node.def.type == 'Equation') {
 					let $el = null;
 					$smile.find("> nodes").append(
-						$el = $("<equation>").attr("id", node.id)
+						$el = $("<equation>").attr("id", nodeIdMap[node.id])
 					);
 					(function(){
 					let $parents = $("<parents>");
 					let p = "";
 					for (let i=0; i<node.parents.length; i++) {
-						p += (i!=0?" ":"") + node.parents[i].id;
+						p += (i!=0?" ":"") + nodeIdMap[node.parents[i].id];
 					}
 					if (p!=="")  $el.append($parents.text(p));
+					/// XXX: Replace with non-fragile method
+					let funcText = node.def.funcText.replace(/[_\w][_\w\d]*/g, m => (m in nodeIdMap) ? nodeIdMap[m] : m);
 					$el.append(
-						$("<definition lower='0' upper='1'>").text(node.def.funcText)
+						$("<definition lower='0' upper='1'>").text(funcText)
 					);
 					})();
 				}
@@ -3815,7 +3897,7 @@ ${nodesStr}
 			else if (node.type == "decision") {
 				var $el = null;
 				$smile.find("> nodes").append(
-					$el = $("<decision>").attr("id", node.id)
+					$el = $("<decision>").attr("id", nodeIdMap[node.id])
 				);
 				(function(){
 				for (var i=0; i<node.states.length; i++) {
@@ -3825,7 +3907,7 @@ ${nodesStr}
 				var $parents = $("<parents>");
 				var p = "";
 				for (var i=0; i<node.parents.length; i++) {
-					p += (i!=0?" ":"") + node.parents[i].id;
+					p += (i!=0?" ":"") + nodeIdMap[node.parents[i].id];
 				}
 				if (p!=="")  $el.append($parents.text(p));
 				})();
@@ -3833,13 +3915,13 @@ ${nodesStr}
 			else if (node.type == "utility") {
 				var $el = null;
 				$smile.find("> nodes").append(
-					$el = $("<utility>").attr("id", node.id)
+					$el = $("<utility>").attr("id", nodeIdMap[node.id])
 				);
 				(function(){
 				var $parents = $("<parents>");
 				var p = "";
 				for (var i=0; i<node.parents.length; i++) {
-					p += (i!=0?" ":"") + node.parents[i].id;
+					p += (i!=0?" ":"") + nodeIdMap[node.parents[i].id];
 				}
 				if (p!=="")  $el.append($parents.text(p));
 				$el.append(
@@ -3859,11 +3941,19 @@ ${nodesStr}
 			col = col.length == 3 ? col.split().map(v => v+v).join('') : col;
 			return col;
 		}
+		/* Set using text(), get html, replace &nbsp;/other entities, set html (safer than direct set html)*/
+		function setRawText($el, text) {
+			$el.text(text);
+			let h = $el[0].innerHTML;
+			h = h.replace(/&nbsp;/g, ' ');
+			$el[0].innerHTML = h;
+			return $el;
+		}
 		/// If there are submodels, save them
 		function makeSubmodel(submodel) {
-			var $s = $('<submodel>').attr('id', submodel.id);
+			var $s = $('<submodel>').attr('id', submodelIdMap[submodel.id]);
 			$s
-				.append($('<name>').text(submodel.label ? submodel.label : submodel.id))
+				.append(setRawText($('<name>'), submodel.label ? submodel.label : submodelIdMap[submodel.id]))
 				.append($("<position>").text(formatPos(submodel.pos, submodel.size)))
 				/// GeNIe is awfully fussy (it requires format info, otherwise it breaks)
 				.append($('<interior>').attr('color', formatColor(submodel.format.backgroundColor) || "e5f6f7"))
@@ -3880,8 +3970,8 @@ ${nodesStr}
 			return $s;
 		}
 		function makeTextBox(item) {
-			var $caption = $('<caption>').text(item.text);
-			$caption.textContent = item.text;
+			var $caption = setRawText($('<caption>'), item.text);
+			// $caption.textContent = item.text;
 			return $('<textbox>').append(
 				$caption,
 				$('<font>').attr({
@@ -3897,10 +3987,10 @@ ${nodesStr}
 		);
 		for (var i=0; i<sortedNodes.length; i++) {
 			var node = sortedNodes[i];
-			var $node = $("<node>").attr("id", node.id);
+			var $node = $("<node>").attr("id", nodeIdMap[node.id]);
 			console.log(node.pos, node.size, formatPos(node.pos, node.size));
 			$node
-				.append($("<name>").text(node.label ? node.label : node.id))
+				.append(setRawText($("<name>"), node.label ? node.label : nodeIdMap[node.id]))
 				.append($("<position>").text(formatPos(node.pos, node.size)))
 				/// GeNIe is awfully fussy (it requires format info, otherwise it breaks)
 				.append($('<interior>').attr('color', formatColor(node.format.backgroundColor) || "e5f6f7"))
@@ -6090,6 +6180,13 @@ ${nodesStr}
 addDefaultSetters(BN);
 addDefaultSetters(Node);
 addDefaultSetters(State);
+
+Object.assign(BN.ItemTypes, {
+	Node,
+	Submodel,
+	TextBox,
+	ImageBox,
+});
 
 if (typeof(exports)!="undefined") {
 	exports.BN = BN;

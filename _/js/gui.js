@@ -204,8 +204,16 @@ var draw = {
 				markerGapY = (lastY-firstY)*scale;
 				lastX -= markerGapX;
 				lastY -= markerGapY;
+				
+				/// This will adjust the end to sit under the box a little
+				scale = 1/arrowLength;
+				let endAdjustX = (lastX-firstX)*scale;
+				let endAdjustY = (lastY-firstY)*scale;
+				firstX -= endAdjustX;
+				firstY -= endAdjustY;
 			}
 		}
+		let rnd = num => Math.round(num*10)/10;
 		//markerGapX = 0;
 		//markerGapY = 0;
 
@@ -215,17 +223,17 @@ var draw = {
 			/*$path.attr('d', 
 				"M "+(svgX-sx+firstX)+" "+(svgY-sy+firstY)+" L "+(svgX-sx+lastX)+" "+(svgY-sy+lastY)
 			);*/
-			$path[0].setAttribute('d', "M "+(svgX-sx+firstX)+" "+(svgY-sy+firstY)+" L "+(svgX-sx+lastX)+" "+(svgY-sy+lastY));
+			$path[0].setAttribute('d', "M "+rnd(svgX-sx+firstX)+" "+rnd(svgY-sy+firstY)+" L "+rnd(svgX-sx+lastX)+" "+rnd(svgY-sy+lastY));
 			if ($path.data("clickable") && $path.data("clickable").length) {
 				/*$path.data("clickable").attr('d',
 					"M "+(svgX-sx+firstX)+" "+(svgY-sy+firstY)+" L "+(svgX-sx+lastX+markerGapX)+" "+(svgY-sy+lastY+markerGapY)
 				);*/
-				$path.data('clickable')[0].setAttribute('d', "M "+(svgX-sx+firstX)+" "+(svgY-sy+firstY)+" L "+(svgX-sx+lastX+markerGapX)+" "+(svgY-sy+lastY+markerGapY));
+				$path.data('clickable')[0].setAttribute('d', "M "+rnd(svgX-sx+firstX)+" "+rnd(svgY-sy+firstY)+" L "+rnd(svgX-sx+lastX+markerGapX)+" "+rnd(svgY-sy+lastY+markerGapY));
 			}
 		}
 		else if (insideSvg) {
 			$svg.append($path = $(makeSvg("path", {
-				d: "M "+(svgX-sx+firstX)+" "+(svgY-sy+firstY)+" L "+(svgX-sx+lastX)+" "+(svgY-sy+lastY),
+				d: "M "+rnd(svgX-sx+firstX)+" "+rnd(svgY-sy+firstY)+" L "+rnd(svgX-sx+lastX)+" "+rnd(svgY-sy+lastY),
 				stroke: "black",
 				"class": 'dependency',
 				"stroke-width": 1,
@@ -235,7 +243,7 @@ var draw = {
 			if (opts.clickable) {
 				var $clickable = null;
 				$svg.append($clickable = $(makeSvg("path", {
-					d: "M "+(svgX-sx+firstX)+" "+(svgY-sy+firstY)+" L "+(svgX-sx+lastX+markerGapX)+" "+(svgY-sy+lastY+markerGapY),
+					d: "M "+rnd(svgX-sx+firstX)+" "+rnd(svgY-sy+firstY)+" L "+rnd(svgX-sx+lastX+markerGapX)+" "+rnd(svgY-sy+lastY+markerGapY),
 					stroke: "transparent",
 					// Use following to view/debug
 					//stroke: "red",
@@ -249,12 +257,12 @@ var draw = {
 		}
 		else {
 			$svg.append($path = $(makeSvg("path", {
-				d: "M "+firstX+" "+firstY+" L "+lastX+" "+lastY,
+				d: "M "+rnd(firstX)+" "+rnd(firstY)+" L "+rnd(lastX)+" "+rnd(lastY),
 				stroke: "black",
 				"stroke-width": 1,
 				"marker-end": "url(#arrowhead)"
 			})))
-				.css({left: svgX-sx, top: svgY-sy, position: "absolute"});
+				.css({left: rnd(svgX-sx), top: rnd(svgY-sy), position: "absolute"});
 		}
 		return $path;
 	},
@@ -277,6 +285,8 @@ var draw = {
 		opts.withMarker = opts.withMarker || false;
 		
 		/// Calculate the line that runs between the center of the two boxes
+		// par = {x: par.x+1, y: par.y+1, width: par.width-2, height: par.height-2};
+		// child = {x: child.x+1, y: child.y+1, width: child.width-2, height: child.height-2};
 		var parX = par.x + par.width/2;
 		var parY = par.y + par.height/2;
 		var childX = child.x + child.width/2;
@@ -1071,7 +1081,12 @@ BN = class extends BN {
 
 		/// Track changes to the BN
 		this.changes = new UndoList();
+		/// Essentially, unsavedChanges are present when the undo state is not equal to the save state
 		this.unsavedChanges = false;
+		/// If there are unsavedChanges, whether a snapshot has been saved within the browser
+		this.snapshotSaved = false;
+		/// Index of the undo item at the last save
+		this.lastSave = 0;
 		/// Make this much less hacky (if it's in the prototype, the "addMixin" call will override it)
 		this.el = function() { return document.querySelector('.bnview'); }
 	}
@@ -1103,11 +1118,15 @@ Object.assign(BN.prototype, {
 		event.bn = this;
 		this.saveListeners.forEach(listener => listener(event));
 	},
-	setUnsavedChanges(unsavedChanges) {
-		if (this.unsavedChanges != unsavedChanges) {
-			this.unsavedChanges = unsavedChanges;
-			app.updateBnName();
-		}
+	setSaveStatus(o = {}) {
+		o.unsavedChanges ??= false;
+		o.snapshotSaved ??= false;
+		this.unsavedChanges = o.unsavedChanges;
+		this.snapshotSaved = o.snapshotSaved;
+	},
+	guiSetSaveStatus(o = {}) {
+		this.setSaveStatus(o);
+		this.updateStatusView();
 	},
 	/// label|statesOnly|distro
 	setNodeView(type) {
@@ -1147,7 +1166,7 @@ Object.assign(BN.prototype, {
 
 		this.changes.addAndDo({
 			net: this,
-			args: [id, states, Node.prototype.toJSON.apply(opts)],
+			args: [id, states, opts ? Node.prototype.toJSON.apply(opts) : {}],
 			name: "Add Node",
 			redo() {
 				node = this.net.guiAddNodeRaw(...this.args);
@@ -1236,31 +1255,12 @@ Object.assign(BN.prototype, {
 		var bn = this;
 		var start = performance.now();
 		var inferenceTime = null;
-		function displayPerf(totalIterationsRun) {
-			var durationMs = (performance.now() - start);
-			if ($(".status .duration").length==0) {
-				$(".status").append("<span class=duration title='Time taken for last computation'>Last: <span class=val></span>ms (Display: <span class=displayVal></span>ms)</span>");
-			}
-			$(".status .duration .val").text(Math.round(inferenceTime*1000)/1000);
-			$(".status .duration .displayVal").text(Math.round((durationMs-inferenceTime)*1000)/1000);
-			if (totalIterationsRun) {
-				if ($(".status .iterations").length==0) {
-					$(".status").append('<span class=iterations title="Number of iterations for last computation">Iterations: <span class=val></span></span>');
-				}
-				$(".status .iterations .val").text(totalIterationsRun);
-			}
-			if ($(".status .method").length == 0) {
-				$(".status").append("<span class=method title='Inference method used'></span>");
-			}
-			$('.status .method').text(bn.updateMethodActualTitle);
-			$('.status .numNodes').text(`${bn.nodes.length} nodes`);
-
-		}
 		this.updateBeliefs(async (bn, totalIterationsRun) => {
 			inferenceTime = performance.now() - start;
 			await this.updateDecisionNodes();
 			bn.displayBeliefs(outputEl);
-			displayPerf(totalIterationsRun);
+			this.makeStatusView();
+			this.updateStatusView({inferenceTime, displayTime: (performance.now()-start)-inferenceTime, totalIterationsRun});
 			if (callback)  callback(bn);
 		});
 		/*
@@ -1280,6 +1280,53 @@ Object.assign(BN.prototype, {
 				if (callback)  callback(bn);
 			});
 		}*/
+	},
+	makeStatusView() {
+		if ($(".status .duration").length==0) {
+			$(".status").append("<span class=duration title='Time taken for last computation'>Last: <span class=val></span>ms (Display: <span class=displayVal></span>ms)</span>");
+		}
+		if ($(".status .iterations").length==0) {
+			$(".status").append('<span class=iterations title="Number of iterations for last computation">Iterations: <span class=val></span></span>');
+		}
+		if ($(".status .method").length == 0) {
+			$(".status").append("<span class=method title='Inference method used'></span>");
+		}
+		if ($(".status .saveStatusSummary").length==0) {
+			$('.status').append(n('span.saveStatusSummary', n('label', 'Save Status: '), n('span.saveStatus', '')));
+		}
+	},
+	updateStatusView(m = {}) {
+		// if (m.saveStatus) {
+			let status = 'Unsaved Changes';
+			let discard = '';
+			if (currentBn.unsavedChanges) {
+				if (currentBn.snapshotSaved) {
+					status = 'Unsaved Changes (Restorable)';
+				}
+				else {
+					status = 'Unsaved Changes';
+				}
+			}
+			else {
+				status = 'Saved';
+			}
+			if (q('.status .saveStatus'))  q('.status .saveStatus').textContent = status;
+		// }
+		q('.menu .discardChanges').classList[currentBn.unsavedChanges?'remove':'add']('disabled');
+		app.updateBnName();
+		
+		$('.status .method').text(currentBn.updateMethodActualTitle);
+		$('.status .numNodes').text(`${currentBn.nodes.length} nodes`);
+		
+		if (m.inferenceTime!=null) {
+			$(".status .duration .val").text(Math.round(m.inferenceTime));
+		}
+		if (m.displayTime!=null) {
+			$(".status .duration .displayVal").text(Math.round(m.displayTime));
+		}
+		if (m.totalIterationsRun!=null) {
+			$(".status .iterations .val").text(m.totalIterationsRun);
+		}
 	},
 	displayBeliefs: function(outputEl) {
 		outputEl = outputEl || this.outputEl;
@@ -1516,6 +1563,13 @@ Object.assign(BN.prototype, {
 			let pathId = (""+Math.random()).replace(/\./, '_');
 			$(path).attr("id", pathId);
 			$(path).data('arcSelector', new ArcSelector($(path)));
+			if (pathIn.graphItem.movePointsIn?.[pathIn.parentItem.id]) {
+				$(path)[0].setPathData(pathIn.graphItem.movePointsIn[pathIn.parentItem.id]);
+				delete pathIn.graphItem.movePointsIn[pathIn.parentItem.id];
+				if (Object.keys(pathIn.graphItem.movePointsIn).length==0) {
+					delete pathIn.graphItem.movePointsIn;
+				}
+			}
 			pathIn.pathId = pathId;
 			parentItem.pathsOut.find(pathOut => pathOut.childItem.id == pathIn.graphItem.id).pathId = pathId;
 			/// And ... we need to specify the endpoints for this path
@@ -1691,6 +1745,7 @@ Object.assign(BN.prototype, {
 	/// deleting split points.
 	redrawArcs(graphItems, width = null, height = null, opts = {}) {
 		opts.padding = opts.padding!==undefined ? opts.padding : CANVASPAD;
+		opts.allArcs ??= false;
 		//Option: opts.moved = {deltaX, deltaY}
 		if (!Array.isArray(graphItems))  graphItems = [graphItems];
 		
@@ -1714,7 +1769,7 @@ Object.assign(BN.prototype, {
 				externalArcs.add(graphItem.pathsIn[i].arcSelector);
 			}
 		}
-		for (let gi=0; gi<graphItems.length; gi++) {
+		if (!opts.allArcs)  for (let gi=0; gi<graphItems.length; gi++) {
 			let graphItem = this.findItem(graphItems[gi]);
 			
 			for (let i=0; i<graphItem.pathsOut.length; i++) {
@@ -1990,14 +2045,15 @@ Object.assign(BN.prototype, {
 	/// arcs (because it doesn't have access to the BN information)
 	redrawAllArcs: function() {
 		var graphItems = this.getGraphItems();
-		for (var i=0; i<graphItems.length; i++) {
-			var graphItem = graphItems[i];
-			var $graphItem = this.outputEl.find("#display_"+graphItem.id);
-			for (var j=0; j<graphItem.pathsIn.length; j++) {
-				var $parent = $('#display_'+graphItem.pathsIn[j].parentItem.id);
-				draw.drawArrowBetweenBoxes($("#"+graphItem.pathsIn[j].pathId), draw.getBox($parent), draw.getBox($graphItem));
-			}
-		}
+		this.redrawArcs(graphItems, null, null, {allArcs: true});
+		// for (var i=0; i<graphItems.length; i++) {
+			// var graphItem = graphItems[i];
+			// var $graphItem = this.outputEl.find("#display_"+graphItem.id);
+			// for (var j=0; j<graphItem.pathsIn.length; j++) {
+				// var $parent = $('#display_'+graphItem.pathsIn[j].parentItem.id);
+				// draw.drawArrowBetweenBoxes($("#"+graphItem.pathsIn[j].pathId), draw.getBox($parent), draw.getBox($graphItem));
+			// }
+		// }
 	},
 	getVisibleBounds() {
 		var minX = 10e9;
@@ -2166,7 +2222,7 @@ Object.assign(BN.prototype, {
 	// apiSetEvidence: BN.prototype.setEvidence,
 	guiSetEvidence: function(evidence, o = {}, callback = null) {
 		o.reset ??= false;
-		this.apiSetEvidence(evidence, o);
+		this.setEvidence(evidence, o);
 		
 		/// Update GUI
 		if (o.reset)  $('.bnview .hasEvidence').removeClass('hasEvidence');
@@ -4850,7 +4906,7 @@ class ArcSelector {
 		let mouseMove = null;
 		let mouseUp = null;
 		document.addEventListener('mousemove', mouseMove = event => {
-			let newX = event.clientX-svgX, newY = event.clientY-svgY;
+			let newX = draw.viewToPx(event.clientX-svgX), newY = draw.viewToPx(event.clientY-svgY);
 			let [parent,child] = this.getEndpoints();
 			let parentBox = draw.getBox(parent.el()), childBox = draw.getBox(child.el());
 			if (snapOn) {
@@ -4912,13 +4968,14 @@ class ArcSelector {
 	addPoint(x, y, o = {}) {
 		o.nearest = o.nearest || false;
 		o.index = o.index!==undefined ? o.index : -1;
+		x = draw.viewToPx(x);
+		y = draw.viewToPx(y);
 
 		let points = this.path.getPathData();
 		let pointDist = null;
 		let insertAtI = null;
 		if (o.nearest) {
 			let closest = draw.getClosestSegmentPoint(points, [x,y]);
-			console.log(closest);
 			
 			[x,y] = closest.point;
 			if (o.index==-1)  insertAtI = closest.i+1;
@@ -4955,6 +5012,7 @@ class ArcSelector {
 		];
 		this.path.setPathData(newLine);
 		$(this.path).data('clickable')[0].setPathData(newLine);
+		this.updateMovePointHighlights();
 	}
 	
 	isMultiPoint() {
@@ -6492,17 +6550,46 @@ var app = {
 	newFile() {
 		window.open(String(location).slice(0,-location.search.length || undefined));
 	},
-	closeFile() {
-		window.history.pushState({}, '', changeQsUrl(window.location.href, {file: null}));
-		let bn = new BN({filename: `bn${++guiBnCount}.xdsl`});
-		app.openBn(bn);
-		currentBn.display();
+	async discardChanges() {
+		if (!currentBn.unsavedChanges || confirm('Are you sure you want to discard unsaved changes?')) {
+			if (window.qs.bnId && await idbKeyVal.get(window.qs.bnId, 'bns'))  idbKeyVal.del(window.qs.bnId, 'bns');
+			let origBn = sessionStorage.getItem('openBn');
+			/// If there's an old BN to go to, open it.
+			if (origBn) {
+				app.openBn(BN.from(origBn));
+				currentBn.display();
+				app.updateBN();
+			}
+			/// If there's a file to go to, open it.
+			else if (window.qs.file) {
+				loadFromServer(window.qs.file, _=>app.updateBN());
+			}
+			/// Otherwise, go to a new BN.
+			else {
+				let bn = new BN({filename: `bn${++guiBnCount}.xdsl`});
+				app.openBn(bn);
+				currentBn.display();
+				app.updateBN();
+			}
+		}
 	},
-	openBn(bn) {
+	closeFile() {
+		if (!currentBn.unsavedChanges || confirm('You have unsaved changes. Close anyway?')) {
+			window.history.pushState({}, '', changeQsUrl(window.location.href, {file: null}));
+			sessionStorage.removeItem('openBn');
+			idbKeyVal.del(window.qs.bnId, 'bns');
+			let bn = new BN({filename: `bn${++guiBnCount}.xdsl`});
+			app.openBn(bn);
+			currentBn.display();
+		}
+	},
+	openBn(bn, o = {}) {
+		o.restored ??= false;
 		openBns.push(bn);
 		/** XXX Add window mgmt */
 		document.querySelectorAll('.bnouterview > :not(.bnmidview)').forEach(el => el.remove());
 		currentBn = bn;
+		if (!o.restored)  sessionStorage.setItem('openBn', currentBn.stringify());
 		currentBn.clearSidebar();
 		$('.bnComponent').data('bn', currentBn);
 		/// The first lastSave is always 0
@@ -6520,13 +6607,28 @@ var app = {
 			if (event.undoList.index == lastSave) {
 				unsavedChanges = false;
 			}
-			currentBn.setUnsavedChanges(unsavedChanges);
+			currentBn.guiSetSaveStatus({unsavedChanges});
+		});
+		let lastSnapshot = +new Date;
+		let snapshotTimeout = 15;
+		let snapshotTimerId = null;
+		currentBn.changes.undoListeners.push(event => {
+			/// Snapshot the current BN to sessionStorage, if there's a change and no
+			/// activity for 15 seconds.
+			if (snapshotTimerId != null)  clearTimeout(snapshotTimerId);
+			snapshotTimerId = setTimeout(_=>{
+				idbKeyVal.set(window.qs.bnId, currentBn.toJSON(), 'bns');
+				snapshotTimerId = null;
+				currentBn.guiSetSaveStatus({snapshotSaved:true});
+			}, snapshotTimeout*1000);
 		});
 		
-		/// (When saving happens, update lastSave)
+		/// (When a save happens, update lastSave --- and clear the browser snapshot)
 		currentBn.saveListeners.push(event => {
 			lastSave = currentBn.changes.index;
-			currentBn.setUnsavedChanges(false);
+			currentBn.guiSetSaveStatus({unsavedChanges:false});
+			idbKeyVal.del(window.qs.bnId, 'bns');
+			sessionStorage.setItem('openBn', currentBn.stringify());
 		});
 	},
 	loadFile: async function() {
@@ -6639,6 +6741,84 @@ var app = {
 		}
 		else {
 			this.saveAsFile(type);
+		}
+	},
+	exportImage(type = 'svg') {
+		let el = q('.bnview').raw;
+		let {x,y} = el.getBoundingClientRect();
+		let w = el.scrollWidth, h = el.scrollHeight;
+		el.querySelectorAll('[data-state-name]').forEach(el => (el.append(n('span',el.dataset.stateName, {style:'color:white;white-space:pre;'}))));
+		let style = document.body.appendChild(n('style', '.node.ds_stacked .state :is(.beliefBar, .beliefBar2)::before { content: initial; }'));
+		// await new Promise(r => setTimeout(r,100));
+		let svgXml = domToSvg.elementToSVG(el, {captureArea: {x,y,width:w,height:h}});
+		style.remove();
+		el.querySelectorAll('[data-state-name]').forEach(el => el.textContent = '');
+		//svgXml.querySelectorAll('[data-state-name]').forEach(el => el.textContent = el.dataset.stateName);
+		/// For some reason, domToSvg moves the svg arrow layer to the end
+		let nsc = svgXml.querySelector('.netSvgCanvas[data-tag=svg]'); nsc.parentElement.prepend(nsc);
+		svgXml.querySelectorAll('.dependencyClickArea').forEach(n => n.remove());
+		svgXml.querySelectorAll('[data-z-index]').forEach(n => n.removeAttribute('data-z-index'));
+		svgXml.querySelectorAll('[aria-owns]').forEach(n => n.removeAttribute('aria-owns'));
+		svgXml.querySelectorAll('[id]').forEach(n => !['path','marker','mask'].includes(n.tagName) && n.removeAttribute('id'));
+		svgXml.querySelectorAll('text').forEach(t => {
+			for (let attr of ['font-size-adjust','font-stretch','font-variant','direction','letter-spacing','text-anchor','text-rendering','unicode-bidi','word-spacing','writing-mode','text-decoration','color','user-select','dominant-baseline']) {
+				t.removeAttribute(attr);
+			}
+		});
+		svgXml.querySelectorAll('line').forEach(line => {
+			['stroke-linecap'].forEach(attr => line.removeAttribute(attr));
+		});
+		svgXml.querySelectorAll('.item').forEach(item => {
+			let firstText = item.querySelector('text');
+			let fontAttrs = firstText.getAttributeNames().filter(n => n.search(/^font-(?!weight)/)!=-1);
+			for (let fontAttr of fontAttrs) {
+				item.setAttribute(fontAttr, firstText.getAttribute(fontAttr));
+			}
+			fontAttrs.forEach(fontAttr => item.querySelectorAll('text').forEach(text => text.removeAttribute(fontAttr)));
+		});
+		svgXml.querySelector('.bnview').setAttribute('dominant-baseline', 'text-after-edge');
+		svgXml.querySelectorAll('tspan').forEach(t => {
+			// t.setAttribute('x', Math.round(t.getAttribute('x')*10)/10);
+			// t.setAttribute('y', Math.round(t.getAttribute('y')*10)/10);
+			['xml:space','textLength','lengthAdjust'].forEach(attr => t.removeAttribute(attr));
+		});
+		let numAttrs = ['x','y','width','height','x1','x2','y1','y2'];
+		svgXml.querySelectorAll(numAttrs.map(a => `[${a}]`).join(', ')).forEach(el => {
+			numAttrs.forEach(attr => el.hasAttribute(attr) && el.setAttribute(attr, Math.round(el.getAttribute(attr)*10)/10));
+		});
+		//svgXml.querySelectorAll('[class], [data-tag]').forEach(el => (el.removeAttribute('class'), el.removeAttribute('data-tag')));
+		// <tspan xmlns="http://www.w3.org/2000/svg" xml:space="preserve" x="345.6" y="159.8" textLength="79.19999694824219" lengthAdjust="spacingAndGlyphs">CKNI_12_15</tspan>
+		svgXml.querySelectorAll('[fill*=rgba]').forEach((n) => {
+			let alpha = null;
+			n.setAttribute('fill',n.getAttribute('fill')
+				.replace(/rgba\(\s*(\d+)\s*,\s*(\d+),\s*(\d+)\s*,\s*([\d.]+)\s*\)/, (m,r,g,b,a)=>(alpha=a,`rgb(${r},${g},${b})`)));
+			n.setAttribute('fill-opacity', alpha);
+		});
+		svgXml.querySelectorAll('[stroke*=rgba]').forEach((n) => {
+			let alpha = null;
+			n.setAttribute('stroke',n.getAttribute('stroke')
+				.replace(/rgba\(\s*(\d+)\s*,\s*(\d+),\s*(\d+)\s*,\s*([\d.]+)\s*\)/, (m,r,g,b,a)=>(alpha=a,`rgb(${r},${g},${b})`)));
+			n.setAttribute('stroke-opacity', alpha);
+		});
+		let svgStr = new XMLSerializer().serializeToString(svgXml);
+		let blob = new Blob([svgStr], {type: 'image/svg+xml'});
+		if (type == 'svg') {
+			let a = n('a', {href: URL.createObjectURL(blob), download: currentBn.fileName.replace(/\.[^.]*?$/, '')+'.svg', style:'display:none'});
+			document.body.append(a); a.click(); a.remove();
+		}
+		else if (type == 'png') {
+			let cvs = new OffscreenCanvas(
+				svgXml.documentElement.width.baseVal.value,
+				svgXml.documentElement.height.baseVal.value,
+			);
+			let ctxt = cvs.getContext('2d');
+			n('img',{src:URL.createObjectURL(blob)}).addEventListener('load', event => {
+				ctxt.drawImage(event.target, 0, 0);
+				cvs.convertToBlob({type:'image/png'}).then(blob2 => {
+					let a = n('a', {href: URL.createObjectURL(blob2), download: currentBn.fileName.replace(/\.[^.]*?$/, '')+'.png', style:'display:none'});
+					document.body.append(a); a.click(); a.remove();
+				});
+			});
 		}
 	},
 	saveAsFile: async function(type = 'xdsl') {
@@ -7270,6 +7450,10 @@ var app = {
 								n('span.numNodes', ''),
 							),
 							n('div.field',
+								n('label', '# Arcs:'),
+								n('span.numArcs', ''),
+							),
+							n('div.field',
 								n('label', '# CPT Parameters:'),
 								n('span.numParams', ''),
 							),
@@ -7303,6 +7487,7 @@ var app = {
 				let [jointNum,jointExp] = [jointSize-Math.floor(jointSize),Math.floor(jointSize)];
 				let numParams = currentBn.nodes.map(n=>n.def.cpt?.length ?? 0).reduce((a,v)=>a+v,0);
 				this.rootEl.q('.numNodes').textContent = Number(currentBn.nodes.length).toLocaleString();
+				this.rootEl.q('.numArcs').textContent = Number(currentBn.nodes.reduce((a,n) => a+n.parents.length,0)).toLocaleString();
 				this.rootEl.q('.numParams').textContent = Number(numParams).toLocaleString();
 				//this.rootEl.q('.jointSize').append(html(LatexToMathML(`${sigFig(10**jointNum,3)} \\times 10^{${jointExp}}`))); //jointSizeNumber().toLocaleString();
 				this.rootEl.q('.jointSize').append(makeExpNum(10**jointNum,jointExp)); //jointSizeNumber().toLocaleString();
@@ -7709,7 +7894,7 @@ var app = {
 				let sortOrder = q(this.rootEl).q('.sort').dataset.sort;
 				let toCase = caseSense ? s=>s : s=>s.toLowerCase();
 				search = toCase(search);
-				let pred = n => toCase(n.id).includes(search) || toCase(n.label).includes(search);
+				let pred = n => toCase(n.id).includes(search) || (n.label ? toCase(n.label).includes(search) : false);
 				let asRe = null;
 				if (regexp) {
 					try {
@@ -7729,7 +7914,7 @@ var app = {
 				let sortedFoundNodes = BN.sortItems(foundNodes, sortOrder);
 				for (let node of sortedFoundNodes) {
 					hasLongId ||= node.id.length>15;
-					hasLongLabel ||= node.label.length>15;
+					hasLongLabel ||= node.label?.length>15;
 					table.append(n('tr', n('td.id', {
 						on_click: e => showNode(e.target),
 						style: `
@@ -7790,7 +7975,7 @@ var app = {
 								n('td.label',node.label, {contenteditable: true, on_focusout: e=>updateField(e.target, 'label')}),
 								n('td', node.comment, {contenteditable:true, on_focusout: e=>updateField(e.target, 'comment')}),
 								n('td.states', node.states.map(s=>s.id).join(', ')),
-								n('td.parents', node.parents.map(p=>p.id).join(', ')),
+								n('td.parents', node.parents.map(p=>p.label ?? p.id).join(', ')),
 							)),
 						),
 					),
@@ -8042,6 +8227,7 @@ $(document).ready(function() {
 		Menu({label:"File", items: [
 			MenuAction("New...", function(){ app.newFile(); dismissActiveMenus(); }, {shortcut: 'Alt-N'}),
 			MenuAction("Open...", function(){ app.loadFile(); dismissActiveMenus(); }, {shortcut: 'Ctrl-O'}),
+			MenuAction("Discard Changes", function(){ app.discardChanges(); dismissActiveMenus(); }, {type:'discardChanges'}),
 			MenuAction("Close", function(){ app.closeFile(); dismissActiveMenus(); }),
 			MenuAction(`Name: <input class=bnName type=text value="">`, ()=>{}),
 			MenuAction("Save...", function(){ app.saveFile(); dismissActiveMenus(); }, {shortcut: 'Ctrl-S', type: 'saveItem'}),
@@ -8049,6 +8235,9 @@ $(document).ready(function() {
 				MenuAction("Make-Believe .mb", function(){ app.saveFile('mb'); dismissActiveMenus(); }),
 				MenuAction("GeNIe .xdsl", function(){ app.saveFile('xdsl'); dismissActiveMenus(); }),
 				MenuAction("Netica .dne", function(){ app.saveFile('dne'); dismissActiveMenus(); }),
+				MenuAction('<hr>',_=>{}),
+				MenuAction("SVG .svg", function(){ app.exportImage('svg'); dismissActiveMenus(); }),
+				MenuAction("PNG .png", function(){ app.exportImage('png'); dismissActiveMenus(); }),
 			]}),
 			Menu({label: "Example BNs", items: exampleBnActions}),
 			/*MenuAction('<hr>'),
@@ -8073,7 +8262,7 @@ $(document).ready(function() {
 			].map(([label,type]) => MenuAction(label, _=> { currentBn.setSelection(currentBn.findItems(type)); dismissActiveMenus(); }))}),
 		]}),
 		Menu({label:"View", items: [
-			MenuAction('<input type="range" name="viewZoom" min="0.25" max="3" step="0.25" value="1"> <span class="viewZoomText">100%</span>', function(){}),
+			MenuAction('<input type="range" name="viewZoom" min="0.25" max="3" step="0.125" value="1"> <span class="viewZoomText">100%</span>', function(){}),
 			MenuAction("Auto-Layout", function() { app.autoLayout(); dismissActiveMenus(); }, {shortcut: 'Ctrl-Shift-A'}),
 			MenuAction("Auto-Layout (Left to Right)", function() { app.autoLayout(null, {direction: 'LR'}); dismissActiveMenus(); }, {shortcut: 'Ctrl-Shift-A'}),
 			MenuAction(n('span',n('input.fullScreen',{type:'checkbox'})," Full Screen"), _=> {
@@ -8517,8 +8706,8 @@ $(document).ready(function() {
 			/// Scale can muck up the alignment lines (sure, these probably shouldn't
 			/// be in the div that gets scaled)
 			
-			$('.hAlignLine').css('width', (scale*100)+'%');
-			$('.vAlignLine').css('height', (scale*100)+'%');
+			// $('.hAlignLine').css('width', (scale*100)+'%');
+			// $('.vAlignLine').css('height', (scale*100)+'%');
 			$item[0].style.left = (newLeft)+'px';
 			$item[0].style.top = (newTop)+'px';
 			//$item.offset({left: newLeft, top: newTop});
@@ -8778,7 +8967,8 @@ $(document).ready(function() {
 				var maxY = Math.max(origCanvas.height, (b.y+b.height)*scale);
 				//onsole.log(maxX, maxY);
 				if (maxX != origCanvas.width || maxY != origCanvas.height) {
-					$(".netSvgCanvas").attr("width", maxX).attr("height", maxY);
+					// $(".netSvgCanvas").attr("width", maxX).attr("height", maxY);
+					draw.resizeCanvas($(".netSvgCanvas"), maxX, maxY);
 				}
 			}
 
@@ -9143,15 +9333,19 @@ $(document).ready(function() {
 		}
 		else {
 			q('.bnview').style.fontSize = ($range.val()*100)+'%';
+			/// Unfortunately, need to recalc arcs, because objects can change shape
+			/// (e.g. border stays 1px in size, regardless of zoom level)
 		}
 		$(".viewZoomText").text(Math.round($range.val()*100)+"%");
 	}).on('change mouseup', function(evt) {
 		$('.itemList').removeClass('unfocusMenu');
 		$(this).closest('.menuAction').removeClass('focusMenu');
+		if (q('.bnview').offsetWidth)  currentBn.redrawAllArcs();
 	}).on("dblclick", function(evt) {
 		var $range = $(evt.target);
 		$range.val(1);
-		$range.trigger("change");
+		$range.trigger("input");
+		$range.trigger("mouseup");
 	});
 
 	let doingSpacing = false;
@@ -9319,37 +9513,6 @@ $(document).ready(function() {
 	});
 	
 	
-	Node.handleEvents($('.bnComponent')[0]);
-	TextBox.handleEvents($('.bnComponent')[0]);
-	
-	$(window).on('beforeunload', function() {
-		if (currentBn && currentBn.unsavedChanges) {
-			return false;
-		}
-	});
-
-	window.matchMedia("print").addEventListener('change',function(e) {currentBn.updateArcs()});
-	$(window).on('beforeprint', function() {
-		$('#printSheet').attr('media', 'screen');
-		currentBn.updateArcs();
-		$('#printSheet').attr('media', 'print');
-	}).on('afterprint', function() {
-		currentBn.updateArcs();
-	});
-
-	if (window.qs.file) {
-		loadFromServer(window.qs.file, _=>{
-			app.updateBN(_=>{
-				if (window.parent !== window)  window.parent.postMessage({type:'fileLoaded'});
-			});
-		});
-	}
-	else {
-		let bn = new BN({filename: `bn${++guiBnCount}.xdsl`});
-		app.openBn(bn);
-		currentBn.display();
-	}
-	
 	/* Fix contenteditable empty on td/th on firefox.
 	Block empty contenteditable fixing with, e.g., <div default-empty> */
 	q(document).listeners.add('focusin', event => {
@@ -9364,7 +9527,68 @@ $(document).ready(function() {
 		}
 	});
 	
-	window.dispatchEvent(new Event('MakeBelieveLoaded'));
+	Node.handleEvents($('.bnComponent')[0]);
+	TextBox.handleEvents($('.bnComponent')[0]);
+	
+	$(window).on('beforeunload', function() {
+		if (currentBn && currentBn.unsavedChanges) {
+			idbKeyVal.set(window.qs.bnId, currentBn.toJSON(), 'bns');
+			/// Still need to prompt, because we don't know why we're unloading
+			return false;
+		}
+	});
+
+	window.matchMedia("print").addEventListener('change',function(e) {currentBn.updateArcs()});
+	$(window).on('beforeprint', function() {
+		$('#printSheet').attr('media', 'screen');
+		currentBn.updateArcs();
+		$('#printSheet').attr('media', 'print');
+	}).on('afterprint', function() {
+		currentBn.updateArcs();
+	});
+	
+	(async _=>{
+		let bnSnapshot = null;
+		if (window.qs.bnId) {
+			bnSnapshot = await idbKeyVal.get(window.qs.bnId, 'bns');
+		}
+		else {
+			/// Chances of a clash are pretty tiny. Even if the user had 10,000 BNs stored, it'd be roughly 1 in 5,000 chance.
+			let bnId = genPass(8);
+			while (await idbKeyVal.get(bnId))  bnId = genPass(8);
+			window.history.pushState({}, '', changeQsUrl(window.location.href, {bnId}));
+		}
+
+		// let currentSnapshot = sessionStorage.getItem('currentSnapshot');
+		/// XXX: Need better method for handling files from QS clashing with snapshot (e.g. ask user if they want to restore saved version). For now, just disabling.
+		if (bnSnapshot && (window.parent === window || window.qs.withStorage) && !window.qs.noStorage) {
+			app.openBn(BN.from(bnSnapshot), {restored:true});
+			currentBn.display();
+			app.updateBN();
+		}
+		else if (window.qs.file) {
+			loadFromServer(window.qs.file, _=>{
+				app.updateBN(_=>{
+					if (window.parent !== window)  window.parent.postMessage({type:'fileLoaded'});
+				});
+			});
+		}
+		else {
+			let bn = new BN({filename: `bn${++guiBnCount}.xdsl`});
+			app.openBn(bn);
+			currentBn.display();
+		}
+		
+		window.dispatchEvent(new Event('MakeBelieveLoaded'));
+	})();
+});
+
+/// These classes have been updated, so re-add them to BN.ItemTypes
+Object.assign(BN.ItemTypes, {
+	Node,
+	Submodel,
+	TextBox,
+	ImageBox,
 });
 
 window.addEventListener('MakeBelieveLoaded', event => {
