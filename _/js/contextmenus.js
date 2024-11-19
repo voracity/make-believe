@@ -2,7 +2,7 @@ class DisplayItemContextMenu {
 	constructor(textBox) {
 		this.textBox = textBox;
 		this.events = new ListenerGroup();
-		this.events.add(this.textBox, 'update', msg => this.updateView(msg));
+		this.events.add(this.textBox, 'update', msg => this.refreshView(msg));
 	}
 	
 	close() {
@@ -62,7 +62,7 @@ class DisplayItemContextMenu {
 		);
 	}
 	
-	updateView(m) {
+	refreshView(m) {
 		if (m.size?.width!==undefined) {
 			q(this.rootEl).q('[name=width]').set({value: m.size.width});
 		}
@@ -90,7 +90,7 @@ class DisplayItemContextMenu {
 	
 	popup(o) {
 		this.make();
-		this.updateView(this.textBox);
+		this.refreshView(this.textBox);
 		popupElement(this.rootEl, document.body, o.left, o.top);
 		if (jscolor)  jscolor.installByClassName('jscolor');
 		this.eventHandlers();
@@ -125,7 +125,7 @@ class DisplayItemContextMenu {
 	
 	eventHandlers_move() {
 		this.events.add(this.rootEl, 'mousedown', event => {
-			if (event.target.matches('button.active')) {
+			if (event.target.matches('.tabStrip button')) {
 				let origElRect = this.rootEl.getBoundingClientRect();
 				let origEvent = event;
 				this.events.add(document, 'mousemove.moving', event => {
@@ -162,8 +162,8 @@ class SubmodelContextMenu extends DisplayItemContextMenu {
 		));
 	}
 	
-	updateView(m) {
-		super.updateView(m);
+	refreshView(m) {
+		super.refreshView(m);
 		if (m.label!==undefined) {
 			q(this.rootEl).q('[name=label]').value = m.label;
 		}
@@ -583,9 +583,9 @@ class NodeContextMenu {
 		return {states, _statesChanges};
 	}
 	
-	handleObjectUpdate(m, updateId = null) { this.updateView(m, updateId); }
+	handleObjectUpdate(m, updateId = null) { this.refreshView(m, updateId); }
 	
-	updateView(m, updateId = null) {
+	refreshView(m, updateId = null) {
 		/// Make sure the message is consistent. Fix if not.
 		/// If the message was managed by its own class, that class would make sure the message
 		/// was consistent...

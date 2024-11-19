@@ -887,7 +887,8 @@ Object.assign(DisplayItem.prototype, {
 	},
 	
 	async guiFlashIntoView() {
-		this.el()[0].scrollIntoView({block: 'nearest', behavior: 'smooth'});
+		// Replace this with better custom scroll position selection
+		this.el()[0].scrollIntoView({block: 'center', inline: 'center', behavior: 'smooth'});
 		let times = 3;
 		let pause = 200;
 		for (let i=0; i<times; i++) {
@@ -908,6 +909,7 @@ Object.assign(DisplayItem.prototype, {
 	*/
 	highlightNodesWithOpacity(nodes, o = {}) {
 		o.lowOpacity ??= 0.2;
+		o.lowClickable ??= true;
 		o.highOpacity ??= 1;
 		o.asPath ??= false;
 		let nodeLists = [];
@@ -920,24 +922,26 @@ Object.assign(DisplayItem.prototype, {
 		}
 		
 		/// Low-light all nodes and arcs
-		this.nodes.forEach(n => n.el().css('opacity', o.lowOpacity));
-		$('path.dependency').css('opacity', o.lowOpacity);
+		let clickability = o.lowClickable ? {pointerEvents: ''} : {pointerEvents: 'none'};
+		let clickable = {pointerEvents: ''};
+		this.nodes.forEach(n => n.el().css({'opacity': o.lowOpacity, ...clickability}));
+		$('path.dependency').css({'opacity': o.lowOpacity, ...clickability});
 		
 		for (let nodes of nodeLists) {
 			/// High-light all chosen nodes, and arcs within nodes
 			let prevNode = null;
 			for (let node of nodes) {
-				node.el().css('opacity', o.highOpacity);
+				node.el().css({opacity: o.highOpacity, ...clickable});
 				/// Highlight just as a path
 				if (o.asPath) {
 					if (prevNode && prevNode != node) {
 						let pathInOut = node.pathsIn.find(p => p.parentItem == prevNode) ?? node.pathsOut.find(p => p.childItem == prevNode);
-						$(pathInOut.arcSelector.path).css('opacity', o.highOpacity);
+						$(pathInOut.arcSelector.path).css({opacity: o.highOpacity, ...clickable});
 					}
 				}
 				/// Highlight any connections between the nodes
 				else {
-					node.pathsIn.forEach(p => nodes.has(p.parentItem) ? $(p.arcSelector.path).css('opacity', o.highOpacity) : null);
+					node.pathsIn.forEach(p => nodes.has(p.parentItem) ? $(p.arcSelector.path).css({opacity: o.highOpacity, ...clickable}) : null);
 				}
 				//node.parents.forEach(p => p.el().css('opacity', o.highOpacity));
 				prevNode = node;
@@ -946,8 +950,8 @@ Object.assign(DisplayItem.prototype, {
 	},
 	
 	resetOpacities() {
-		this.nodes.forEach(n => n.el().css('opacity', ''));
-		$('path.dependency').css('opacity', '');
+		this.nodes.forEach(n => n.el().css({opacity: '', pointerEvents:''}));
+		$('path.dependency').css({opacity: '', pointerEvents:''});
 	},
 
 	removePaths() {
@@ -1840,6 +1844,8 @@ Object.assign(BN.prototype, {
 	displayArcsWithInfluences: function() {
 		var sumMis = {};
 		var sumChildEntropies = {};
+		let widthRange = 30;
+		let minWidth = 0.2;
 		for (var i=0; i<this.nodes.length; i++) {
 			var node = this.nodes[i];
 			if (node.engineOnly)  continue;
@@ -1899,15 +1905,8 @@ Object.assign(BN.prototype, {
 					if (sumChildEntropies[arcInfo.pathId] > 0) {
 						entropyProportion = sumMis[arcInfo.pathId]/sumChildEntropies[arcInfo.pathId];
 					}
-					var minVal = 0.02;
-					if (entropyProportion > minVal) {
-						console.log("stroke", (entropyProportion*10)+"px");
-						arc.css('stroke-width', (entropyProportion*10)+"px");
-					}
-					else {
-						console.log("minStroke", (entropyProportion*10)+"px");
-						arc.css('stroke-width', minVal+"px");
-					}
+					console.log("stroke", (entropyProportion*widthRange)+"px");
+					arc.css('stroke-width', Math.max(minWidth, (entropyProportion*widthRange))+"px");
 				}
 			}
 		}
@@ -2278,7 +2277,7 @@ BN.prototype = apiBN.prototype;*/
 Submodel = function(...args) {
 	apiSubmodel.call(this, ...args);
 	this.listeners = new Listeners();
-	this.listeners.add('update', (msg,extraMsg)=>this.updateView(msg,extraMsg));
+	this.listeners.add('update', (msg,extraMsg)=>this.refreshView(msg,extraMsg));
 };
 Object.assign(Submodel, apiSubmodel);
 Submodel.prototype = apiSubmodel.prototype;*/
@@ -2287,7 +2286,7 @@ Submodel = class extends Submodel {
 	constructor(...args) {
 		super(...args);
 		this.listeners = new Listeners();
-		this.listeners.add('update', (msg,extraMsg)=>this.updateView(msg,extraMsg));
+		this.listeners.add('update', (msg,extraMsg)=>this.refreshView(msg,extraMsg));
 	}
 }
 Object.assign(Submodel.prototype, {
@@ -2312,8 +2311,8 @@ Object.assign(Submodel.prototype, {
 		});
 	},
 	
-	updateView(m, extraMsg = {}) {
-		console.log('updateView');
+	refreshView(m, extraMsg = {}) {
+		console.log('refreshView');
 		//debugger;
 		let el = q(this.el());
 		let elInner = el.q('.inner');
@@ -2680,11 +2679,11 @@ Object.assign(Node.prototype, DisplayItem.prototype, {
 		if (o.format) {
 			let f = o.format;
 			console.log(f);
-			if (f.backgroundColor)  this._elCached.css('backgroundColor', f.backgroundColor);
-			if (f.borderColor)  this._elCached.css('borderColor', f.borderColor);
-			if (f.fontColor)  this._elCached.css('color', f.fontColor);
-			if (f.fontFamily)  this._elCached.css('fontFamily', f.fontFamily);
-			if (f.fontSize)  this._elCached.find('.inner').css('fontSize', f.fontSize+'pt');
+			if (f.backgroundColor)  this._elCached.css('--node-background', f.backgroundColor);
+			if (f.borderColor)  this._elCached.css('--node-border-color', f.borderColor);
+			if (f.fontColor)  this._elCached.css('--node-text', f.fontColor);
+			if (f.fontFamily)  this._elCached.css('--node-font-family', f.fontFamily);
+			if (f.fontSize)  this._elCached.css('--node-font-size', f.fontSize+'pt');
 			if (f.displayStyle) {
 				/// Remove the existing displayStyle class if present
 				removeMatchingClasses(this._elCached[0], c => c.startsWith('ds_'));
@@ -2787,13 +2786,13 @@ Object.assign(Node.prototype, DisplayItem.prototype, {
 				.appendTo(outputEl);
 			this._elCached = $displayNode;
 			if (node.format.borderColor) {
-				$displayNode.css('border-color', node.format.borderColor);
-				$displayNode.find('.controlBar').css('border-color', node.format.borderColor);
+				$displayNode.css('--node-border-color', node.format.borderColor);
+				//$displayNode.find('.controlBar').css('border-color', node.format.borderColor);
 			}
-			if (node.format.backgroundColor)  $displayNode.css('background', node.format.backgroundColor);
-			if (node.format.fontColor)  $displayNode.css('color', node.format.fontColor);
-			if (node.format.fontFamily)  $displayNode.css('font-family', node.format.fontFamily);
-			if (node.format.fontSize)  $displayNode.find('.inner').css('font-size', draw.ptToView(node.format.fontSize));
+			if (node.format.backgroundColor)  $displayNode.css('--node-background', node.format.backgroundColor);
+			if (node.format.fontColor)  $displayNode.css('--node-text', node.format.fontColor);
+			if (node.format.fontFamily)  $displayNode.css('--node-font-family', node.format.fontFamily);
+			if (node.format.fontSize)  $displayNode.css('--node-font-size', draw.ptToView(node.format.fontSize));
 			removeMatchingClasses($displayNode[0], c => c.startsWith('ds_'));
 			$displayNode.attr('data-display-style', null);
 			if (node.format.displayStyle) {
@@ -4243,7 +4242,7 @@ TextBox = class extends TextBox {
 	constructor(...args) {
 		super(...args);
 		this.listeners = new Listeners();
-		this.listeners.add('update', msg=>this.updateView(msg));
+		this.listeners.add('update', msg=>this.refreshView(msg));
 	}
 };
 Object.assign(TextBox.prototype, {
@@ -4260,8 +4259,8 @@ Object.assign(TextBox.prototype, {
 		});
 	},
 	
-	updateView(m) {
-		console.log('updateView');
+	refreshView(m) {
+		console.log('TextBox.refreshView');
 		let el = q(this.el());
 		let elInner = el.q('.inner');
 		if (m.text!=null) {
@@ -4292,7 +4291,7 @@ Object.assign(TextBox.prototype, {
 	},
 	
 	/// Like make()
-	displayItem: function(outputEl, $displayNode, force = false) {
+	displayItem(outputEl, $displayNode, force = false) {
 		if (this.isHidden() && !force)  return null;
 		if (!outputEl && this.net)  outputEl = this.net.outputEl;
 		var textBox = this;
@@ -4306,7 +4305,7 @@ Object.assign(TextBox.prototype, {
 				.appendTo(outputEl)
 				.append($('<div class=inner>'));
 			this._elCached = $displayNode;
-			this.updateView(this);
+			this.refreshView(this);
 		}
 		if (textBox.type)  $displayNode.addClass(textBox.type);
 
@@ -5563,6 +5562,7 @@ CPT.Editor = class extends Definition.Editor {
 		let handlePaste = event => {
 			let el = event.target.closest('table [contenteditable]');
 			if (el) {
+				event.mbNoGlobalPasteHandling = true;
 				let sels = [...rootEl.querySelectorAll('.cellSelected')];
 				let cell = sels.length ? sels[0] : el.closest('td, th');
 				let text = event.clipboardData.getData('text');
@@ -7280,6 +7280,59 @@ var app = {
 		/*currentBn.display();
 		currentBn.displayBeliefs();*/
 	},
+	autoLayoutNode(node) {
+		if (typeof(node)=='string')  node = currentBn.node[node];
+
+		let getHeight = n => n.el()[0].getBoundingClientRect().height;
+		let getWidth = n => n.el()[0].getBoundingClientRect().width;
+
+		let newPos = new Map();
+
+		let allNodes = [...node.parents,node,...node.children];
+
+		allNodes.forEach(n => newPos.set(n, {...n.pos}));
+
+		let maxParentHeight = node.parents.reduce((a, p) => Math.max(getHeight(p), a), 0);
+		let nodeHeight = getHeight(node);
+		let maxChildHeight = node.parents.reduce((a, c) => Math.max(getHeight(c), a), 0);
+
+		let yGap = 60;
+		let xGap = 60;
+
+		node.parents.forEach(p => newPos.set(p, {...p.pos, y: yGap}));
+		newPos.set(node, {...node.pos, y: yGap*2 + maxParentHeight});
+		node.children.forEach(p => newPos.set(p, {...p.pos, y: yGap*3 + maxParentHeight + nodeHeight}));
+		console.log(newPos);
+
+		let parentsWidth = node.parents.reduce((a,p) => getWidth(p)+a, 0);
+		let nodeWidth = getWidth(node);
+		let childrenWidth = node.parents.reduce((a,p) => getWidth(p)+a, 0);
+
+		let maxWidth = Math.max(parentsWidth+(node.parents.length-1)*xGap, nodeWidth, childrenWidth+(node.children.length-1)*xGap);
+		let parentXGap = (maxWidth - parentsWidth)/node.parents.length;
+		let nodeXStart = (maxWidth - nodeWidth)/2;
+		let childXGap = (maxWidth - childrenWidth)/node.children.length;
+
+		let currentX = xGap;
+		for (let parent of node.parents) {
+			newPos.get(parent).x = currentX;
+			currentX += getWidth(parent) + parentXGap;
+		}
+
+		newPos.get(node).x = xGap + nodeXStart;
+
+		currentX = xGap;
+		for (let child of node.children) {
+			newPos.get(child).x = currentX;
+			currentX += getWidth(child) + childXGap;
+		}
+
+		// let style = n('style',`.node, path { transition: 0.6s; }`);
+		// document.body.append(style);
+		currentBn.highlightNodesWithOpacity(allNodes, {lowOpacity:0, lowClickable: false});
+		allNodes.forEach(n => n.moveTo(newPos.get(n).x,newPos.get(n).y,false));
+		// setTimeout(()=>style.remove(), 650);
+	},
 	/** Change the (NYI: selected) nodes to display as labels or distributions. This requires a relayout of BN. **/
 	changeNodeView: function(type) {
 		currentBn.setNodeView(type);
@@ -7466,11 +7519,11 @@ var app = {
 					currentBn.addBoxToSidebar(stats, {title: 'Network Statistics', on_close: event => {
 						currentBn.listeners.remove(this);
 					}});
-					currentBn.listeners.add(['structureChange definitionsChange',this], _=>this.updateView());
+					currentBn.listeners.add(['structureChange definitionsChange',this], _=>this.refreshView());
 				}
-				this.updateView();
+				this.refreshView();
 			},
-			updateView() {
+			refreshView() {
 				function makeExpNum(coeff, exp, o = {}) {
 					o.nonSciUpperThresh ??= 7;
 					o.orig ??= null;
@@ -7576,11 +7629,11 @@ var app = {
 						this.events.remove();
 						q(currentBn).display().displayBeliefs();
 					}});
-					// currentBn.listeners.add(['structureChange definitionsChange',this], _=>this.updateView());
+					// currentBn.listeners.add(['structureChange definitionsChange',this], _=>this.refreshView());
 				}
 				this.events = new ListenerGroup();
 				this.eventHandlers();
-				this.updateView();
+				this.refreshView();
 			},
 			cptKlDiv(cpt2d1, cpt2d2) {
 				let kls = [];
@@ -7662,7 +7715,63 @@ var app = {
 					}
 				});
 			},
-			updateView() {
+			refreshView() {
+			},
+		},
+		transformNodes: {
+			name: 'Transform Nodes',
+			get rootEl() { return q('.sidebar .transformNodes'); },
+			init() {
+				this.nodesSelected = null;
+				if (!this.rootEl) {
+					let tempNode = new Node();
+					let stats = n('div.transformNodes',
+						n('div.fields',
+							n('div.field',
+								n('label', '# Nodes selected:'),
+								n('span.numNodesSelected',
+									'-'
+								),
+							),
+							n('div.field',
+								n('label', 'Set this node field:'),
+								n('select.nodeField',
+									Object.keys(tempNode).map(k => n('option', {selected: k=='label' ? 1 : null}, k))
+								),
+							),
+							n('div.field.wide',
+								n('label', 'to result of fn(node):'),
+								n('textarea.transformFunc'),
+							),
+						),
+						n('div.controls',
+							n('button', 'Apply', {on_click: event=>this.applyTransform()}),
+						),
+					);
+					currentBn.addBoxToSidebar(stats, {title: 'Transform Nodes', on_close: event => {
+						currentBn.listeners.remove(this);
+						currentBn.listeners.remove('.transformNodes');
+					}});
+					/// TODO: There may be a bug with adding listeners with jsObj as the group
+					currentBn.listeners.add('selectionChange.transformNodes', _=>this.refreshView());
+					// currentBn.listeners.add(['selectionChange',this], _=>this.refreshView());
+				}
+				this.refreshView();
+			},
+			refreshView() {
+				console.log('UPDATING');
+				this.nodesSelected = [...currentBn.selected].filter(g => g._type=='Node');
+				this.rootEl.querySelector('.numNodesSelected').textContent = this.nodesSelected.length || '-';
+			},
+			applyTransform() {
+				let nodeField = this.rootEl.querySelector('.nodeField').value;
+				let transformFuncStr = this.rootEl.querySelector('.transformFunc').value;
+				/// This isn't great. Inject a return if can't see one.
+				let transformFunc = new Function('node', transformFuncStr.search(/return\s+/) != -1 ? transformFuncStr : 'return '+transformFuncStr);
+
+				for (let node of this.nodesSelected) {
+					node.updateObject({[nodeField]: transformFunc(node)});
+				}
 			},
 		},
 		treatmentOutcome: {
@@ -7761,8 +7870,20 @@ var app = {
 			init() {
 				if (!this.rootEl) {
 					let changeEvent;
+					let copyTable = async btn => {
+						await navigator.clipboard.write([new ClipboardItem({
+							'text/html': this.rootEl.querySelector('.miTable table').outerHTML,
+							'text/plain': this.rootEl.querySelector('.miTable table').innerText,
+						})]);
+						btn.textContent = 'c!';
+						await new Promise(r => setTimeout(r, 500));
+						btn.textContent = 'cp';
+					}
 					currentBn.addListener('change', changeEvent = _=>setTimeout(_=>this.update(),100));
 					currentBn.addBoxToSidebar(n('div.miTable',
+						n('div.controls',
+							n('button.cp', {type:'button', on_click: e=>copyTable(e.target)}, 'cp'),
+						),
 						n('div.fields',
 							n('div.field',
 								n('label', 'Target:'), n('select.target', {on:{input: _=>this.update()}}),
@@ -7770,27 +7891,31 @@ var app = {
 						),
 						n('div.tablePar',
 							n('table',
-								n('thead', n('tr', n('th', 'Node'), n('th', 'MI%'))),
+								n('thead', n('tr', n('th', 'Node'), n('th', 'MI'), n('th', 'MI%'))),
 								n('tbody'),
 							),
 						),
 					), {title: 'Sensitivity (Mutual Information)', onclose: _=>currentBn.removeListener('change', changeEvent)});
+					this.rootEl.closest('.box').querySelector('.titlebar .close').prepend(this.rootEl.querySelector('button.cp'));
 					this.rootEl.append(n('style.miStyle',`
+						.sidebar .miTable { display: flex; flex-direction: column; }
 						.sidebar .miTable .fields { padding: 5px; }
 						.sidebar .miTable table { border-collapse: collapse; width: 100%; }
 						.sidebar .miTable :is(th,td) { background: white; border: solid 1px #ccc; padding: 3px 6px; box-shadow: 0 0 0 1px #ccc; }
-						.sidebar .miTable .miCell { background: linear-gradient(to right, #ccc, #ccc calc(var(--mipc)*100%), white calc(var(--mipc)*100%), white); }
-						.sidebar .miTable .tablePar { max-height: 150px; overflow-y: auto; }
+						.sidebar .miTable .miPc { background: linear-gradient(to right, #ccc, #ccc calc(var(--mipc)*100%), white calc(var(--mipc)*100%), white); }
+						.sidebar .miTable .tablePar { /*max-height: 150px;*/ overflow-y: auto; flex: 1; }
 						.sidebar .miTable thead { position: sticky; top: 1px; }
 					`));
 				}
-				this.update();
+				let selectedAsTarget = [...currentBn.selected].filter(el => el._type=='Node')?.[0];
+				this.update({target: selectedAsTarget});
 			},
-			async update() {
+			async update(o = {}) {
+				o.target ??= null;
 				let nodeIds = currentBn.nodes.map(n=>n.id);
 				let targetSel = this.rootEl.querySelector('.target');
 				let table = this.rootEl.querySelector('.miTable table');
-				let savedVal = targetSel.value;
+				let savedVal = targetSel.value!="" ? targetSel.value : o.target != null ? o.target.id ?? o.target : "";
 				targetSel.innerHTML = '';
 				targetSel.append(n('option',''),...nodeIds.map(id => n('option', id)));
 				targetSel.value = savedVal;
@@ -7800,7 +7925,94 @@ var app = {
 					let miTable = await currentBn.calcMi(targetSel.value);
 					let rows = Object.values(miTable);
 					rows.sort((a,b) => b.miPc-a.miPc);
-					table.querySelector('tbody').append(...rows.map(({node,mi,miPc}) => n('tr', n('td',node),n('td.miCell',{style:`--mipc:${miPc}`},`${Math.round(miPc*1000)/10}%`))));
+					table.querySelector('tbody').append(...rows.map(({node,mi,miPc}) => n('tr', n('td',node), n('td.mi',sigFig(mi,3)),n('td.miPc',{style:`--mipc:${miPc}`},`${Math.round(miPc*1000)/10}%`))));
+				}
+			},
+		},
+		_tempBestEv: {
+			get rootEl() {
+				return document.querySelector('.sidebar .bevTable');
+			},
+			init() {
+				if (!this.rootEl) {
+					let changeEvent;
+					let runningUpdate = null;
+					let curInt = null;
+					let numWaiting = 0;
+					/// This should guarantee that you will never be more than 2xlength of the computation away from seeing
+					/// something on screen after a click (and it will be the latest click). Best I can do without a way to terminate.
+					let handleUpdate = async _=> {
+						if (curInt)  clearInterval(curInt);
+						await new Promise(r => curInt = setTimeout(r,100));
+						curInt = null;
+						/// I actually want to kill the runningUpdate, but I can't, so waiting for it is at least better
+						if (runningUpdate) {
+							numWaiting++;
+							await runningUpdate;
+							numWaiting--;
+							/// If other threads started waiting after us, then we shouldn't do our update
+							if (numWaiting > 0) { return; }
+						}
+						runningUpdate = this.update();
+						await runningUpdate;
+						runningUpdate = null;
+					};
+					let copyTable = async btn => {
+						await navigator.clipboard.write([new ClipboardItem({
+							'text/html': this.rootEl.querySelector('.bevTable table').outerHTML,
+							'text/plain': this.rootEl.querySelector('.bevTable table').innerText,
+						})]);
+						btn.textContent = 'c!';
+						await new Promise(r => setTimeout(r, 500));
+						btn.textContent = 'cp';
+					}
+					currentBn.addListener('change', changeEvent = _=>handleUpdate());
+					currentBn.addBoxToSidebar(n('div.bevTable',
+						n('div.controls',
+							n('button.cp', {type:'button', on_click: e=>copyTable(e.target)}, 'cp'),
+						),
+						n('div.fields',
+							n('div.field',
+								n('label', 'Target:'), n('select.target', {on:{input: _=>this.update()}}),
+							),
+						),
+						n('div.tablePar',
+							n('table',
+								n('thead', n('tr', n('th', 'Node'), n('th', 'AbsBEV'), n('th', 'ΔBEV'))),
+								n('tbody'),
+							),
+						),
+					), {title: 'Sensitivity (Mutual Information)', onclose: _=>currentBn.removeListener('change', changeEvent)});
+					this.rootEl.closest('.box').querySelector('.titlebar .close').prepend(this.rootEl.querySelector('button.cp'));
+					this.rootEl.append(n('style.bevStyle',`
+						.sidebar .bevTable { display: flex; flex-direction: column; }
+						.sidebar .bevTable .fields { padding: 5px; }
+						.sidebar .bevTable table { border-collapse: collapse; width: 100%; }
+						.sidebar .bevTable :is(th,td) { background: white; border: solid 1px #ccc; padding: 3px 6px; box-shadow: 0 0 0 1px #ccc; }
+						.sidebar .bevTable .deltaBev { background: linear-gradient(to right, #ccc, #ccc calc(var(--delta-bev)*100%), white calc(var(--delta-bev)*100%), white); }
+						.sidebar .bevTable .tablePar { /*max-height: 150px;*/ overflow-y: auto; flex: 1; }
+						.sidebar .bevTable thead { position: sticky; top: 1px; }
+					`));
+				}
+				let selectedAsTarget = [...currentBn.selected].filter(el => el._type=='Node')?.[0];
+				this.update({target: selectedAsTarget});
+			},
+			async update(o = {}) {
+				o.target ??= null;
+				let nodeIds = currentBn.nodes.map(n=>n.id);
+				let targetSel = this.rootEl.querySelector('.target');
+				let table = this.rootEl.querySelector('.bevTable table');
+				let savedVal = targetSel.value!="" ? targetSel.value : o.target != null ? o.target.id ?? o.target : "";
+				targetSel.innerHTML = '';
+				targetSel.append(n('option',''),...nodeIds.map(id => n('option', id)));
+				targetSel.value = savedVal;
+				/// Clear the table (not header)
+				table.querySelector('tbody').innerHTML = '';
+				if (targetSel.value) {
+					let bevTable = await currentBn._tempCalcEv(targetSel.value);
+					let rows = Object.values(bevTable);
+					rows.sort((a,b) => b.deltaBev-a.deltaBev);
+					table.querySelector('tbody').append(...rows.map(({node,absBev,deltaBev}) => n('tr', n('td',node), n('td.absBev',sigFig(absBev,3)),n('td.deltaBev',sigFig(deltaBev,3)))));
 				}
 			},
 		},
@@ -7928,6 +8140,7 @@ var app = {
 		},
 		varDict: {
 			init() {
+				let nodes = currentBn.selected.size ? [...currentBn.selected] : currentBn.nodes;
 				let updateField = (el, field) => {
 					let nodeId = el.closest('tr').querySelector('td.id').textContent;
 					document.querySelector('.bnmidview').style.display = 'block';
@@ -7957,7 +8170,7 @@ var app = {
 					),
 					n('div.controls',
 						n('button', 'Copy Table', {on_click: e=>copyTable(table)}),
-						this.sortButton(table, currentBn),
+						this.sortButton(table, nodes),
 					),
 					table.append(
 						n('thead',
@@ -7970,30 +8183,33 @@ var app = {
 							),
 						),
 						n('tbody',
-							currentBn.nodes.map(node => n('tr', {dataNodeId: node.id},
-								n('td.id', {style: `background: ${node.format.backgroundColor ?? 'var(--node-background)'}; color: ${node.format.fontColor ?? 'var(--node-color)'};`}, node.id, {contenteditable: true, on_focusout: e=>updateId(e.target)}),
-								n('td.label',node.label, {contenteditable: true, on_focusout: e=>updateField(e.target, 'label')}),
-								n('td', node.comment, {contenteditable:true, on_focusout: e=>updateField(e.target, 'comment')}),
-								n('td.states', node.states.map(s=>s.id).join(', ')),
-								n('td.parents', node.parents.map(p=>p.label ?? p.id).join(', ')),
-							)),
+							nodes.map(node => {
+								let nodeStyle = {style: `background: ${node.format.backgroundColor ?? 'var(--node-background)'}; color: ${node.format.fontColor ?? 'var(--node-color)'};`};
+								return n('tr', {dataNodeId: node.id},
+									n('td.id', nodeStyle, node.id, {contenteditable: true, on_focusout: e=>updateId(e.target)}),
+									n('td.label', nodeStyle, node.label, {contenteditable: true, on_focusout: e=>updateField(e.target, 'label')}),
+									n('td', node.comment, {contenteditable:true, on_focusout: e=>updateField(e.target, 'comment')}),
+									n('td.states', node.states.map(s=>s.id).join(', ')),
+									n('td.parents', node.parents.map(p=>p.label ?? p.id).join(', ')),
+								)
+							}),
 						),
 					),
 				);
 				$('.bnouterview').append(varDict);
 			},
-			sortButton(table, currentBn) {
+			sortButton(table, nodes) {
 				return n('button', 'Sort', {on_click: e=>{
 					Menu({type:'contextMenu', items: [
 						MenuAction('Original', _=>{
-							currentBn.nodes.forEach(n => {
+							nodes.forEach(n => {
 								table.querySelector('tbody').append(
 									table.querySelector(`[data-node-id="${n.id}"]`)
 								);
 							});
 						}),
 						MenuAction('ID (A-Z)', _=>{
-							let sortedNodes = currentBn.nodes.slice().sort((a,b)=>a.id.localeCompare(b.id));
+							let sortedNodes = nodes.slice().sort((a,b)=>a.id.localeCompare(b.id));
 							sortedNodes.forEach(n => {
 								table.querySelector('tbody').append(
 									table.querySelector(`[data-node-id="${n.id}"]`)
@@ -8001,7 +8217,7 @@ var app = {
 							});
 						}),
 						MenuAction('ID (Z-A)', _=>{
-							let sortedNodes = currentBn.nodes.slice().sort((a,b)=>b.id.localeCompare(a.id));
+							let sortedNodes = nodes.slice().sort((a,b)=>b.id.localeCompare(a.id));
 							sortedNodes.forEach(n => {
 								table.querySelector('tbody').append(
 									table.querySelector(`[data-node-id="${n.id}"]`)
@@ -8009,7 +8225,7 @@ var app = {
 							});
 						}),
 						MenuAction('Label (A-Z)', _=>{
-							let sortedNodes = currentBn.nodes.slice().sort((a,b)=>a.label.localeCompare(b.label));
+							let sortedNodes = nodes.slice().sort((a,b)=>a.label.localeCompare(b.label));
 							sortedNodes.forEach(n => {
 								table.querySelector('tbody').append(
 									table.querySelector(`[data-node-id="${n.id}"]`)
@@ -8017,7 +8233,7 @@ var app = {
 							});
 						}),
 						MenuAction('Label (Z-A)', _=>{
-							let sortedNodes = currentBn.nodes.slice().sort((a,b)=>b.label.localeCompare(a.label));
+							let sortedNodes = nodes.slice().sort((a,b)=>b.label.localeCompare(a.label));
 							sortedNodes.forEach(n => {
 								table.querySelector('tbody').append(
 									table.querySelector(`[data-node-id="${n.id}"]`)
@@ -8025,14 +8241,14 @@ var app = {
 							});
 						}),
 						MenuAction('Roots to Leaves', _=>{
-							currentBn.topologicalSort(currentBn.nodes).forEach(n => {
+							topologicalSort(nodes).forEach(n => {
 								table.querySelector('tbody').append(
 									table.querySelector(`[data-node-id="${n.id}"]`)
 								);
 							});
 						}),
 						MenuAction('Leaves to Roots', _=>{
-							currentBn.topologicalSort(currentBn.nodes).reverse().forEach(n => {
+							topologicalSort(nodes).reverse().forEach(n => {
 								table.querySelector('tbody').append(
 									table.querySelector(`[data-node-id="${n.id}"]`)
 								);
@@ -8040,8 +8256,8 @@ var app = {
 						}),
 						MenuAction('Colour (Roots-Leaves)', _=>{
 							let colorMap = new Map();
-							currentBn.topologicalSort(currentBn.nodes).forEach(n => colorMap.has(n.format.backgroundColor) || colorMap.set(n.format.backgroundColor, colorMap.size));
-							let sortedNodes = currentBn.nodes.slice().sort((a,b)=>colorMap.get(a.format.backgroundColor) - colorMap.get(b.format.backgroundColor));
+							topologicalSort(nodes).forEach(n => colorMap.has(n.format.backgroundColor) || colorMap.set(n.format.backgroundColor, colorMap.size));
+							let sortedNodes = nodes.slice().sort((a,b)=>colorMap.get(a.format.backgroundColor) - colorMap.get(b.format.backgroundColor));
 							sortedNodes.forEach(n => {
 								table.querySelector('tbody').append(
 									table.querySelector(`[data-node-id="${n.id}"]`)
@@ -8050,8 +8266,8 @@ var app = {
 						}),
 						MenuAction('Colour (Leaves-Roots)', _=>{
 							let colorMap = new Map();
-							currentBn.topologicalSort(currentBn.nodes).reverse().forEach(n => colorMap.has(n.format.backgroundColor) || colorMap.set(n.format.backgroundColor, colorMap.size));
-							let sortedNodes = currentBn.nodes.slice().sort((a,b)=>colorMap.get(a.format.backgroundColor) - colorMap.get(b.format.backgroundColor));
+							topologicalSort(nodes).reverse().forEach(n => colorMap.has(n.format.backgroundColor) || colorMap.set(n.format.backgroundColor, colorMap.size));
+							let sortedNodes = nodes.slice().sort((a,b)=>colorMap.get(a.format.backgroundColor) - colorMap.get(b.format.backgroundColor));
 							sortedNodes.forEach(n => {
 								table.querySelector('tbody').append(
 									table.querySelector(`[data-node-id="${n.id}"]`)
@@ -8060,6 +8276,39 @@ var app = {
 						}),
 					]}).popup(e.target);
 				}});
+			},
+		},
+		navigateByNode: {
+			/// XXX: Can get way out of sync with current BN
+			originalNodePos: null,
+			clickFunc: null,
+			init() {
+				let turnOn = ( q('[name=navigateByNode]').checked = !q('[name=navigateByNode]').checked );
+
+				if (turnOn) {
+					this.originalNodePos = new Map();
+					currentBn.nodes.forEach(n => this.originalNodePos.set(n,{...n.pos}));
+
+					let aRoot = currentBn.nodes.find(n => n.parents.length==0);
+					app.autoLayoutNode(aRoot);
+					document.body.addEventListener('mousedown', this.clickFunc = event => {
+						let nodeEl = event.target.closest('.node h6')?.closest?.('.node');
+						if (nodeEl) {
+							app.autoLayoutNode(currentBn.findItem(nodeEl));
+						}
+					});
+				}
+				else {
+					if (this.originalNodePos) {
+						for (let [n,pos] of this.originalNodePos.entries()) {
+							n.moveTo(pos.x, pos.y, false);
+						}
+						this.originalNodePos = null;
+					}
+					document.body.removeEventListener('mousedown', this.clickFunc);
+					this.clickFunc = null;
+					currentBn.resetOpacities();
+				}
 			},
 		},
 	},
@@ -8381,6 +8630,21 @@ $(document).ready(function() {
 			MenuAction('Store Current', function() { app.storeEvidence(); }),
 			MenuAction('<hr>', {type: 'separator'}),
 		]}),
+		Menu({label:"Toolbox", type:'toolboxMenu', items: [
+			Menu({label:"Node", type:'toolboxMenu', items: [
+				MenuAction('Transform Nodes', _=> { app.helpers.transformNodes.init(); dismissActiveMenus(); }),
+			]}),
+			MenuAction('Validate Node by Node', _=> { new EachValidator().setup(); dismissActiveMenus(); }),
+			MenuAction('Treament-Outcome Analysis', _=>{app.helpers.treatmentOutcome.init(); dismissActiveMenus()}),
+			MenuAction('Mutual Information', _=>{app.helpers.mi.init(); dismissActiveMenus()}),
+			MenuAction('Best EV (temporary)', _=>{app.helpers._tempBestEv.init(); dismissActiveMenus()}),
+			MenuAction('Variable Dictionary', _=>{app.helpers.varDict.init(); dismissActiveMenus()}),
+			MenuAction('Network Information', _=>{app.helpers.stats.init(); dismissActiveMenus()}),
+			MenuAction('Compare BN CPTs', _=>{app.helpers.compareCpts.init(); dismissActiveMenus()}),
+			MenuAction('View Junction Tree', _=>{app.helpers.jtree.init(); dismissActiveMenus()}),
+			MenuAction('<hr>', {type: 'separator'}),
+			MenuAction(n('div',n('input', {type:'checkbox', name:'navigateByNode'}), 'Navigate by Node'), _=>{app.helpers.navigateByNode.init(); dismissActiveMenus()}),
+		]}),
 		Menu({label:"(Dev)", type: 'debugMenu', items: [
 			MenuAction(n('span',n('input.cecCheck', {type:'checkbox',checked:mbConfig.jtree.crossEvidenceCaching?'checked':null}), 'Between evidence caching (JTree)'), _=>{
 				mbConfig.jtree.crossEvidenceCaching = !mbConfig.jtree.crossEvidenceCaching;
@@ -8408,14 +8672,6 @@ $(document).ready(function() {
 					currentBn.removeListener('structureChange', app.alosFunc);
 				}
 			}),
-			MenuAction('<hr>', {type: 'separator'}),
-			MenuAction('Validate Node by Node', _=> { new EachValidator().setup(); dismissActiveMenus(); }),
-			MenuAction('Treament-Outcome Helper', _=>{app.helpers.treatmentOutcome.init(); dismissActiveMenus()}),
-			MenuAction('Mutual Info Helper', _=>{app.helpers.mi.init(); dismissActiveMenus()}),
-			MenuAction('Variable Dictionary Helper', _=>{app.helpers.varDict.init(); dismissActiveMenus()}),
-			MenuAction('Network Information', _=>{app.helpers.stats.init(); dismissActiveMenus()}),
-			MenuAction('Compare BN CPTs', _=>{app.helpers.compareCpts.init(); dismissActiveMenus()}),
-			MenuAction('View Junction Tree', _=>{app.helpers.jtree.init(); dismissActiveMenus()}),
 			MenuAction('<hr>', {type: 'separator'}),
 			Menu({label:'Themes', items: [
 				MenuAction(n('div',
@@ -9315,6 +9571,18 @@ $(document).ready(function() {
 	document.addEventListener('click', event => {
 		app.windowFocus = event.target.closest('.dialog, .bnview');
 	});
+
+	/** Convert all contenteditable pastes to plain text first, unless turned off with
+	 * event.mbNoGlobalPasteHandling.
+	 */
+	document.addEventListener('paste', event => {
+		if (!event.mbNoGlobalPasteHandling && event.target.closest('[contenteditable]')) {
+			event.preventDefault();
+			let text = event.clipboardData.getData('text/plain');
+
+			document.execCommand('insertText', false, text);
+		}
+	});
 	
 	/// BN Name
 	$('.menu.bar .bnName').on('input change', function(evt) {
@@ -9332,7 +9600,8 @@ $(document).ready(function() {
 			$(jtc).css({transformOrigin: 'top left', transform: 'scale('+$range.val()+')'});
 		}
 		else {
-			q('.bnview').style.fontSize = ($range.val()*100)+'%';
+			q('.bnview').style.zoom = $range.val();
+			//q('.bnview').style.fontSize = ($range.val()*100)+'%';
 			/// Unfortunately, need to recalc arcs, because objects can change shape
 			/// (e.g. border stays 1px in size, regardless of zoom level)
 		}
@@ -9340,6 +9609,7 @@ $(document).ready(function() {
 	}).on('change mouseup', function(evt) {
 		$('.itemList').removeClass('unfocusMenu');
 		$(this).closest('.menuAction').removeClass('focusMenu');
+		/// Still needed by Firefox (while fixing it's zoom implementation)
 		if (q('.bnview').offsetWidth)  currentBn.redrawAllArcs();
 	}).on("dblclick", function(evt) {
 		var $range = $(evt.target);

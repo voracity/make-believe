@@ -3,11 +3,14 @@ timeLimit = null;
 
 if (typeof(exports)!='undefined') {
 	importScripts = function(filename){
+		if (importScripts.loaded[filename]!=undefined)  return;
 		var fs = require('fs');
 		var vm = require('vm');
 		var code = fs.readFileSync('./_/js/'+filename, 'utf-8');
 		vm.runInThisContext(code, filename);
+		importScripts.loaded[filename] = 1;
 	}
+	importScripts.loaded = {};
 }
 
 if (typeof(importScripts)!="undefined") {

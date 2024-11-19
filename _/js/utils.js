@@ -499,26 +499,20 @@ var Stats = class {
 	str() { return `(n=${this.n}, μ=${sigFig(this.mean(),3)}, σ=${sigFig(this.sd(),3)}, se=${sigFig(this.se(),3)})`; }
 };
 
-/// I'm not sure if this guarantees a nicely formatted string.
+/// 2024-11-15 Revised after ChatGPT's suggestions
 function sigFig(num, digits) {
-	if (num==0)  return 0;
-	let numSign = Math.sign(num);
-	num = Math.abs(num);
-	/// Get a multiplier based on the log position of most sig digit (add 1 to avoid 100...0 not being rounded up)
-	var mul = Math.pow(10,Math.floor(Math.log10(num)));
-	var sigPow = Math.pow(10,digits-1);
-	/// XXX: I need to work this out properly at some point
-	var v = Math.round((num/mul)*sigPow);
-	if ((mul/sigPow) < 1) {
-		var d = Math.round(1/(mul/sigPow));
-		v = v/d;
-	}
-	else {
-		var d = Math.round(mul/sigPow);
-		v = v*d;
-	}
+    if (num == 0) return 0; // Handle zero explicitly
+    let numSign = Math.sign(num); // Preserve the sign
+    num = Math.abs(num); // Work with positive numbers for simplicity
 
-	return numSign*v;
+    // Calculate the scale factor to adjust to the desired number of significant figures
+	let scalingDigits = Math.floor(Math.log10(num)); // Digits to be shifted by (e.g. to get sci notation)
+    let scale = Math.pow(10, digits-1 - scalingDigits); // digits-1 because 10^0 = min digits of 1. -scalingDigits, because we're dividing out the scalingDigits
+
+    // Scale, round, and unscale the number
+    let rounded = Math.round(num * scale) / scale;
+
+    return numSign * rounded; // Restore the original sign
 }
 
 function getMethods(object) {
@@ -584,11 +578,12 @@ function isElementInViewport (el) {
     );
 }
 
-function makeDraggable(el) {
+function makeDraggable(el, o = {}) {
+	o = {button: 2, movingCursor: null, ...o};
 	let events = new ListenerGroup();
 	events.add(el, 'mousedown', event => {
 		let hasMoving = false;
-		if (event.button==2) {
+		if (event.button==o.button) {
 			let [origX, origY] = [event.clientX, event.clientY];
 			let [origLeft, origTop] = [q(el).scrollLeft, q(el).scrollTop];
 			events.add(document, 'mousemove.canvasMove', event => {
@@ -598,6 +593,8 @@ function makeDraggable(el) {
 				q(el).scrollLeft = origLeft - deltaX;
 				q(el).scrollTop = origTop - deltaY;
 			});
+			let savedCursor = el.style.cursor;
+			el.style.cursor = 'grabbing';
 			/*document.addEventListener('contextmenu', event => {
 			}, true);*/
 			events.add(document, 'contextmenu.canvasMove mouseup.canvasMove', event => {
@@ -605,6 +602,7 @@ function makeDraggable(el) {
 					event.preventDefault();
 					event.stopPropagation();
 				}
+				el.style.cursor = savedCursor;
 				events.remove(event.type+'.canvasMove mousemove.canvasMove');
 			}, {capture: true});
 		}

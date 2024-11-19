@@ -72,6 +72,9 @@
 		--node-background: #F9DAB9;
 		--node-text: black;
 		--node-evidence: #FFA87F;
+		--node-border-color: #444;
+		--node-font-family: tahoma;
+		--node-font-size: 1em;
 	}
 	
 	* { box-sizing: border-box; min-height: 0; min-width: 0; }
@@ -95,14 +98,14 @@
 	input.jscolor:hover { border: solid 1px black; }
 
 	/* Node formatting */
-	.node { position: absolute; padding: 0 0; border-radius: 0; border: solid 1px #444;
-		background: var(--node-background); color: var(--node-text); z-index: 1; font-family: tahoma; font-size: 1em; }
+	.node { position: absolute; padding: 0 0; border-radius: 0; border: solid 1px var(--node-border-color);
+		background: var(--node-background); color: var(--node-text); z-index: 1; font-family: var(--node-font-family); font-size: var(--node-font-size); }
 	.node .inner { display: grid; grid-template-columns: auto auto auto; align-items: stretch; align-content: center; width: max-content; }
 	.node, .submodel, .status { user-select: none; }
 	.submodel { cursor: pointer; }
 	.node.editMode { user-select: initial; }
 	.node.hasEvidence { background: var(--node-evidence); font-style: italic; }
-	.node .controlBar { position: relative; border-bottom: solid 1px #444; grid-column: 1 / 4 }
+	.node .controlBar { position: relative; border-bottom: solid 1px var(--node-border-color); grid-column: 1 / 4 }
 	.node h6 { font-size: 1em; margin: 0; font-weight: bold; padding: 1px;
 		text-overflow: ellipsis; white-space: nowrap; overflow: hidden; flex: 1;
 		cursor: pointer; max-width: 15em; }
@@ -247,11 +250,12 @@
 	.middle { flex: 1; width: 100%; display: flex; flex-direction: row; }
 	.sidebar { width: 250px; background: #eee; display: none; overflow: hidden; overflow-y: auto; }
 	.sidebar .boxes { height: 100%; display: flex; flex-direction: column; }
-	.sidebar .box { border-top: solid 1px #ccc; border-bottom:solid 1px #ccc; }
+	.sidebar .box { border-top: solid 1px #ccc; border-bottom:solid 1px #ccc; flex: 1; display: flex; flex-direction: column; }
 	.sidebar .titlebar { display: flex; align-items: center; background: #777; color: white; }
 	.sidebar .titlebar .title { flex: 1; padding: 3px 5px; font-weight: bold; font-size: 12px; }
+	.sidebar .box > :nth-child(n+2) { flex: 1; }
 	.sidebar .commentSec { width: 250px; white-space: pre-wrap; }
-	.sidebar .comment { padding: 5px; max-height: 150px; overflow: auto; font-size: 8pt; }
+	.sidebar .comment { padding: 5px; overflow: auto; font-size: 8pt; }
 	.sidebar .comment:empty::after { content: '[Enter a description]'; color: #aaa; }
 	.sidebar .comment:empty:hover::after { background: white; }
 	.bnouterview { flex: 1; overflow: auto; width: 100%; height: 100%; display: flex; }
@@ -464,8 +468,15 @@
 	.node .state .beliefBar, .node .state .beliefBar2 { transition: width 0.3s; }
 	</style>
 	<style data-style="netica">
-	.node { position: absolute; padding: 0 0; border-radius: 0; border: solid 1px #444;
-		background: rgb(248,238,210); z-index: 1; font-family: arial; font-size: 9pt; width: max-content; }
+	:root {
+		--node-background: rgb(248,238,210);
+		--node-text: black;
+		--node-evidence: #c8c8c8;
+		--node-border-color: #444;
+		--node-font-family: arial;
+		--node-font-size: 9pt;
+	}
+	.node { position: absolute; padding: 0 0; border-radius: 0; z-index: 1; width: max-content; }
 	.node h6 { text-align: center; padding: 2px 8px 2px 8px; }
 	.node .state > div { padding: 0; }
 	.node .state .stateName { padding-left: 8px; }

@@ -4214,8 +4214,8 @@ ${nodesStr}
 
 		if (o.reset)  this.evidence = {};
 		for (let [k,v] of Object.entries(evidence)) {
-			if (v==null)  delete this.evidence[k];
-			else          this.evidence[k] = v;
+			if (v==null)                    delete this.evidence[k];
+			else if (k in this.nodesById)   this.evidence[k] = v;
 		}
 
 		return this;
@@ -4240,6 +4240,39 @@ ${nodesStr}
 		/// Make all the nodes
 		for (let attr of attrs) {
 			let child = bn.addNode(attr, Object.keys(stateCounts[attr]));
+		}
+	},
+	/**
+	 * Calculate MDL cost of BN, given data
+	 * Assumes: no missing data, discrete, CPTs
+	 * Ignores: current BN parameters (assumes maximum likelihood estimates from the data)
+	 * 
+	 * @param {*} data 
+	 */
+	mdlCost(data) {
+		// Structure cost
+		let struc = 0;
+		for (let node of this.nodes) {
+			let numStates = node.states.length;
+			let freeParameters = node.def.cpt.length / numStates * (numStates - 1);
+			struc += freeParameters;
+		}
+		struc *= -1/2*Math.log(data.length);
+
+		// Likelihood of data
+		let dataCost = this.logLikelihood(data);
+	},
+	/**
+	 * Compute log likelihood of data using structure only
+	 * Ignores: current BN parameters (assumes maximum likelihood estimates from the data)
+	 * 
+	 * @param {} data 
+	 */
+	logLikelihood(data) {
+		let len = 0;
+		for (let i=0; i<len; i++) {
+			row = data[i];
+			// TODO
 		}
 	},
 	/// Lot's of limitations: discrete, no auto-discretize, etc.
@@ -4318,10 +4351,15 @@ ${nodesStr}
 
 					/// Go through parents, mark skip if encounter missing.
 					/// Otherwise, fill in parent states for single-state case parents
-					var missing = !(node.id in row) || row[node.id]==='*';
+					let isMissing = node => !(node.id in row) || row[node.id]==='*';
+					let skipUnrecognisedStates = true; /// XXX: Option
+					if (skipUnrecognisedStates) {
+						isMissing = node => !(node.id in row) || row[node.id]==='*' || node.statesById[row[node.id]]===undefined;
+					}
+					var missing = isMissing(node); //!(node.id in row) || row[node.id]==='*';
 					if (!missing) {
 						for (var [pi,parent] of node.parents.entries()) {
-							if (parent.id in row && row[parent.id]!=='*') {
+							if (!isMissing(parent)) { // parent.id in row && row[parent.id]!=='*') {
 								/// For simple states, just fill up each parentState with the fixed
 								/// state
 								if (!isNumericArray(row[parent.id])) {
@@ -5314,6 +5352,99 @@ ${nodesStr}
 			}
 		})();
 	},
+	async _tempCalcEv(targetNode) {
+		targetNode = typeof(targetNode)=='string' ? this.node[targetNode] : targetNode;
+		let targetNodeId = targetNode.id;
+
+		let bnCopy = BN.from(this.toJSON());
+		let savedEvidence = {...bnCopy.evidence};
+		bnCopyTargetNode = bnCopy.node[targetNodeId];
+		let origEv = bnCopyTargetNode.beliefs.map((p,i) => p*(bnCopyTargetNode.states[i].value ?? i)).reduce((a,v)=>a+v);
+		// console.info(origEv);
+
+		let bevs = {};
+		for (let node of bnCopy.nodes) {
+			/// For all non-target nodes
+			if (node.id != targetNodeId) {
+				/// Arc cut
+				let savedCpt = node.def.cpt;
+				node.setUniform();
+				bnCopy.compile();
+				bnCopy.evidence[node.id] = 0;
+				await new Promise(res => bnCopy.updateBeliefs(res));
+				let newEv = bnCopyTargetNode.beliefs.map((p,i) => p*(bnCopyTargetNode.states[i].value ?? i)).reduce((a,v)=>a+v);
+				// console.info(newEv);
+				bevs[node.id] = {node:node.id, absBev:newEv, deltaBev:newEv-origEv};
+				node.def.set(savedCpt);
+				bnCopy.evidence = {...savedEvidence};
+			}
+		}
+
+		return bevs;
+	},
+	/// Version for APPPLE BN paper
+	async _tempCalcEv(targetNode) {
+		let ev = {
+			General_Clinician_Training: 1,
+			Specific_Clinician_Training: 1,
+			Staff_turnover: 1,
+			Adeq__Health_staff_levels: 1,
+			Pressure_from_public_media_so: 1,
+			Pressure_from_families: 1,
+			Weight_of_competing_medical_de: 1,
+			Easy_to_understand_Guidelines: 1,
+			Easy_to_find_Guidelines: 1,
+			Institutional_culture_motivati: 1,
+			Peer_perceptions_and_behaviour_outer: 1,
+			Peer_perceptions_and_behaviour_inner: 1,
+			Peer_perceptions_and_behaviour: 1,
+			Knowledge_of_guidelines: 2,
+			Perceived_as_priority: 1,
+			Confidence_in_treating_CWC: 1,
+			Knowledge_of_CWC: 1,
+			Knowledge_of_prevalence: 1,
+			Knowledge_of_cultural_securit: 1,
+			Motivation_to_provide_cultural: 0,
+			Ask_about_presence_of_CWC: 0,
+			Ability_to_confirm_presence_of: 0,
+			Appropriate_management: 1,
+			Presentation_of_individual_for: 0,
+			Level_of_cultural_security_in_: 0,
+			System_allows_followups_of_sam: 0,
+		};
+		targetNode = typeof(targetNode)=='string' ? this.node[targetNode] : targetNode;
+		let targetNodeId = targetNode.id;
+
+		let bnCopy = BN.from(this.toJSON());
+		let savedEvidence = {...bnCopy.evidence};
+		bnCopyTargetNode = bnCopy.node[targetNodeId];
+		// console.info(origEv);
+
+		let bevs = {};
+		for (let node of bnCopy.nodes) {
+			/// For all non-target nodes
+			if (node.id != targetNodeId) {
+				/// Arc cut
+				let savedCpt = node.def.cpt;
+				let distro = node.states.map((v,i) => ev[node.id]==i?1:0);
+				node.def.set(node.def.cpt.map((v,i) => distro[i%distro.length]));
+				bnCopy.compile();
+				await new Promise(res => bnCopy.updateBeliefs(res));
+				let currentEv = bnCopyTargetNode.beliefs.map((p,i) => p*(bnCopyTargetNode.states[i].value ?? i)).reduce((a,v)=>a+v);
+				node.setUniform();
+				bnCopy.compile();
+				bnCopy.evidence[node.id] = 0;
+				await new Promise(res => bnCopy.updateBeliefs(res));
+				let newEv = bnCopyTargetNode.beliefs.map((p,i) => p*(bnCopyTargetNode.states[i].value ?? i)).reduce((a,v)=>a+v);
+				// console.info(newEv);
+				bevs[node.id] = {node:node.id, absBev:currentEv, deltaBev:newEv-currentEv};
+				node.def.set(savedCpt);
+				bnCopy.evidence = {...savedEvidence};
+			}
+		}
+
+		return bevs;
+	},
 	async calcMi(targetNode) {
 		targetNode = typeof(targetNode)=='string' ? this.node[targetNode] : targetNode;
 		
@@ -5339,20 +5470,24 @@ ${nodesStr}
 					for (let bState=0;bState<targetNode.states.length; bState++) {
 						let ind = 1e-10 + origBeliefs[nodeId][aState]*origBeliefs[targetNode.id][bState];
 						let joint = 1e-10 + jointBeliefs[bState][nodeId][aState];
-						let partial = joint * Math.log(joint/ind);
+						let partial = joint * Math.log(joint/ind)/Math.log(2);
 						sum += partial;
 					}
 				}
-				mis[nodeId] = {node:nodeId, mi:sum, miPc:0};
+				/// MI can be negative if very small/rounding issue
+				mis[nodeId] = {node:nodeId, mi:Math.max(0,sum), miPc:0};
 				maxMi = Math.max(maxMi, sum);
 			}
 			Object.entries(mis).forEach(([id,obj]) => obj.miPc = obj.mi/maxMi);
 			this.evidence = {...savedEvidence};
+
 			return mis;
 		}
 		this.evidence = {...savedEvidence};
 		await new Promise(res => this.updateBeliefs(res));
 		
+		/// Not defined. XXX: Could return empty table?
+		return null;
 	},
 	/** Performance testing functions
 		These all start with the prefix 'perf'. They should probably
