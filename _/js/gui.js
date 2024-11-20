@@ -16,7 +16,7 @@ var draw = {
 		let ah = this.arrowHeadHeight;
 		// let pxWidth = this.viewToPx(width);
 		// let pxHeight = this.viewToPx(height);
-		return $(`<svg style="width: ${draw.pxToView(width)}; height: ${draw.pxToView(height)}" viewBox="0 0 ${width} ${height}"><defs>
+		return $(`<svg style="width: ${width}; height: ${height}" viewBox="0 0 ${width} ${height}"><defs>
 				<marker id='arrowhead' viewBox='0 0 ${aw} ${ah}' refX='1' refY='${ah/2}'
 				markerUnits='userSpaceOnUse' orient='auto'
 				markerWidth='${aw}' markerHeight='${ah-1}'>
@@ -30,7 +30,7 @@ var draw = {
 	/// Takes a width and height in BN (or canvas) co-ordinate space
 	resizeCanvas($svg, width, height) {
 		$svg = $($svg);
-		$svg.css({width: draw.pxToView(width), height: draw.pxToView(height)});
+		$svg.css({width: width, height: height});
 		$svg.attr('viewBox', `0 0 ${width} ${height}`);
 	},
 	pxToView(px) {
@@ -232,7 +232,7 @@ var draw = {
 			}
 		}
 		else if (insideSvg) {
-			$svg.append($path = $(makeSvg("path", {
+			$svg.append($path = $(n("svg:path", {
 				d: "M "+rnd(svgX-sx+firstX)+" "+rnd(svgY-sy+firstY)+" L "+rnd(svgX-sx+lastX)+" "+rnd(svgY-sy+lastY),
 				stroke: "black",
 				"class": 'dependency',
@@ -242,7 +242,7 @@ var draw = {
 			})));
 			if (opts.clickable) {
 				var $clickable = null;
-				$svg.append($clickable = $(makeSvg("path", {
+				$svg.append($clickable = $(n("svg:path", {
 					d: "M "+rnd(svgX-sx+firstX)+" "+rnd(svgY-sy+firstY)+" L "+rnd(svgX-sx+lastX+markerGapX)+" "+rnd(svgY-sy+lastY+markerGapY),
 					stroke: "transparent",
 					// Use following to view/debug
@@ -256,7 +256,7 @@ var draw = {
 			}
 		}
 		else {
-			$svg.append($path = $(makeSvg("path", {
+			$svg.append($path = $(n("svg:path", {
 				d: "M "+rnd(firstX)+" "+rnd(firstY)+" L "+rnd(lastX)+" "+rnd(lastY),
 				stroke: "black",
 				"stroke-width": 1,
@@ -611,14 +611,14 @@ var draw = {
 	}
 };
 
-/// Inconsistencies between html and svg are very annoying
-function makeSvg(tag, attrs) {
-	var el= document.createElementNS('http://www.w3.org/2000/svg', tag);
-	for (var k in attrs) {
-		el.setAttribute(k, attrs[k]);
-	}
-	return el;
-}
+// /// Inconsistencies between html and svg are very annoying
+// function makeSvg(tag, attrs) {
+// 	var el= document.createElementNS('http://www.w3.org/2000/svg', tag);
+// 	for (var k in attrs) {
+// 		el.setAttribute(k, attrs[k]);
+// 	}
+// 	return el;
+// }
 
 function getQs() {
 	var params = {};
@@ -839,7 +839,7 @@ Object.assign(DisplayItem.prototype, {
 				exec(current) {
 					let item = this.net.find(this.itemId);
 					item.apiMoveTo(current.x, current.y);
-					item.el().css({left: `calc(${item.pos.x} * var(--px))`, top: `calc(${item.pos.y} * var(--px))`});
+					item.el().css({left: item.pos.x, top: item.pos.y});
 					if (item.isGraphItem())  this.net.redrawArcs(item.el());
 				},
 			});
@@ -847,7 +847,7 @@ Object.assign(DisplayItem.prototype, {
 		else {
 			let item = this;
 			item.apiMoveTo(x, y);
-			item.el().css({left: `calc(${item.pos.x} * var(--px))`, top: `calc(${item.pos.y} * var(--px))`});
+			item.el().css({left: item.pos.x, top: item.pos.y});
 			if (item.isGraphItem())  this.net.redrawArcs(item.el());
 		}
 	},
@@ -1608,8 +1608,11 @@ Object.assign(BN.prototype, {
 			$netCanvas = draw.createSvg(outputEl, 0, 0, canvasWidth, canvasHeight, "netSvgCanvas");
 		}
 		else {
-			canvasWidth = $netCanvas.width();
-			canvasHeight = $netCanvas.height();
+			// Convert to BN-native space
+			let scale = parseFloat($('.bnview').css('zoom'));
+
+			canvasWidth = $netCanvas.width() / scale;
+			canvasHeight = $netCanvas.height() / scale;
 		}
 
 		/// Draw all the graphItems visible in the current submodel
@@ -1752,11 +1755,16 @@ Object.assign(BN.prototype, {
 		opts.allArcs ??= false;
 		//Option: opts.moved = {deltaX, deltaY}
 		if (!Array.isArray(graphItems))  graphItems = [graphItems];
+
+		let scale = parseFloat($('.bnview').css('zoom'));
 		
 		if (!width) {
 			// console.trace();
 			// console.log('no width height');
 			({width, height} = draw.getBox($('.netSvgCanvas'))); //parseFloat($(".netSvgCanvas").attr("width"));
+			// Convert to BN-native space
+			width /= scale;
+			height /= scale;
 			// height = parseFloat($(".netSvgCanvas").attr("height"));
 		}
 		
@@ -2317,10 +2325,10 @@ Object.assign(Submodel.prototype, {
 		let el = q(this.el());
 		let elInner = el.q('.inner');
 		if (m.size?.width!=null) {
-			el.style.width = draw.pxToView(m.size.width);
+			el.style.width = m.size.width;
 		}
 		if (m.size?.height!=null) {
-			el.style.height = draw.pxToView(m.size.height);
+			el.style.height = m.size.height;
 		}
 		if (m.id!=null) {
 			el.id = 'display_'+this.id;
@@ -2353,8 +2361,8 @@ Object.assign(Submodel.prototype, {
 		var submodel = this;
 		if (!$displayItem) {
 			$displayItem = $("<div class='submodel item' id=display_"+submodel.id+">")
-				.css({left: draw.pxToView(submodel.pos.x), top: draw.pxToView(submodel.pos.y)})
-				.css({width: draw.pxToView(submodel.size.width), height: draw.pxToView(submodel.size.height)})
+				.css({left: submodel.pos.x, top: submodel.pos.y})
+				.css({width: submodel.size.width, height: submodel.size.height})
 				.append(
 					$('<div class=inner>').append(
 						$("<h6>").text(submodel.net.headerFormat(submodel.id, submodel.label))
@@ -2771,7 +2779,7 @@ Object.assign(Node.prototype, DisplayItem.prototype, {
 		
 		if (!$displayNode) {
 			$displayNode = $("<div class='node item' id=display_"+node.id+">")
-				.css({left: draw.pxToView(node.pos.x), top: draw.pxToView(node.pos.y)})
+				.css({left: node.pos.x, top: node.pos.y})
 				.append(
 					$('<div class="inner">').append(
 						$('<div class=controlBar>').append(
@@ -4266,11 +4274,11 @@ Object.assign(TextBox.prototype, {
 		if (m.text!=null) {
 			elInner.innerTextTEMPFIX = m.text;
 		}
-		if (m.size?.width!=null) {
-			el.style.width = draw.pxToView(m.size.width)+'px';
+		if (m.size?.width!==undefined) {
+			el.style.width = m.size.width ? m.size.width+'px' : '';
 		}
-		if (m.size?.height!=null) {
-			el.style.height = draw.pxToView(m.size.height)+'px';
+		if (m.size?.height!==undefined) {
+			el.style.height = m.size.height ? m.size.height+'px' : '';
 		}
 		if (m.id!=null) {
 			el.id = 'display_'+this.id;
@@ -4297,10 +4305,10 @@ Object.assign(TextBox.prototype, {
 		var textBox = this;
 		if (!$displayNode) {
 			$displayNode = $("<div class='textBox item' id=display_"+textBox.id+">")
-				.css({left: draw.pxToView(textBox.pos.x), top: draw.pxToView(textBox.pos.y)})
+				.css({left: textBox.pos.x, top: textBox.pos.y})
 				.css({
-					width: textBox.size.width==-1 ? null : draw.pxToView(textBox.size.width),
-					height: textBox.size.height==-1 ? null : draw.pxToView(textBox.size.height)
+					width: textBox.size.width==-1 ? null : textBox.size.width,
+					height: textBox.size.height==-1 ? null : textBox.size.height
 				})
 				.appendTo(outputEl)
 				.append($('<div class=inner>'));
@@ -4905,7 +4913,7 @@ class ArcSelector {
 		let mouseMove = null;
 		let mouseUp = null;
 		document.addEventListener('mousemove', mouseMove = event => {
-			let newX = draw.viewToPx(event.clientX-svgX), newY = draw.viewToPx(event.clientY-svgY);
+			let newX = event.clientX-svgX, newY = event.clientY-svgY;
 			let [parent,child] = this.getEndpoints();
 			let parentBox = draw.getBox(parent.el()), childBox = draw.getBox(child.el());
 			if (snapOn) {
@@ -4967,8 +4975,8 @@ class ArcSelector {
 	addPoint(x, y, o = {}) {
 		o.nearest = o.nearest || false;
 		o.index = o.index!==undefined ? o.index : -1;
-		x = draw.viewToPx(x);
-		y = draw.viewToPx(y);
+		x = x;
+		y = y;
 
 		let points = this.path.getPathData();
 		let pointDist = null;
@@ -5204,6 +5212,7 @@ CPT.Editor = class extends Definition.Editor {
 	constructor(...args) {
 		super(...args);
 		this.hasToolbar = true;
+		this.hasChanges = false;
 		window.lastCptEditor = this;
 	}
 	
@@ -5708,6 +5717,13 @@ CPT.Editor = class extends Definition.Editor {
 				}
 			}
 		});
+
+		// Now that we've set up all the events, add an observer to see if there's changes
+		let mo = new MutationObserver(mutationList => {
+			this.hasChanges = true;
+			//console.log('HASCHANGES');
+		});
+		mo.observe(rootEl, {attributes: true, childList: true, subtree: true, characterData: true});
 	}
 	
 	addStateColumn(table, afterPos, id) {
@@ -5997,8 +6013,10 @@ CPT.Editor = class extends Definition.Editor {
 		this.rootEl.append(panel);
 	}
 	
-	handleObjectUpdate(m, updateId = null) {
-		console.log('def update', JSON.stringify(m));
+	handleObjectUpdate(m, updateId = null) { this.refreshView(m, updateId); }
+	
+	refreshView(m, updateId = null) {
+		//console.log('def update', JSON.stringify(m));
 		let numStatesChanged = false;
 		let redoTable = false;
 		/// If def is in the message, we need to start again
@@ -6042,6 +6060,8 @@ CPT.Editor = class extends Definition.Editor {
 			/// Obviously, inefficient
 			this.make();
 		}
+		/// If we're being asked to refresh view, we will have thrown away any changes
+		this.hasChanges = false;
 	}
 	
 	/// Read out the change state from the panel, and turn it into a message.
@@ -8824,7 +8844,7 @@ $(document).ready(function() {
 		var $item = $(this).closest(".node, .submodel, .textBox");
 		var o = getOffset($item[0]);
 		// var scale = Math.round($item[0].offsetWidth)/Math.round($item[0].getBoundingClientRect().width);
-		var scale = 1; //parseFloat($('.bnComponent').css('font-size'))/12;
+		var scale = 1/parseFloat($('.bnview').css('zoom'));
 		disableSelect = 2;
 
 		let focusedItem = currentBn.findItem($item[0]);
@@ -8899,6 +8919,7 @@ $(document).ready(function() {
 			/// Move the DOM object, but not the net object yet
 			newLeft = o.left + (nmx - mx)*scale;
 			newTop = o.top + (nmy - my)*scale;
+			// console.log(newLeft, nmx, mx, (nmx-mx), scale);
 			if (snapOn) {
 				/// XXX I Should refactor to make this slimmer/more code reuse
 				/// Find something to align with if possible
@@ -9006,8 +9027,8 @@ $(document).ready(function() {
 				/// Now it's final, update the net object
 				var n = currentBn.getGraphItemById($item.attr("id").replace(/^display_/,""));
 				var bn = n.net
-				var dLeft = draw.viewToPx(newLeft - o.left);
-				var dTop = draw.viewToPx(newTop - o.top);
+				var dLeft = newLeft - o.left;
+				var dTop = newTop - o.top;
 				
 				
 				var els = document.elementsFromPoint(event.clientX ?? event.changedTouches[0].clientX, event.clientY ?? event.changedTouches[0].clientY);
@@ -9601,16 +9622,13 @@ $(document).ready(function() {
 		}
 		else {
 			q('.bnview').style.zoom = $range.val();
-			//q('.bnview').style.fontSize = ($range.val()*100)+'%';
-			/// Unfortunately, need to recalc arcs, because objects can change shape
-			/// (e.g. border stays 1px in size, regardless of zoom level)
+			/// Fx doesn't currently handle zoom for svg properly (2024-11-19)
+			fixZoomSvg();
 		}
 		$(".viewZoomText").text(Math.round($range.val()*100)+"%");
 	}).on('change mouseup', function(evt) {
 		$('.itemList').removeClass('unfocusMenu');
 		$(this).closest('.menuAction').removeClass('focusMenu');
-		/// Still needed by Firefox (while fixing it's zoom implementation)
-		if (q('.bnview').offsetWidth)  currentBn.redrawAllArcs();
 	}).on("dblclick", function(evt) {
 		var $range = $(evt.target);
 		$range.val(1);

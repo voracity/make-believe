@@ -682,6 +682,13 @@ function fileGetContents(file) {
 	});
 }
 
+/// Fx doesn't currently handle zoom for svg properly (2024-11-19)
+function fixZoomSvg() {
+	requestAnimationFrame(_=>{
+		q('.bnview svg').style.display = 'none';
+		requestAnimationFrame(_=>q('.bnview svg').style.display = '');
+	});
+}
 
 // https://stackoverflow.com/a/34192073/2094226
 function copyHtmlToClipboard(html) {

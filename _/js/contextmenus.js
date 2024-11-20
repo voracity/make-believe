@@ -474,11 +474,13 @@ class NodeContextMenu {
 		/** Main control buttons **/
 		menuEl.querySelector('button[name=save]').addEventListener('click', event => {
 			/// Update definition if needed (treat specially, because it can be expensive)
-			if (this.definitionEditor) {
+			let defHasChanges = false;
+			if (this.definitionEditor && this.definitionEditor.hasChanges) {
+				defHasChanges = true;
 				let def = this.definitionEditor.getDefinitionUpdateMessage();
 				this.nodeShadow.def = def;
 			}
-			if (this.nodeShadow.def && this.nodeShadow.def.invalid) {
+			if (defHasChanges && this.nodeShadow.def && this.nodeShadow.def.invalid) {
 				let dialog = popupDialog(this.nodeShadow.def.invalid, {buttons: [
 					n('button', 'OK', {type:'button', on: {click: event => {
 						dismissDialog(dialog);
@@ -505,7 +507,7 @@ class NodeContextMenu {
 			
 			this.node.net.setEvidence({[this.node.id]: (v=>v=="0"?0:Number(v)||null)(q(menuEl).q('[name=evidence]').value)});
 			
-			this.node.net.notifyDefinitionsChanged();
+			if (defHasChanges)  this.node.net.notifyDefinitionsChanged();
 		});
 		menuEl.querySelector('button[name=pin]').addEventListener('click', event => {
 			if (this.outsideClickEvent) {
@@ -523,7 +525,7 @@ class NodeContextMenu {
 	
 	handleEvents_move() {
 		this.menu.addEventListener('mousedown', event => {
-			if (event.target.matches('button.active')) {
+			if (event.target.matches('.tabStrip button')) {
 				let func1 = null, func2  = null;
 				let origElRect = this.menu.getBoundingClientRect();
 				let origEvent = event;
