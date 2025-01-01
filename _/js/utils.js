@@ -110,6 +110,70 @@ function allocFloat32(length) {
 	return new Float32Array(length);
 }
 
+// Helper function to copy static and prototype properties from a mixin and its prototypes
+function copyProperties(target, source) {
+	while (source) {
+		Object.assign(target, source); // Copy properties
+		source = Object.getPrototypeOf(source); // Traverse prototype chain
+	}
+}
+
+/** MIXINS */
+// Helper function to copy properties and traverse prototype chain
+function copyMixinProperties(target, source) {
+	while (source && source !== Object.prototype && source[Symbol.for('mb.mixin')]) {
+		// Get all property descriptors, but filter out unwanted properties
+		let descriptors = Object.getOwnPropertyDescriptors(source);
+		for (let key of ['prototype','constructor']) {
+			delete descriptors[key];
+		}
+		let allKeys = Reflect.ownKeys(descriptors);
+
+		let sourceProto = Object.getPrototypeOf(source);
+		// Define the filtered descriptors on the target
+		for (let key of allKeys) {
+			let descriptor = descriptors[key];
+			/// This will fail in the very specific circumstance that the class using the mixin
+			/// happens to want to set the function to something from up the prototype chain,
+			/// or wants to overwrite a primitive value with the same primitive value...
+			if (!(key in target) || (sourceProto[Symbol.for('mb.mixin')] && target[key] == sourceProto[key])) {
+				Object.defineProperty(target, key, descriptor);
+			}
+		}
+		// Object.defineProperties(target, descriptors);
+		// Move up the prototype chain
+		source = sourceProto;
+	}
+}
+
+/// Adds mix-in to a classObj/constructor AND updates prototype
+function addMixin(classObj, mixin) {
+	/// Copy *static* properties from the mixin (ie, globals attached to classObj)
+	// Object.assign(classObj, mixin);
+	copyMixinProperties(classObj, mixin);
+	/// Copy *prototype* properties from the mixin (ie, also globals, but accessible by instances via this)
+	//Object.assign(classObj.prototype, mixin.prototype);
+	copyMixinProperties(classObj.prototype, mixin.prototype);
+	/// Allow the mixin to be called, so as to assign *instance* properties to the mixin
+	/// (ie, things available via this, unique to each instance)
+	return (thisObj, ...args) => {
+		/// Can't just call mixin.apply(thisObj, args) if it's an ES6 class because "reasons".
+		/// Need to construct then copy.
+		let mixinInstance = new mixin(...args);
+		Object.assign(thisObj, mixinInstance);
+	};
+}
+
+/// All mixins must mix in the Mixin mixin, including derived Mixins!!
+/// (and excluding this Mixin mixin of course)
+var Mixin = class {
+	static {
+		this[Symbol.for('mb.mixin')] = true;
+		this.prototype[Symbol.for('mb.mixin')] = true;
+	}
+}
+/** END MIXINS */
+
 function Convert() {}
 Convert.prototype = {
 	toJSON() {
@@ -118,21 +182,11 @@ Convert.prototype = {
 	/// Note sure if really necessary, since JSON.stringify(obj) obviously works just fine
 	stringify() { return JSON.stringify(this); },
 }
+addMixin(Convert, Mixin);
 /// obj or string (assumed JSON)
 Convert.from = function(obj, context) {
 	obj = typeof(obj)=='string' ? JSON.parse(obj) : obj;
 	return newFromObject(this, obj, context, this?.convert?.from);
-}
-
-/// Adds mix-in to a classObj/constructor AND updates prototype
-function addMixin(classObj, mixin) {
-	/// Copy *static* properties from the mixin (ie, globals attached to classObj)
-	Object.assign(classObj, mixin);
-	/// Copy *prototype* properties from the mixin (ie, also globals, but accessible by instances via this)
-	Object.assign(classObj.prototype, mixin.prototype);
-	/// Allow the mixin to be called, so as to assign *instance* properties to the mixin
-	/// (ie, things available via this, unique to each instance)
-	return (thisObj, ...args) => mixin.apply(thisObj, args);
 }
 
 function pick(obj, ...props) {

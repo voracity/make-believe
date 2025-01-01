@@ -356,6 +356,7 @@ DisplayItem.prototype = {
 		return Boolean(this.parents || this.subNodes);
 	},
 	
+	/// TO REMOVE BOTH FUNCS:
 	/// This only works for graph items
 	/// This will remove path entries in *other* items only (not this item)
 	cleanPathsInOut() {
@@ -378,6 +379,7 @@ DisplayItem.prototype = {
 		}
 	},
 };
+addMixin(DisplayItem, Mixin);
 
 /** To create a node, call new Node({opt1:...,opt2:...}) **/
 var Node = class {
@@ -749,7 +751,8 @@ Object.assign(Node.prototype, {
 		}
 		var statesById = {};
 		for (var i=0; i<node.states.length; i++) {
-			statesById[node.states[i]] = node.states[i];
+			/// 2024-11-21: This didn't have the .id, but I'm not sure since when
+			statesById[node.states[i].id] = node.states[i];
 		}
 		node.statesById = statesById;
 		
@@ -2326,7 +2329,7 @@ Object.assign(Submodel.prototype, {
 			return this.getItems().filter(n => !n.children.length);
 		}
 		else if (type=='arcs') {
-			return this.getItems().filter(n=>n.isGraphItem()).map(g=>g.pathsIn.map(p=>p.arcSelector)).flat();
+			return this.getItems().filter(n=>n.isGraphItem()).map(g=>g.getParentArcs()).flat();
 		}
 		return [];
 	},
@@ -2619,6 +2622,46 @@ var BN = class extends Submodel {
 	
 	get submodel() {
 		return this.submodelsById;
+	}
+
+	calcAutoLayout(o = {}) {
+		o.direction = o.direction || 'TB';
+		var g = new dagre.graphlib.Graph();
+		g.setGraph({});
+		g.setDefaultEdgeLabel(function(){ return {}; });
+
+		let graphItems = currentBn.getGraphItems();
+
+		for (var i=0; i < graphItems.length; i++) {
+			var node = graphItems[i];
+			if (node.isHidden && node.isHidden())  continue;
+			let {width, height} = node.size;
+			/// TEMP: Override with visuals, if present
+			/// (node.size should in future always match visual)
+			if (draw?.getBox) {
+				({width, height} = draw.getBox(node.el()));
+			}
+			g.setNode(node.id, { id: node.id, width: width, height: height} );
+		}
+
+		for (var i=0; i < graphItems.length; i++) {
+			var node = graphItems[i];
+			if (node.isHidden && node.isHidden())  continue;
+			for (var j=0; j < node.children.length; j++) {
+				//if (node.pathsOut[j].isHidden())  continue;
+				g.setEdge(node.id, node.children[j].id);
+			}
+		}
+
+		g.graph().rankdir = o.direction;
+		dagre.layout(g);
+
+		let nodePositions = {};
+		g.nodes().forEach(nodeId => {
+			nodePositions[nodeId] = g.node(nodeId);
+		});
+
+		return nodePositions;
 	}
 }
 /**
@@ -4251,29 +4294,97 @@ ${nodesStr}
 	 */
 	mdlCost(data) {
 		// Structure cost
-		let struc = 0;
+		let strucCost = 0;
 		for (let node of this.nodes) {
 			let numStates = node.states.length;
 			let freeParameters = node.def.cpt.length / numStates * (numStates - 1);
-			struc += freeParameters;
+			strucCost += freeParameters;
 		}
-		struc *= -1/2*Math.log(data.length);
+		strucCost *= -1/2*Math.log(data.length);
 
 		// Likelihood of data
 		let dataCost = this.logLikelihood(data);
+
+		return strucCost + dataCost;
 	},
 	/**
 	 * Compute log likelihood of data using structure only
+	 * Assumes: discrete, CPTs
 	 * Ignores: current BN parameters (assumes maximum likelihood estimates from the data)
 	 * 
 	 * @param {} data 
 	 */
 	logLikelihood(data) {
-		let len = 0;
+		let len = data.length;
+		/// For all nodes, create arrays for counts, based on CPT structures
+		let nodeCounts = Object.fromEntries(this.nodes.map(n => [n.id, new CPT(n,new Uint32Array(n.def.cpt.length))]));
 		for (let i=0; i<len; i++) {
 			row = data[i];
-			// TODO
+			for (let [nodeId,nodeStateId] of Object.entries(row)) {
+				let cptCount = nodeCounts[nodeId];
+				let numStates = cptCount.node.states.length;
+				let nodeStateI = cptCount.node.statesById[nodeStateId].index;
+				let parentIds = cptCount.node.parents.map(p => p.id);
+				let parentStateIds = Object.fromEntries(parentIds.map(pId => [pId, row[pId]]));
+				let rowI = cptCount.getNamedLookupRowI(parentStateIds);
+
+				cptCount.cpt[rowI*numStates + nodeStateI]++;
+			}
 		}
+
+		let logL = 0;
+		for (let [nodeId, cptCount] of Object.entries(nodeCounts)) {
+			let numRows = cptCount.getNumRows();
+			let numStates = cptCount.node.states.length;
+			for (let r=0; r<numRows; r++) {
+				let rowTotal = cptCount.getRow(r).reduce((a,v)=>a+v);
+				if (!rowTotal)  continue;
+				for (let i=0; i<numStates; i++) {
+					let count = cptCount.cpt[r*numStates + i];
+					if (count) {
+						logL += count * Math.log(count/rowTotal);
+					}
+				}
+			}
+		}
+		return logL;
+	},
+	minUncCost(data) {
+		let len = data.length;
+		/// For all nodes, create arrays for counts, based on CPT structures
+		let nodeCounts = Object.fromEntries(this.nodes.map(n => [n.id, new CPT(n,new Uint32Array(n.def.cpt.length))]));
+		for (let i=0; i<len; i++) {
+			row = data[i];
+			for (let [nodeId,nodeStateId] of Object.entries(row)) {
+				let cptCount = nodeCounts[nodeId];
+				let numStates = cptCount.node.states.length;
+				let nodeStateI = cptCount.node.statesById[nodeStateId].index;
+				let parentIds = cptCount.node.parents.map(p => p.id);
+				let parentStateIds = Object.fromEntries(parentIds.map(pId => [pId, row[pId]]));
+				let rowI = cptCount.getNamedLookupRowI(parentStateIds);
+
+				cptCount.cpt[rowI*numStates + nodeStateI]++;
+			}
+		}
+
+		let logL = 0;
+		let strucCost = 0;
+		for (let [nodeId, cptCount] of Object.entries(nodeCounts)) {
+			let numRows = cptCount.getNumRows();
+			let numStates = cptCount.node.states.length;
+			for (let r=0; r<numRows; r++) {
+				let rowTotal = cptCount.getRow(r).reduce((a,v)=>a+v);
+				if (!rowTotal)  continue;
+				strucCost += (Math.log(rowTotal) + 2 + Math.PI**2/24);
+				for (let i=0; i<numStates; i++) {
+					let count = cptCount.cpt[r*numStates + i];
+					if (count) {
+						logL += count * Math.log(count/rowTotal);
+					}
+				}
+			}
+		}
+		return [strucCost, logL, (-strucCost + logL), (-strucCost + logL)/data.length];
 	},
 	/// Lot's of limitations: discrete, no auto-discretize, etc.
 	/// XXX: I've just written this without testing it yet!

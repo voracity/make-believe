@@ -92,12 +92,26 @@ var draw = {
 		
 		return {i: overallClosestI, point: overallClosestPoint, dist: overallClosestDist};
 	},
-	getAngle: function(refVector, angledVector) {
+	getAngle(refVector, angledVector) {
 		var r = Math.atan2(angledVector[0], angledVector[1]) - Math.atan2(refVector[0], refVector[1]);
 		if (r > Math.PI)  r -= 2*Math.PI;
 		else if (r < -Math.PI)  r += 2*Math.PI;
 		if (r < 0)  r += 2*Math.PI;
 		return r;
+	},
+	maxBounds(...allBounds) {
+		allBounds = allBounds.filter(b => b != null);
+		if (allBounds.length==0)  return null;
+		if (allBounds.length==1)  return allBounds[0];
+
+		let maxBounds = [...allBounds[0]];
+		for (let bounds of allBounds.slice(1)) {
+			maxBounds[0] = Math.min(maxBounds[0], bounds[0]);
+			maxBounds[1] = Math.min(maxBounds[1], bounds[1]);
+			maxBounds[2] = Math.max(maxBounds[2], bounds[2]);
+			maxBounds[3] = Math.max(maxBounds[3], bounds[3]);
+		}
+		return maxBounds;
 	},
 	getBox: function(el, viewSpace = false) {
 		el = $(el)[0];
@@ -169,7 +183,7 @@ var draw = {
 		var $path = null;
 		var $svg = null;
 		var insideSvg = $(outputEl)[0].tagName.toUpperCase() == "SVG";
-		var existingPath = $(outputEl)[0].tagName.toUpperCase() == "PATH";
+		var existingPath = $(outputEl)[0].tagName.toUpperCase() == "G";
 		
 		if (existingPath) {
 			$path = $(outputEl);
@@ -178,13 +192,13 @@ var draw = {
 			$svg = $(outputEl);
 		}
 		else {
-			$svg = $("<svg width="+(width+20)+" height="+(height+20)+"><defs>\
-				<marker id='arrowhead' viewBox='0 0 10 10' refX='10' refY='5' \
-				markerUnits='strokeWidth' orient='auto'\
-				markerWidth='10' markerHeight='9'>\
-				<polyline points='0,0 10,5 0,10 1,5' fill=black/>\
-				</marker>\
-				</defs></svg>").appendTo(outputEl);
+			$svg = $(`<svg width="${width+20}" height="${height+20}"><defs>
+				<marker id='arrowhead' viewBox='0 0 10 10' refX='10' refY='5' 
+				markerUnits='strokeWidth' orient='auto'
+				markerWidth='10' markerHeight='9'>
+				<polyline points='0,0 10,5 0,10 1,5' fill='context-fill'/>
+				</marker>
+				</defs></svg>`).appendTo(outputEl);
 		}
 
 		var firstX, firstY, lastX, lastY, svgX, svgY;
@@ -217,29 +231,85 @@ var draw = {
 		//markerGapX = 0;
 		//markerGapY = 0;
 
+		let toDeg = 360/(2*Math.PI);
+		let startX = rnd(svgX-sx+firstX);
+		let startY = rnd(svgY-sy+firstY);
+		let endX = rnd(svgX-sx+lastX);
+		let endY = rnd(svgY-sy+lastY);
+		let angle = (Math.atan((endY - startY)/(endX - startX)) + Math.PI*(lastX-firstX<0))*toDeg;
+
 		//onsole.debug(svgX, svgY);
 		//var path = null;
 		if (existingPath) {
-			/*$path.attr('d', 
-				"M "+(svgX-sx+firstX)+" "+(svgY-sy+firstY)+" L "+(svgX-sx+lastX)+" "+(svgY-sy+lastY)
-			);*/
-			$path[0].setAttribute('d', "M "+rnd(svgX-sx+firstX)+" "+rnd(svgY-sy+firstY)+" L "+rnd(svgX-sx+lastX)+" "+rnd(svgY-sy+lastY));
-			if ($path.data("clickable") && $path.data("clickable").length) {
-				/*$path.data("clickable").attr('d',
-					"M "+(svgX-sx+firstX)+" "+(svgY-sy+firstY)+" L "+(svgX-sx+lastX+markerGapX)+" "+(svgY-sy+lastY+markerGapY)
+			if (false) {
+				/*$path.attr('d', 
+					"M "+(svgX-sx+firstX)+" "+(svgY-sy+firstY)+" L "+(svgX-sx+lastX)+" "+(svgY-sy+lastY)
 				);*/
-				$path.data('clickable')[0].setAttribute('d', "M "+rnd(svgX-sx+firstX)+" "+rnd(svgY-sy+firstY)+" L "+rnd(svgX-sx+lastX+markerGapX)+" "+rnd(svgY-sy+lastY+markerGapY));
+				$path[0].setAttribute('d', "M "+rnd(svgX-sx+firstX)+" "+rnd(svgY-sy+firstY)+" L "+rnd(svgX-sx+lastX)+" "+rnd(svgY-sy+lastY));
+				if ($path.data("clickable") && $path.data("clickable").length) {
+					/*$path.data("clickable").attr('d',
+						"M "+(svgX-sx+firstX)+" "+(svgY-sy+firstY)+" L "+(svgX-sx+lastX+markerGapX)+" "+(svgY-sy+lastY+markerGapY)
+					);*/
+					$path.data('clickable')[0].setAttribute('d', "M "+rnd(svgX-sx+firstX)+" "+rnd(svgY-sy+firstY)+" L "+rnd(svgX-sx+lastX+markerGapX)+" "+rnd(svgY-sy+lastY+markerGapY));
+				}
+			}
+
+			$path[0].querySelector('.line').setAttribute('d', `M ${startX} ${startY} L ${endX} ${endY}`);
+			$path.find('.triangle')[0].setAttribute('d', `M${endX},${endY} l-1,-4 l10,4 l-10,4 l1,-4 Z`);
+			$path.find('.head').css({transform: `rotate(${angle}deg)`, 'transform-origin': `${endX}px ${endY}px`});
+			if ($path.data("clickable") && $path.data("clickable").length) {
+				$path.data('clickable')[0].setAttribute('d', `M ${startX} ${startY} L ${endX+markerGapX} ${endY+markerGapY}`);
 			}
 		}
 		else if (insideSvg) {
-			$svg.append($path = $(n("svg:path", {
+			let arc = null;
+			$path = $(arc = n('svg:g.arc.dependency', {strokeWidth: 1, stroke: 'black'}, 
+				n("svg:path.line", {
+					d: "M "+startX+" "+startY+" L "+endX+" "+endY,
+				}),
+				n('svg:g.head', {style: `transform: rotate(${angle}deg); transform-origin: ${endX}px ${endY}px`},
+					n('svg:path.triangle', {
+						d: `M${endX},${endY} l-1,-4 l10,4 l-10,4 l1,-4 Z`,
+					}),
+				),
+			));
+			/// We provide the same interface that path does (i.e. setPathData/getPathData),
+			/// but also auto-adjust the arrowhead for setPathData
+			arc.getPathData = function() {
+				return this.querySelector('.line').getPathData();
+			};
+			arc.setPathData = function(pathData) {
+				this.querySelector('.line').setPathData(pathData);
+				if (pathData.length >= 2) {
+					let p1 = pathData.at(-2);
+					let p2 = pathData.at(-1);
+					let startX = p1.values[0];
+					let startY = p1.values[1];
+					let endX = p2.values[0];
+					let endY = p2.values[1];
+					let angle = (Math.atan((endY-startY)/(endX-startX)) + Math.PI*(endX-startX<0))*toDeg;
+					let markerGapX = 0;
+					let markerGapY = 0;
+					if (opts.withMarker) {
+						let arrowLength = Math.sqrt(Math.pow(endY-startY,2)+Math.pow(endX-startX,2));
+						let scale = draw.arrowHeadGap/arrowLength;
+						markerGapX = (endX-startX)*scale;
+						markerGapY = (endY-startY)*scale;
+					}
+					this.querySelector('.triangle').setAttribute('d', `M${endX},${endY} l-1,-4 l10,4 l-10,4 l1,-4 Z`);
+					$(this.querySelector('.head')).css({transform: `rotate(${angle}deg)`, 'transform-origin': `${endX}px ${endY}px`});
+					$(this).data('clickable')[0].setAttribute('d', `M ${startX} ${startY} L ${endX+markerGapX} ${endY+markerGapY}`);
+				}
+			};
+			$svg.append($path);
+			/*$svg.append($path = $(n("svg:path", {
 				d: "M "+rnd(svgX-sx+firstX)+" "+rnd(svgY-sy+firstY)+" L "+rnd(svgX-sx+lastX)+" "+rnd(svgY-sy+lastY),
 				stroke: "black",
 				"class": 'dependency',
 				"stroke-width": 1,
 				"marker-end": "url(#arrowhead)",
 				'fill': 'none',
-			})));
+			})));*/
 			if (opts.clickable) {
 				var $clickable = null;
 				$svg.append($clickable = $(n("svg:path", {
@@ -611,15 +681,6 @@ var draw = {
 	}
 };
 
-// /// Inconsistencies between html and svg are very annoying
-// function makeSvg(tag, attrs) {
-// 	var el= document.createElementNS('http://www.w3.org/2000/svg', tag);
-// 	for (var k in attrs) {
-// 		el.setAttribute(k, attrs[k]);
-// 	}
-// 	return el;
-// }
-
 function getQs() {
 	var params = {};
 	var argSpecs = window.location.search.substring(1).split('&');
@@ -813,22 +874,126 @@ function popupEditDialog($content, opts) {
 /////////////////////////////////////////////////////
 /// Add display capabilities to the BN, nodes, etc.
 /////////////////////////////////////////////////////
-Object.assign(DisplayItem.prototype, {
-	__revisedMixin: true,
+DisplayItem = class extends DisplayItem {
+	static Mixin = addMixin(this, Mixin);
 	/// Every DisplayItem in the GUI is associated with an element somewhere.
 	/// The |displayItem| method is responsible for setting this.
 	/// This will only return something valid if the element is visible!
 	el() {
 		return this._elCached ? this._elCached : $();
-	},
+	}
 
 	/// By default, assume a |net| (which should work fine for foreseeable future)
 	changes() {
 		return this.net.changes;
-	},
+	}
 
-	apiMoveTo: DisplayItem.prototype.moveTo,
+	/**
+	 * Get the GUI arc associated with the underlying arc in the graph.
+	 */
+	getParentArc(parent) {
+		if (!this.isGraphItem())  return null;
+		/// Arcs might not be arcs in the underlying BN graph (e.g. if parent is in submodel, then submodel -> child)
+		/// How to handle?
+		if (typeof(parent)=='string')  parent = this.net.find(parent);
+		/// 2024-11-29: Should this be isHidden, or isAlwaysHidden?
+		if (parent.isHidden())  return null;
+
+		return this.net.getArc(parent, this);
+	}
+	getChildArc(child) {
+		if (!this.isGraphItem())  return null;
+		/// Arcs might not be arcs in the underlying BN graph (e.g. if parent is in submodel, then submodel -> child)
+		/// How to handle?
+		if (typeof(child)=='string')  child = this.net.find(child);
+		if (child.isHidden())  return null;
+
+		return this.net.getArc(this, child);
+	}
+	getParentArcs(parents = null) { return (parents ?? this.parents).map(p => this.getParentArc(p)).filter(n=>n!=null); }
+	getChildArcs(children = null) { return (children ?? this.children).map(p => this.getChildArc(p)).filter(n=>n!=null); }
+
+	getVisibleParentArcs(parents = null) {
+		if (!this.isGraphItem())  return null;
+		let visibleParents = null;
+		if (parents) {
+			visibleParents = parents
+				.map(p => typeof(p)=='string' ? this.net.find(p) : p)
+				.map(p => p.getVisibleItem())
+				.filter(p => p!=null);
+		}
+		else {
+			visibleParents = this.getVisibleParents();
+		}
+		return visibleParents.map(p => this.net.getArc(p, this));
+	}
+	getVisibleChildArcs(children = null) {
+		if (!this.isGraphItem())  return null;
+		let visibleChildren = null;
+		if (children) {
+			visibleChildren = children
+				.map(c => typeof(c)=='string' ? this.net.find(c) : c)
+				.map(c => c.getVisibleItem())
+				.filter(c => c!=null);
+		}
+		else {
+			visibleChildren = this.getVisibleChildren();
+		}
+		return visibleChildren.map(c => this.net.getArc(this, c));
+	}
+	getVisibleArcs() {
+		return [...this.getVisibleParentArcs(),...this.getVisibleChildArcs()];
+	}
+	getVisibleParents() {
+		if (!this.parents)  return null;
+		return this.parents.map(p => p.getVisibleItem()).filter(p => p!=null);
+	}
+	getVisibleChildren() {
+		if (!this.children)  return null;
+		return this.children.map(c => c.getVisibleItem()).filter(c => c!=null);
+	}
+
+
+	removeArcs() {
+		if (!this.isGraphItem())  return;
+		for (let arc of this.getVisibleArcs()) {
+			arc.remove();
+		}
+	}
+
+	/*removePaths() {
+		if (this.pathsIn) {
+			for (let p of this.pathsIn) {
+				let arcSelector = this.net.outputEl.find('#'+p.pathId).data('arcSelector');
+				if (arcSelector)  arcSelector.removePath();
+				let parentItemIndex = p.parentItem.pathsOut.findIndex(item => item.pathId == p.pathId);
+				p.parentItem.pathsOut.splice(parentItemIndex,1);
+			}
+			this.pathsIn = [];
+		}
+		if (this.pathsOut) {
+			for (let p of this.pathsOut) {
+				let arcSelector = this.net.outputEl.find('#'+p.pathId).data('arcSelector');
+				if (arcSelector)  arcSelector.removePath();
+				let childItemIndex = p.childItem.pathsIn.findIndex(item => item.pathId == p.pathId);
+				p.childItem.pathsIn.splice(childItemIndex,1);
+			}
+			this.pathsOut = [];
+		}
+	}
+
+	getPathIn(parent) {
+		return this.pathsIn.find(pi => pi.parentItem.id == parent.id);
+	}
+
+	getPathOut(child) {
+		return child.getPathIn(this);
+	}*/
+	
+	apiMoveTo(...args) { return super.moveTo(...args); }
+
 	moveTo(x, y, withUndo = true) {
+		let apiMoveTo = super.moveTo.bind(this);
 		if (withUndo) {
 			this.changes().addAndDo({
 				type: 'ItemMove',
@@ -838,7 +1003,7 @@ Object.assign(DisplayItem.prototype, {
 				new: {x, y},
 				exec(current) {
 					let item = this.net.find(this.itemId);
-					item.apiMoveTo(current.x, current.y);
+					apiMoveTo(current.x, current.y);
 					item.el().css({left: item.pos.x, top: item.pos.y});
 					if (item.isGraphItem())  this.net.redrawArcs(item.el());
 				},
@@ -846,14 +1011,15 @@ Object.assign(DisplayItem.prototype, {
 		}
 		else {
 			let item = this;
-			item.apiMoveTo(x, y);
+			apiMoveTo(x, y);
 			item.el().css({left: item.pos.x, top: item.pos.y});
 			if (item.isGraphItem())  this.net.redrawArcs(item.el());
 		}
-	},
+	}
 
 	/// No args toggles on/off. Or you can specify with {on:} or {off:}
-	guiToggleSelect: function(o) {
+	guiToggleSelect(o) {
+		if (typeof(o)=='boolean')  o = {on: o};
 		o = o || {};
 		o.on = o.on || null;
 		o.off = o.off || null;
@@ -869,7 +1035,7 @@ Object.assign(DisplayItem.prototype, {
 			$("#display_"+itemId).addClass("selected");
 		}
 		bn.notifySelectionChanged();
-	},
+	}
 	
 	guiToggleHighlight(type, o = {}) {
 		let forceOff = o.on === false || o.off === true;
@@ -884,7 +1050,7 @@ Object.assign(DisplayItem.prototype, {
 				this.el().addClass(type);
 			}
 		}
-	},
+	}
 	
 	async guiFlashIntoView() {
 		// Replace this with better custom scroll position selection
@@ -898,7 +1064,7 @@ Object.assign(DisplayItem.prototype, {
 			await new Promise(r=>setTimeout(r,pause));
 		}
 		this.el().removeClass('flash2');
-	},
+	}
 
 	/**
 	NOTE: might be set of nodes (all things connected) or path
@@ -925,7 +1091,7 @@ Object.assign(DisplayItem.prototype, {
 		let clickability = o.lowClickable ? {pointerEvents: ''} : {pointerEvents: 'none'};
 		let clickable = {pointerEvents: ''};
 		this.nodes.forEach(n => n.el().css({'opacity': o.lowOpacity, ...clickability}));
-		$('path.dependency').css({'opacity': o.lowOpacity, ...clickability});
+		$('.dependency').css({'opacity': o.lowOpacity, ...clickability});
 		
 		for (let nodes of nodeLists) {
 			/// High-light all chosen nodes, and arcs within nodes
@@ -941,39 +1107,18 @@ Object.assign(DisplayItem.prototype, {
 				}
 				/// Highlight any connections between the nodes
 				else {
-					node.pathsIn.forEach(p => nodes.has(p.parentItem) ? $(p.arcSelector.path).css({opacity: o.highOpacity, ...clickable}) : null);
+					node.getParentArcs().forEach(arc => nodes.has(arc.parent) ? $(arc.path).css({opacity: o.highOpacity, ...clickable}) : null);
 				}
 				//node.parents.forEach(p => p.el().css('opacity', o.highOpacity));
 				prevNode = node;
 			}
 		}
-	},
+	}
 	
 	resetOpacities() {
 		this.nodes.forEach(n => n.el().css({opacity: '', pointerEvents:''}));
-		$('path.dependency').css({opacity: '', pointerEvents:''});
-	},
-
-	removePaths() {
-		if (this.pathsIn) {
-			for (let p of this.pathsIn) {
-				let arcSelector = this.net.outputEl.find('#'+p.pathId).data('arcSelector');
-				if (arcSelector)  arcSelector.removePath();
-				let parentItemIndex = p.parentItem.pathsOut.findIndex(item => item.pathId == p.pathId);
-				p.parentItem.pathsOut.splice(parentItemIndex,1);
-			}
-			this.pathsIn = [];
-		}
-		if (this.pathsOut) {
-			for (let p of this.pathsOut) {
-				let arcSelector = this.net.outputEl.find('#'+p.pathId).data('arcSelector');
-				if (arcSelector)  arcSelector.removePath();
-				let childItemIndex = p.childItem.pathsIn.findIndex(item => item.pathId == p.pathId);
-				p.childItem.pathsIn.splice(childItemIndex,1);
-			}
-			this.pathsOut = [];
-		}
-	},
+		$('.dependency').css({opacity: '', pointerEvents:''});
+	}
 
 	isHidden() {
 		let submodelHidden = true;
@@ -981,16 +1126,16 @@ Object.assign(DisplayItem.prototype, {
 			submodelHidden = false;
 		}
 		return this.isAlwaysHidden() || submodelHidden;
-	},
+	}
 
 	isVisible() {
 		return !this.isHidden();
-	},
+	}
 
 	/// Some things are always hidden (e.g. engine only nodes)
 	isAlwaysHidden() {
 		return false;
-	},
+	}
 
 	/// Returns the item (e.g. submodel or node) that contains
 	/// this item and is visible. Returns null if in a supermodel.
@@ -1007,20 +1152,12 @@ Object.assign(DisplayItem.prototype, {
 		}
 		/// Return matching submodel
 		return this.net.getSubmodel(this.submodelPath.slice(0, this.net.currentSubmodel.length+1));
-	},
+	}
 
-	getPathIn(parent) {
-		return this.pathsIn.find(pi => pi.parentItem.id == parent.id);
-	},
-
-	getPathOut(child) {
-		return child.getPathIn(this);
-	},
-	
 	guiMoveToSubmodelVisual() {
 		/// If the item has disappeared from the current view
 		if (!this.isVisible()) {
-			this.removePaths();
+			this.removeArcs();
 			this.el().remove();
 			this.net.updateArcs(this.net.getSubmodel(this.submodelPath));
 		}
@@ -1030,7 +1167,7 @@ Object.assign(DisplayItem.prototype, {
 			if (this.displayBeliefs)  setTimeout(_=> this.displayBeliefs(), 0);
 			this.net.updateArcs(this);
 		}
-	},
+	}
 	
 	guiMoveToSubmodel(pathOrSubmodel) {
 		let path = pathOrSubmodel;
@@ -1065,7 +1202,8 @@ Object.assign(DisplayItem.prototype, {
 			},
 		});
 	}
-});
+}
+// copyProperties(DisplayItem.prototype, GuiDisplayItem.prototype);
 
 /// You can't replace a constructor (called by 'new') by overwriting
 /// the 'constructor' property on the prototype.
@@ -1094,44 +1232,53 @@ BN = class extends BN {
 		/// Make this much less hacky (if it's in the prototype, the "addMixin" call will override it)
 		this.el = function() { return document.querySelector('.bnview'); }
 	}
-}
-/*var apiBN = BN;
-BN = function(...args) {
-	apiBN.call(this, ...args);
-	this.saveListeners = [];
-	
-	/// Meeting point for any type of listener on this object
-	this.listeners = new Listeners();
-	
-	/// Whether to show related nodes when selected a node (and what type of related nodes)
-	/// parent|child|etc. and anything supported by |getRelated|
-	this.showRelationType = null;
 
-	/// Track changes to the BN
-	this.changes = new UndoList();
-	this.unsavedChanges = false;
-	/// Make this much less hacky (if it's in the prototype, the "addMixin" call will override it)
-	this.el = function() { return document.querySelector('.bnview'); }
-};
-Object.assign(BN, apiBN);
-BN.prototype = apiBN.prototype;*/
-Object.assign(BN.prototype, {
-	/// Make this less hacky
-	//el() { return document.querySelector('.bnview'); },
 	runSaveListeners(event) {
 		event.bn = this;
 		this.saveListeners.forEach(listener => listener(event));
-	},
+	}
+
 	setSaveStatus(o = {}) {
 		o.unsavedChanges ??= false;
 		o.snapshotSaved ??= false;
 		this.unsavedChanges = o.unsavedChanges;
 		this.snapshotSaved = o.snapshotSaved;
-	},
+	}
+
 	guiSetSaveStatus(o = {}) {
 		this.setSaveStatus(o);
 		this.updateStatusView();
-	},
+	}
+
+	/// So long as parent and child are graphItems, this will always return an Arc object,
+	/// even if not in graph. Use Arc.isPresent() to check if it's in graph.
+	getArc(parent, child) {
+		/// getArc(arcId)
+		if (child==null) {
+			let arcId = parent;
+			let arc = $(`.${arcId}`).data('arcSelector');
+			if (arc)  return arc;
+
+			let [_,parentId,childId] = arcId.split(/-/);
+			return new ArcSelector(this.find(parentId), this.find(childId));
+		}
+
+		/// getArc(parent, child)
+		if (typeof(parent)=='string')  parent = this.find(parent);
+		if (typeof(child)=='string')  child = this.find(child);
+		if (!parent.isGraphItem() || !child.isGraphItem())  return null;
+		
+		/// Arcs might not be arcs in the underlying BN graph (e.g. if parent is in submodel, then submodel -> child)
+		/// How to handle?
+		let childId = child.id;
+		let parentId = parent.id;
+		let arc = $(`.arc-${parentId}-${childId}`).data('arcSelector');
+		// console.info(arc, `.arc-${parentId}-${childId}`);
+		if (arc)  return arc;
+
+		return new ArcSelector(parent, child);
+	}
+
 	/// label|statesOnly|distro
 	setNodeView(type) {
 		this.nodeDisplayStyle = type;
@@ -1145,16 +1292,18 @@ Object.assign(BN.prototype, {
 				n.classList.add('ds_'+type);
 			}*/
 		});
-	},
+	}
+
 	guiOpenSubmodel(submodelPath) {
 		submodelPath = BN.makeSubmodelPath(submodelPath);
 		for (let item of this.getVisibleItems()) {
-			item.removePaths();
+			item.removeArcs();
 		}
 		currentBn.currentSubmodel = submodelPath;
 		currentBn.display();
 		currentBn.displayBeliefs();
-	},
+	}
+
 	guiAddNodeRaw(id, states, opts) {
 		let node = this.addNode(id, states, opts);
 
@@ -1164,7 +1313,8 @@ Object.assign(BN.prototype, {
 		}
 		
 		return node;
-	},
+	}
+
 	guiAddNode(id, states, opts) {
 		let node = null;
 
@@ -1181,7 +1331,8 @@ Object.assign(BN.prototype, {
 		});
 		
 		return node;
-	},
+	}
+
 	guiAddSubmodel(id, opts) {
 		let submodel = null;
 		
@@ -1204,7 +1355,8 @@ Object.assign(BN.prototype, {
 		});
 		
 		return submodel;
-	},
+	}
+
 	guiAddTextBox(text, opts) {
 		let textBox = null;
 		
@@ -1225,7 +1377,8 @@ Object.assign(BN.prototype, {
 		});
 		
 		return textBox;
-	},
+	}
+
 	guiAddImageBox(text, opts) {
 		let imageBox = null;
 		
@@ -1246,7 +1399,8 @@ Object.assign(BN.prototype, {
 		});
 		
 		return imageBox;
-	},
+	}
+
 	guiUpdateAndDisplayForLast(outputEl, callback) {
 		this.changes.last().addFinallyAndDo(_=> {
 			console.log('START COMPILE/DISPLAY');
@@ -1254,8 +1408,9 @@ Object.assign(BN.prototype, {
 			this.updateAndDisplayBeliefs(outputEl, callback);
 			console.log('END COMPILE/DISPLAY');
 		});
-	},
-	updateAndDisplayBeliefs: function(outputEl, callback) {
+	}
+
+	updateAndDisplayBeliefs(outputEl, callback) {
 		var bn = this;
 		var start = performance.now();
 		var inferenceTime = null;
@@ -1284,7 +1439,8 @@ Object.assign(BN.prototype, {
 				if (callback)  callback(bn);
 			});
 		}*/
-	},
+	}
+
 	makeStatusView() {
 		if ($(".status .duration").length==0) {
 			$(".status").append("<span class=duration title='Time taken for last computation'>Last: <span class=val></span>ms (Display: <span class=displayVal></span>ms)</span>");
@@ -1298,7 +1454,8 @@ Object.assign(BN.prototype, {
 		if ($(".status .saveStatusSummary").length==0) {
 			$('.status').append(n('span.saveStatusSummary', n('label', 'Save Status: '), n('span.saveStatus', '')));
 		}
-	},
+	}
+
 	updateStatusView(m = {}) {
 		// if (m.saveStatus) {
 			let status = 'Unsaved Changes';
@@ -1331,8 +1488,9 @@ Object.assign(BN.prototype, {
 		if (m.totalIterationsRun!=null) {
 			$(".status .iterations .val").text(m.totalIterationsRun);
 		}
-	},
-	displayBeliefs: function(outputEl) {
+	}
+
+	displayBeliefs(outputEl) {
 		outputEl = outputEl || this.outputEl;
 		/// If any node needs to update display, update the full display
 		/// (in case layout has changed)
@@ -1376,10 +1534,12 @@ Object.assign(BN.prototype, {
 		if (this._trackingArcInfluences) {
 			this.displayArcsWithInfluences();
 		}
-	},
-	headerFormat: function(id, label) {
+	}
+
+	headerFormat(id, label) {
 		return label ? label : id;
-	},
+	}
+
 	/** For all or a subset of the *visible* graph items, update all arcs (remove old/update existing/add new).
 		This can be used to update existing AND (of course) old/new arcs. **/
 	updateArcs(graphItems = null) {
@@ -1406,6 +1566,8 @@ Object.assign(BN.prototype, {
 		
 		/// For any graphItems for which a submodel container is in the current view
 		/// replace with that submodel container
+		/// 2024-11-22: This may only be here if arbitrary graph items are passed into this function
+		/// rather than what needs to be rendered in the current view
 		for (let graphItem of graphItemSet) {
 			for (let sub of Object.values(currentSub.submodelsById)) {
 				if (sub.includes(graphItem)) {
@@ -1418,6 +1580,9 @@ Object.assign(BN.prototype, {
 		for (let graphItem of [...graphItemSet]) {
 			if (graphItem.parents)  graphItemSet = new Set([...graphItemSet, ...graphItem.parents]);
 			if (graphItem.children)  graphItemSet = new Set([...graphItemSet, ...graphItem.children]);
+			// let linkedParents = graphItem.getParentArcs().map(arc => arc.getParent());
+			// let linkedChildren = graphItem.getChildArcs().map(arc => arc.getChild());
+			// graphItemSet = new Set([...graphItemSet, ...linkedParents, ...linkedChildren]);
 			if (graphItem.pathsIn) {
 				graphItemSet = new Set([...graphItemSet, ...graphItem.pathsIn.map(pi => pi.parentItem)]);
 			}
@@ -1428,6 +1593,7 @@ Object.assign(BN.prototype, {
 		
 		/// For any graphItems for which a submodel container is in the current view
 		/// replace with that submodel container (Pass 2)
+		/// 2024-11-22: Why twice?
 		for (let graphItem of graphItemSet) {
 			for (let sub of Object.values(currentSub.submodelsById)) {
 				if (sub.includes(graphItem)) {
@@ -1448,9 +1614,10 @@ Object.assign(BN.prototype, {
 			delete graphItem.dynamicParents;
 			delete graphItem.children;
 		}
-	},
+	}
+
 	/** For a subset of graph items, update just the parent arcs. (Not typically useful...) **/
-	updateParentArcs(graphItems) {
+	/*updateParentArcs(graphItems) {
 		if (!Array.isArray(graphItems))  graphItems = [graphItems];
 		var bn = this;
 		
@@ -1458,8 +1625,8 @@ Object.assign(BN.prototype, {
 		graphItems = graphItems.filter(item => item.isVisible());
 		
 		function __temp_removePath(p) {
-			if ($(`path#${p.pathId}`).length) {
-				$(`path#${p.pathId}`).data('arcSelector').removePath();
+			if ($(`#${p.pathId}`).length) {
+				$(`#${p.pathId}`).data('arcSelector').removePath();
 			}
 			let parentItem, childItem;
 			if (p.parentItem) {
@@ -1583,7 +1750,39 @@ Object.assign(BN.prototype, {
 		}
 		$('.netSvgCanvas').attr('width', maxX);
 		$('.netSvgCanvas').attr('height', maxY);
-	},
+	}*/
+
+	updateArcs(graphItems = null, outputEl = null) {
+		outputEl ??= this.outputEl;
+		/// Default to visible items
+		if (!graphItems)  graphItems = this.getVisibleItems();
+		/// Treat 1 item like a list
+		if (!Array.isArray(graphItems))  graphItems = [graphItems];
+		/// Filter out non-graph items (i.e. things that don't have arcs)
+		graphItems = graphItems.filter(g => g.isGraphItem());
+		/// Only keep items that should be visible
+		/// Check: Should this include things inside submodels?
+		graphItems = graphItems.filter(g => g.isVisible());
+
+		let graphItemSet = new Set(graphItems);
+		let currentSub = this.getSubmodel(this.currentSubmodel);
+
+		/// Remove old arcs
+		qa('.netSvgCanvas .arc')
+			.filter(arc => !$(arc).data('arcSelector').isPresent())
+			.forEach(arc => arc.remove());
+
+		/// Add or update active arcs
+		let maxBounds = null;
+		for (let graphItem of graphItems) {
+			for (let arc of graphItem.getVisibleArcs()) {
+				let bounds = arc.display(outputEl);
+				maxBounds = draw.maxBounds(bounds, maxBounds);
+			}
+		}
+		if (maxBounds)  $('.netSvgCanvas').attr('width', maxBounds[2]).attr('height', maxBounds[3]);
+	}
+
 	display(outputEl, {items = null} = {}) {
 		var bn = this;
 		outputEl = outputEl || this.outputEl;
@@ -1617,7 +1816,7 @@ Object.assign(BN.prototype, {
 
 		/// Draw all the graphItems visible in the current submodel
 		/// or just those specific items requested
-		graphItems = bn.getGraphItems().filter(gi => items.includes(gi));
+		let graphItems = bn.getGraphItems().filter(gi => items.includes(gi));
 		
 		/// Since |display| destroys everything, need to clear out
 		/// any old graphItem paths
@@ -1701,7 +1900,7 @@ Object.assign(BN.prototype, {
 			item.displayItem(outputEl);
 		}
 
-		this.updateArcs(graphItems);
+		this.updateArcs(graphItems, outputEl);
 
 		/*/// Draw all the arcs
 		for (var i=0; i<graphItems.length; i++) {
@@ -1744,7 +1943,8 @@ Object.assign(BN.prototype, {
 
 		/// Updated, so not needed any more
 		bn.updateViewer = false;
-	},
+	}
+
 	/// |redrawArcs| is only for *existing* arcs. It won't delete arcs, or add
 	/// arcs (because it doesn't have access to the BN information)
 	/// opts.moved allows one to indicate the redraw is due to a movement (translation)
@@ -1777,15 +1977,15 @@ Object.assign(BN.prototype, {
 		let externalArcs = new Set();
 		for (let gi=0; gi<graphItems.length; gi++) {
 			let graphItem = this.findItem(graphItems[gi]);
-			for (let i=0; i<graphItem.pathsIn.length; i++) {
-				externalArcs.add(graphItem.pathsIn[i].arcSelector);
-			}
+			for (let arc of graphItem.getVisibleParentArcs())  externalArcs.add(arc);
+			// for (let i=0; i<graphItem.pathsIn.length; i++) {
+			// 	externalArcs.add(graphItem.pathsIn[i].arcSelector);
+			// }
 		}
 		if (!opts.allArcs)  for (let gi=0; gi<graphItems.length; gi++) {
 			let graphItem = this.findItem(graphItems[gi]);
 			
-			for (let i=0; i<graphItem.pathsOut.length; i++) {
-				let arc = graphItem.pathsOut[i].arcSelector;
+			for (let arc of graphItem.getVisibleChildArcs()) {
 				if (externalArcs.has(arc)) {
 					externalArcs.delete(arc);
 					internalArcs.add(arc);
@@ -1816,14 +2016,18 @@ Object.assign(BN.prototype, {
 			}
 			/// If not just a translation of full group, need to redraw everything
 			else {
-				let [parent, child] = arc.getEndpoints();
-				draw.drawArrowBetweenBoxes(arc.path, parent, child, {lockSplitPoints: true, withMarker: true});
+				arc.display();
+				// /// Replace with arc.display()
+				// let [parent, child] = arc.getEndpoints();
+				// draw.drawArrowBetweenBoxes(arc.path, parent, child, {lockSplitPoints: true, withMarker: true});
 			}
 		}
 		/// External arcs always need to be redrawn
 		for (let arc of externalArcs) {
-			let [parent, child] = arc.getEndpoints();
-			draw.drawArrowBetweenBoxes(arc.path, draw.getBox(parent.el()), draw.getBox(child.el()), {lockSplitPoints: true, withMarker: true});
+			arc.display();
+			// /// Replace with arc.display()
+			// let [parent, child] = arc.getEndpoints();
+			// draw.drawArrowBetweenBoxes(arc.path, draw.getBox(parent.el()), draw.getBox(child.el()), {lockSplitPoints: true, withMarker: true});
 		}
 		
 		if (maxX != width || maxY != height) {
@@ -1832,8 +2036,16 @@ Object.assign(BN.prototype, {
 		}
 		
 		return {maxX, maxY};
-	},
-	removeTrackArcInfluences: function() {
+	}
+
+	/// |redrawAllArcs| is only for *existing* arcs. It won't delete arcs, or add
+	/// arcs (because it doesn't have access to the BN information)
+	redrawAllArcs() {
+		var graphItems = this.getGraphItems();
+		this.redrawArcs(graphItems, null, null, {allArcs: true});
+	}
+
+	removeTrackArcInfluences() {
 		var nodesToRemove = [];
 		for (var i=0; i<this.nodes.length; i++) {
 			if (this.nodes[i].id.search(/^__mutualInfo_/)!=-1) {
@@ -1848,8 +2060,9 @@ Object.assign(BN.prototype, {
 		$('.dependency').css('stroke-width', '1px');
 
 		this._trackingArcInfluences = false;
-	},
-	displayArcsWithInfluences: function() {
+	}
+
+	displayArcsWithInfluences() {
 		var sumMis = {};
 		var sumChildEntropies = {};
 		let widthRange = 30;
@@ -1898,68 +2111,78 @@ Object.assign(BN.prototype, {
 
 				/// Update the arc with representation of the MI influence
 				/// Find the right arc
-				var arcInfo = node.pathsOut.find(p => p.childItem.id == item.id);
-				/// If we can't find arcInfo, it's
-				if (arcInfo) {
-					var arc = $("#"+arcInfo.pathId);
-					if (!(arcInfo.pathId in sumMis)) {
-						sumMis[arcInfo.pathId] = 0;
-						sumChildEntropies[arcInfo.pathId] = 0;
+				//var arcInfo = node.pathsOut.find(p => p.childItem.id == item.id);
+				let arc = node.getVisibleChildArcs().find(arc => arc.child.id == item.id);
+				if (arc) {
+					// var arc = $("#"+arcInfo.pathId);
+					/// I think the summations might be for submodels?
+					if (!(arc.arcId in sumMis)) {
+						sumMis[arc.arcId] = 0;
+						sumChildEntropies[arc.arcId] = 0;
 					}
 					/// Update arc width based on MI influence
 					var entropyProportion = 0;
-					sumMis[arcInfo.pathId] += mi;
-					sumChildEntropies[arcInfo.pathId] += childEntropy;
-					if (sumChildEntropies[arcInfo.pathId] > 0) {
-						entropyProportion = sumMis[arcInfo.pathId]/sumChildEntropies[arcInfo.pathId];
+					sumMis[arc.arcId] += mi;
+					sumChildEntropies[arc.arcId] += childEntropy;
+					if (sumChildEntropies[arc.arcId] > 0) {
+						entropyProportion = sumMis[arc.arcId]/sumChildEntropies[arc.arcId];
 					}
 					console.log("stroke", (entropyProportion*widthRange)+"px");
-					arc.css('stroke-width', Math.max(minWidth, (entropyProportion*widthRange))+"px");
+					arc.path.style.strokeWidth = Math.max(minWidth, (entropyProportion*widthRange))+"px";
 				}
 			}
 		}
-	},
+	}
+
 	/// Don't use this function
-	showArcInfluences: function() {
+	showArcInfluences() {
 		var bn = this;
 		this.trackArcInfluences();
 		this.updateBeliefs(function() {
 			bn.displayArcsWithInfluences();
 			/// FIX: Remove arc influences
 		});
-	},
+	}
+
 	addListener(type, func) {
 		/*if (!this.listeners[type])  this.listeners[type] = [];
 		/// Can only add func once?
 		this.listeners[type].push(func);*/
 		return this.listeners.add(type, func);
-	},
+	}
+
 	getListeners(type) {
 		//return this.listeners[type] ?? [];
 		return this.listeners.get(type);
-	},
+	}
+
 	removeListener(type, func) {
 		/*if (!this.listeners[type])  return;
 		this.listeners[type].splice(this.listeners[type].indexOf(func),1);*/
 		this.listeners.remove(type, func);
-	},
+	}
+
 	notifyEvidenceChanged(o = {}) {
 		this.updateShowRelated();
 		this.listeners.notify('evidenceChange change');
-	},
+	}
+
 	notifyStructureChanged(o = {}) {
 		this.updateShowRelated();
 		this.listeners.notify('structureChange change');
-	},
+	}
+
 	notifyDefinitionsChanged(o = {}) {
 		this.updateAndDisplayBeliefs();
 		this.updateShowRelated(o);
 		this.listeners.notify('definitionsChange change');
-	},
+	}
+
 	notifySelectionChanged(o = {}) {
 		this.updateShowRelated(o);
 		this.listeners.notify('selectionChange change');
-	},
+	}
+
 	updateShowRelated(o = {}) {
 		o.forceClear ??= false;
 		o.highlightMode ??= currentBn.showRelationHighlightMode ?? 'highlight'; // or 'opacity'
@@ -2002,13 +2225,15 @@ Object.assign(BN.prototype, {
 				this.highlightNodesWithOpacity(nodes, {asPath});
 			}
 		}
-	},
+	}
+
 	/// Toggle highlights of type |type| for all items in the BN. Force to on/off using o = {on:true}
 	guiToggleHighlights(type, o = {}) {
 		for (let item of this.getDisplayItems()) {
 			item.guiToggleHighlight(type, o);
 		}
-	},
+	}
+
 	/// Given a DOM element, find appropriate associated item
 	findItem(el) {
 		if (el && el.net == this)  return el;
@@ -2018,20 +2243,24 @@ Object.assign(BN.prototype, {
 			return currentBn.getGraphItemById(id);
 		}
 		return null;
-	},
+	}
+
 	getDisplayItems() {
 		return [...this.getGraphItems(), ...this.basicItems];
-	},
+	}
+
 	getVisibleItems() {
 		return this.getDisplayItems().filter(i => i.isVisible());
-	},
-	getGraphItems: function() {
+	}
+
+	getGraphItems() {
 		var currentSubmodel = this.getSubmodel(this.currentSubmodel);
 		var graphItems = currentSubmodel.subNodes.slice();
 		for (var subId in currentSubmodel.submodelsById)  graphItems.push(currentSubmodel.submodelsById[subId]);
 		return graphItems;
-	},
-	getGraphItemById: function(id) {
+	}
+
+	getGraphItemById(id) {
 		if (this.nodesById[id])  return this.nodesById[id];
 		var currentSubmodel = this.getSubmodel(this.currentSubmodel);
 		if (currentSubmodel.submodelsById[id])  return currentSubmodel.submodelsById[id];
@@ -2039,29 +2268,17 @@ Object.assign(BN.prototype, {
 			if (this.basicItems[i].id == id)  return this.basicItems[i];
 		}
 		return null;
-	},
-	getElementFromItem: function(idOrItem, $outputEl = null) {
+	}
+
+	getElementFromItem(idOrItem, $outputEl = null) {
 		var id = idOrItem;
 		if (idOrItem.id) {
 			id = idOrItem.id;
 		}
 		$outputEl = $outputEl || $('.bnview');
 		return $outputEl.find('#display_'+id);
-	},
-	/// |redrawAllArcs| is only for *existing* arcs. It won't delete arcs, or add
-	/// arcs (because it doesn't have access to the BN information)
-	redrawAllArcs: function() {
-		var graphItems = this.getGraphItems();
-		this.redrawArcs(graphItems, null, null, {allArcs: true});
-		// for (var i=0; i<graphItems.length; i++) {
-			// var graphItem = graphItems[i];
-			// var $graphItem = this.outputEl.find("#display_"+graphItem.id);
-			// for (var j=0; j<graphItem.pathsIn.length; j++) {
-				// var $parent = $('#display_'+graphItem.pathsIn[j].parentItem.id);
-				// draw.drawArrowBetweenBoxes($("#"+graphItem.pathsIn[j].pathId), draw.getBox($parent), draw.getBox($graphItem));
-			// }
-		// }
-	},
+	}
+
 	getVisibleBounds() {
 		var minX = 10e9;
 		var minY = 10e9;
@@ -2076,25 +2293,29 @@ Object.assign(BN.prototype, {
 			var $displayNode = $("#display_"+graphItem.id);
 			/// Get max x/y as extents for canvas
 			var b = draw.getBox($displayNode);
-			minX = Math.min(minX, b.x-b.width);
-			minY = Math.min(minX, b.x-b.width);
+			minX = Math.min(minX, b.x);
+			minY = Math.min(minY, b.y);
 			maxX = Math.max(maxX, b.x+b.width);
 			maxY = Math.max(maxY, b.y+b.height);
 		}
 		return {minX, minY, maxX, maxY};
-	},
-	measureCanvasNeeds: function() {
+	}
+
+	measureCanvasNeeds() {
 		let b = this.getVisibleBounds();
 		return {maxX: b.maxX, maxY: b.maxY};
-	},
-	resizeCanvasToFit: function() {
+	}
+
+	resizeCanvasToFit() {
 		var m = this.measureCanvasNeeds();
 		draw.resizeCanvas($(".netSvgCanvas"), m.maxX, m.maxY);
-	},
+	}
+
 	showSidebar(doShow) {
 		doShow ??= !!$('.sidebar .boxes')[0].childElementCount;
 		$(".sidebar").animate({width:doShow?'show':'hide'},350);
-	},
+	}
+
 	addBoxToSidebar(el, o = {}) {
 		o.class ??= '';
 		o.onclose ??= o.on_close ?? (_=>{});
@@ -2109,17 +2330,20 @@ Object.assign(BN.prototype, {
 		$parEl.append(el);
 		$('.sidebar > .boxes').append($parEl);
 		this.showSidebar();
-	},
+	}
+
 	closeSidebarBox(el) {
 		if ($(el).closest('.box').data('onclose')) $(el).closest('.box').data('onclose')(el);
 		el.closest('.box').remove();
 		this.showSidebar();
-	},
+	}
+
 	clearSidebar() {
 		qa('.sidebar .boxes > .box').forEach(el=>this.closeSidebarBox(el));
 		this.showSidebar();
-	},
-	showComment: function(doShow, {force} = {force:false}) {
+	}
+
+	showComment(doShow, {force} = {force:false}) {
 		var bn = this;
 		doShow = doShow===undefined ? true : doShow;
 		if (doShow && !$('.sidebar .comment').length) {
@@ -2159,46 +2383,51 @@ Object.assign(BN.prototype, {
 		else {
 			this.closeSidebarBox($('.sidebar .comment'));
 		}
-	},
+	}
+
 	/**
 		This is still to be fleshed out, in terms of how it will work.
 	*/
-	apiFind: BN.prototype.find,
-	find: function(ref) {
+	find(ref) {
 		if (!ref)  return null;
 		if (typeof(ref)=="string") {
-			return this.apiFind(ref);
+			return super.find(ref);
 		}
 		else if (ref.is && ref.is('.parent.item')) {
 			return this.getSubmodel(this.currentSubmodel.slice(0,-1));
 		}
 		else if (ref.attr && ref.attr('id')) {
 			var id = ref.attr('id').replace(/^display_/, '');
-			return this.apiFind(id);
+			return super.find(id);
 		}
-	},
+	}
+
 	addToSelection(items, o = {}) {
 		o.toggle = o.toggle || false;
 		for (let item of items) {
 			item.guiToggleSelect(o.toggle ? {} : {on:true});
 		}
-	},
+	}
+
 	setSelection(items, o = {}) {
 		o.add = o.add || o.toggle || false;
 		o.toggle = o.toggle || false;
 		if (!o.add)  this.clearSelection();
 		this.addToSelection(items, o);
-	},
+	}
+
 	clearSelection() {
 		for (var item of this.selected) {
 			item.guiToggleSelect({off:true});
 		}
-	},
+	}
+
 	selectAll() {
 		for (var node of currentBn.nodes) {
 			node.guiToggleSelect({on:true});
 		}
-	},
+	}
+
 	getSelectedArcs() {
 		let crossingArcs = new Set();
 		let internalArcs = new Set();
@@ -2224,10 +2453,11 @@ Object.assign(BN.prototype, {
 		}
 		
 		return {internalArcs, crossingArcs};
-	},
+	}
+
 	/// Switch to gui / plain(api)? rather than plain(gui) / api? to be consistent with elsewhere.
 	// apiSetEvidence: BN.prototype.setEvidence,
-	guiSetEvidence: function(evidence, o = {}, callback = null) {
+	guiSetEvidence(evidence, o = {}, callback = null) {
 		o.reset ??= false;
 		this.setEvidence(evidence, o);
 		
@@ -2241,10 +2471,12 @@ Object.assign(BN.prototype, {
 		currentBn.notifyEvidenceChanged();
 		
 		return this;
-	},
+	}
+
 	guiClearEvidence(o, callback) {
 		this.guiSetEvidence({}, Object.assign({},o,{reset:true}), callback);
-	},
+	}
+
 	async guiFindAllDConnectedPaths2(sourceNode, destNode, o = {}) {
 		let paths = this.findAllDConnectedPaths2(sourceNode, destNode, o);
 		let gen = (function*() {
@@ -2260,6 +2492,30 @@ Object.assign(BN.prototype, {
 		}
 		return gen;
 	}
+}
+/*var apiBN = BN;
+BN = function(...args) {
+	apiBN.call(this, ...args);
+	this.saveListeners = [];
+	
+	/// Meeting point for any type of listener on this object
+	this.listeners = new Listeners();
+	
+	/// Whether to show related nodes when selected a node (and what type of related nodes)
+	/// parent|child|etc. and anything supported by |getRelated|
+	this.showRelationType = null;
+
+	/// Track changes to the BN
+	this.changes = new UndoList();
+	this.unsavedChanges = false;
+	/// Make this much less hacky (if it's in the prototype, the "addMixin" call will override it)
+	this.el = function() { return document.querySelector('.bnview'); }
+};
+Object.assign(BN, apiBN);
+BN.prototype = apiBN.prototype;*/
+Object.assign(BN.prototype, {
+	/// Make this less hacky
+	//el() { return document.querySelector('.bnview'); },
 });
 /*var apiBN = BN;
 BN = function(...args) {
@@ -2296,8 +2552,7 @@ Submodel = class extends Submodel {
 		this.listeners = new Listeners();
 		this.listeners.add('update', (msg,extraMsg)=>this.refreshView(msg,extraMsg));
 	}
-}
-Object.assign(Submodel.prototype, {
+
 	update(m, o = {}) {
 		o.withPrevious ??= false;
 		this.net.changes.addAndDo({
@@ -2317,7 +2572,7 @@ Object.assign(Submodel.prototype, {
 				this.listeners.notify('update', cur, extraMsg);
 			}
 		});
-	},
+	}
 	
 	refreshView(m, extraMsg = {}) {
 		console.log('refreshView');
@@ -2353,9 +2608,9 @@ Object.assign(Submodel.prototype, {
 					padding: m.format.padding,
 			}, {null:false});
 		}
-	},
+	}
 
-	displayItem: function(outputEl, $displayItem, force = false) {
+	displayItem(outputEl, $displayItem, force = false) {
 		if (this.isHidden() && !force)  return null;
 		if (!outputEl && this.net)  outputEl = this.net.outputEl;
 		var submodel = this;
@@ -2383,12 +2638,14 @@ Object.assign(Submodel.prototype, {
 		}
 
 		return $displayItem;
-	},
+	}
+
 	contextMenu(event) {
 		let menu = new SubmodelContextMenu(this);
 		menu.popup({left: event.clientX, top: event.clientY});
-	},
-	contextMenuOld: function() {
+	}
+
+	contextMenuOld() {
 		var node = this;
 		let submodel = this;
 		let net = this.net;
@@ -2530,7 +2787,8 @@ Object.assign(Submodel.prototype, {
 				});
 			}},
 		}});
-	},
+	}
+
 	guiAddToNet(net) {
 		let submodel = this;
 		net.changes.addAndDo({
@@ -2548,12 +2806,13 @@ Object.assign(Submodel.prototype, {
 				delete parent.submodelsById[this.submodel.id];
 				delete this.net.submodelsById[this.submodel.id];
 				this.submodel.el().remove();
-				this.submodel.removePaths();
+				this.submodel.removeArcs();
 				//this.submodel.cleanPathsInOut();
 			},
 		});
 		return this;
-	},
+	}
+
 	guiDelete(o = {}) {
 		o = {
 			prompt: false,
@@ -2581,7 +2840,7 @@ Object.assign(Submodel.prototype, {
 						*/
 						/// Remove the submodel element, and svg paths
 						this.submodel.el().remove();
-						this.submodel.removePaths();
+						this.submodel.removeArcs();
 						
 						/// Remove if selected
 						this.submodel.net.selected.delete(this);
@@ -2613,14 +2872,20 @@ Object.assign(Submodel.prototype, {
 			doDelete();
 			if (o.display)  this.net.guiUpdateAndDisplayForLast();
 		}
-	},
-});
-//var oldNodeInit = Node.prototype.init;
-Object.assign(Node.prototype, DisplayItem.prototype, {
-	/*init(...args) {
-		oldNodeInit.apply(this, args);
-		if (this.net)  this.bindUndo(this.net.changes);
-	},*/
+	}
+
+	getVisibleParents() {
+		let nodes = this.getAllNodes();
+		return [...new Set(nodes.map(n1 => n1.getAncestors({stopAfter: n=> n!=n1 && n.getVisibleItem()})).flat().map(n=>n.getVisibleItem()))];
+	}
+	getVisibleChildren() {
+		let nodes = this.getAllNodes();
+		return [...new Set(nodes.map(n1 => n1.getDescendants({stopAfter: n=>n!=n1 && n.getVisibleItem()})).flat().map(n=>n.getVisibleItem()))];
+	}
+}
+
+Node = class extends Node {
+	static DisplayItem = addMixin(this, DisplayItem);
 	updateObject(o, updateId = null) {
 		/*let old = {};
 		for (let [key,value] of Object.entries(o)) {
@@ -2663,7 +2928,8 @@ Object.assign(Node.prototype, DisplayItem.prototype, {
 				this.updateObjectDefault(o, updateId);
 			},
 		});
-	},
+	}
+
 	handleObjectUpdate(o, updateId = null) {
 		/// Change def type, before doing any copies
 		if (o.defType) {
@@ -2673,7 +2939,9 @@ Object.assign(Node.prototype, DisplayItem.prototype, {
 		if (o.id !==undefined || o.label !== undefined) {
 			if (o.id !== undefined && o.id !== this.id) {
 				console.log('RENAME');
+				let arcs = this.getVisibleArcs();
 				this.rename(o.id);
+				arcs.forEach(arc => arc.updateIds());
 			}
 			/// The element should really have it's own object link/manager, but I'm
 			/// just doing it from here for now
@@ -2766,13 +3034,9 @@ Object.assign(Node.prototype, DisplayItem.prototype, {
 		}
 		/// Update arcs if needed (right now, just update arcs always)
 		this.net.redrawArcs(this.el());
-	},
-	/*moveTo(x, y) {
-		console.log('x');
-		this.apiMoveTo(x, y);
-		this.el().offset({left: this.pos.x, top: this.pos.y});
-	},*/
-	displayItem: function(outputEl, $displayNode, force = false) {
+	}
+
+	displayItem(outputEl, $displayNode, force = false) {
 		if (this.isHidden() && !force)  return null;
 		if (!outputEl && this.net)  outputEl = this.net.outputEl;
 		var node = this;
@@ -2819,7 +3083,7 @@ Object.assign(Node.prototype, DisplayItem.prototype, {
 		$displayNode.addClass(node.type);
 		/// Clear out any existing states first
 		$displayNode.find(".state").remove();
-		$states = $displayNode.find('.inner').append('<div class="states">').find('.states');
+		let $states = $displayNode.find('.inner').append('<div class="states">').find('.states');
 		for (var j=0; j<node.states.length; j++) {
 			var state = node.states[j];
 			$states.append(
@@ -2840,7 +3104,8 @@ Object.assign(Node.prototype, DisplayItem.prototype, {
 		node._updateDisplay = false;
 
 		return $displayNode;
-	},
+	}
+
 	displayBeliefs() {
 		if (!this.isVisible())  return;
 
@@ -2868,8 +3133,9 @@ Object.assign(Node.prototype, DisplayItem.prototype, {
 			}
 			stateI++;
 		});
-	},
-	_prepTable: function(type) {
+	}
+
+	_prepTable(type) {
 		var node = this;
 		var str = "<table class="+type+">";
 		var npc = node.numParentCombinations();
@@ -2893,8 +3159,9 @@ Object.assign(Node.prototype, DisplayItem.prototype, {
 		}
 		str += '</table>';
 		return $(str);
-	},
-	_prepTable2: function(type) {
+	}
+
+	_prepTable2(type) {
 		var node = this;
 		var table = document.createElement('table');
 		table.className = type;
@@ -2923,8 +3190,9 @@ Object.assign(Node.prototype, DisplayItem.prototype, {
 			nextCombination(node.parents, parentIndexes);
 		}
 		return table;
-	},
-	makeCptHtml: function(cptOnly) {
+	}
+
+	makeCptHtml(cptOnly) {
 		var node = this;
 		
 		function addStateHeader(tr, id) {
@@ -3084,8 +3352,9 @@ Object.assign(Node.prototype, DisplayItem.prototype, {
 		];
 
 		return [$table,toolbarButtons,addEvents];
-	},
-	makeFuncTableHtml: function() {
+	}
+
+	makeFuncTableHtml() {
 		var node = this;
 		var $table = node._prepTable("funcTable");
 		var $tr = $table.find("tr:eq(0)");
@@ -3116,13 +3385,15 @@ Object.assign(Node.prototype, DisplayItem.prototype, {
 			$tr.append($td);
 		}
 		return [$table,null,null];
-	},
-	makeFuncTextHtml: function() {
+	}
+
+	makeFuncTextHtml() {
 		var node = this;
 		console.log(node);
 		return [$('<textarea data-control=funcText>').val(node.def.funcText.replace(/^(\s*)([a-zA-Z0-9_]+)/, '$1'+node.id)),null,null];
-	},
-	makeContextOptions: function() {
+	}
+	
+	makeContextOptions() {
 		var node = this;
 		var options = [];
 		var possTypes = ['nature','decision','utility'];
@@ -3156,8 +3427,9 @@ Object.assign(Node.prototype, DisplayItem.prototype, {
 				}
 				node.id = this.value;
 			});
-	},
-	makeContextDefinition: function() {
+	}
+
+	makeContextDefinition() {
 		var node = this;
 		var $defType = $("<div class=defType>");
 		var $def = $("<div class=def>").addClass('def'+node.def.type);
@@ -3214,8 +3486,9 @@ Object.assign(Node.prototype, DisplayItem.prototype, {
 		$def.append($defSection);
 
 		return [$defType, $def];
-	},
-	makeContextFormat: function() {
+	}
+
+	makeContextFormat() {
 		var node = this;
 		var formatMenu = Menu({type: "embedded", items: [
 			MenuAction("<label>Background Color:</label> <input type=text data-control=backgroundColor class=backgroundColor value='"+toHtml(node.format.backgroundColor)+"' pattern='#[a-fA-F_0-9]*' placeholder='[default]'>", function() { }),
@@ -3225,11 +3498,12 @@ Object.assign(Node.prototype, DisplayItem.prototype, {
 			MenuAction("<label>Font Size:</label> <input type=text data-control=fontSize class=fontSize value='"+toHtml(node.format.fontSize)+"' pattern='[0-9]*' placeholder='[default]'>", function() { }),
 		]});
 		return formatMenu.make();
-	},
+	}
+
 	/// This is the context menu for any ordinary node visible on the canvas. It has a set
 	/// of tabs that change based on the type of node. (e.g. CPT tab is displayed for
 	/// discrete chance nodes, while function text is displayed for equation/continuous nodes)
-	contextMenu: function() {
+	contextMenu() {
 		var node = this;
 
 		var whatsDirty = {cpt: false, funcText: false, nodeId: false, comment: false};
@@ -3746,7 +4020,8 @@ Object.assign(Node.prototype, DisplayItem.prototype, {
 				}},
 			}
 		});
-	},
+	}
+
 	contextMenu(event) {
 		/// The new node dialog box/context menu
 		/// To do:
@@ -3758,7 +4033,8 @@ Object.assign(Node.prototype, DisplayItem.prototype, {
 		let menu = new NodeContextMenu(this);
 		menu.popup({left: event.clientX, top: event.clientY});
 		return menu;
-	},
+	}
+
 	guiAddToNet(net) {
 		let node = this;
 		//return net.guiAddNode(this.id, this.states.map(s=>s.id), this);
@@ -3773,29 +4049,32 @@ Object.assign(Node.prototype, DisplayItem.prototype, {
 			undo() {
 				this.node.delete();
 				this.node.el().remove();
-				this.node.removePaths();
+				this.node.removeArcs();
 				//this.node.cleanPathsInOut();
 			},
 		});
 		return this;
-	},
+	}
+
 	guiDeleteRaw() {
 		/// Remove objects for node and arcs (and probably more in future)
 		this.el().remove();
-		this.removePaths();
+		this.removeArcs();
+		//this.removePaths();
 		//this.net.outputEl.find('#display_'+node.id).remove();
 		// for (let p of node.pathsIn)  this.net.outputEl.find('#'+p.pathId).data('arcSelector').removePath();
 		// for (let p of node.pathsOut)  this.net.outputEl.find('#'+p.pathId).data('arcSelector').removePath();
-		this.pathsIn.length = 0;
-		this.pathsOut.length = 0;
+		// this.pathsIn.length = 0;
+		// this.pathsOut.length = 0;
 		
 		/// Remove from selections if there
 		this.net.selected.delete(this);
 
 		/// Delete base object
 		this.delete();
-	},
-	guiDelete: function(o = {}) {
+	}
+
+	guiDelete(o = {}) {
 		o = {
 			prompt: false,
 			display: true,
@@ -3818,11 +4097,17 @@ Object.assign(Node.prototype, DisplayItem.prototype, {
 				},
 				undo() {
 					console.log('START UNDO DELETE');
-					let node = this.extern.net.guiAddNodeRaw(this.node.id, this.node.states, this.node);
+					/// 2024-12-01: This for now is working...
+					/// but don't know if I need guiAddNodeRaw, or something else
+					let newNode = Node.from(this.node, {extern:{net:this.net}});
+					let node = this.extern.net.guiAddNodeRaw(newNode.id, newNode.states, newNode);
+					// let node = this.extern.net.guiAddNodeRaw(this.node.id, this.node.states, this.node);
 					/// Restore child definitions
 					for (let [i,child] of Object.entries(node.children)) {
 						child.def = this.childDefs[i].duplicate();
 					}
+
+					// Old:
 					//this.extern.net.updateArcs(this.node);
 					console.log('END UNDO DELETE');
 				},
@@ -3843,7 +4128,8 @@ Object.assign(Node.prototype, DisplayItem.prototype, {
 			doDelete();
 			if (o.display)  net.guiUpdateAndDisplayForLast();
 		}
-	},
+	}
+
 	guiAddParents(parents) {
 		this.changes().addAndDo({
 			parents: parents.slice(),
@@ -3860,7 +4146,8 @@ Object.assign(Node.prototype, DisplayItem.prototype, {
 				this.net.notifyStructureChanged();
 			},
 		});
-	},
+	}
+
 	guiAddChildren(children) {
 		this.changes().addAndDo({
 			children: children.slice(),
@@ -3877,7 +4164,8 @@ Object.assign(Node.prototype, DisplayItem.prototype, {
 				this.net.notifyStructureChanged();
 			},
 		});
-	},
+	}
+
 	guiRemoveParents(parents) {
 		this.changes().addAndDo({
 			parents: parents.slice(),
@@ -3885,8 +4173,8 @@ Object.assign(Node.prototype, DisplayItem.prototype, {
 			net: this.net, node: this,
 			name: "Remove Parents",
 			redo() {
+				this.node.getVisibleParentArcs(this.parents).forEach(arc => arc.remove());
 				this.node.removeParents(this.parents);
-				this.net.updateArcs(this.node);
 				this.net.notifyStructureChanged();
 			},
 			undo() {
@@ -3896,7 +4184,9 @@ Object.assign(Node.prototype, DisplayItem.prototype, {
 				this.net.notifyStructureChanged();
 			},
 		});
-	},
+	}
+
+	/// 2024-12-01: Needs to be updated to match guiRemoveParents
 	guiRemoveChildren(children) {
 		this.changes().addAndDo({
 			children: children.slice(),
@@ -3917,28 +4207,12 @@ Object.assign(Node.prototype, DisplayItem.prototype, {
 				this.net.notifyStructureChanged();
 			},
 		});
-	},
-	/*guiDelete: function() {
-		var node = this.nodeOrig ? this.nodeOrig : this;
-		/// FIX: Once have undo/redo, remove the prompt
-		popupDialog($('<div>Are you sure?</div>'), {buttons: [
-			$('<button type=button>').html('Delete').on('click', function() {
-				node.apiDelete();
+	}
 
-				/// Remove objects for node and arcs (and probably more in future)
-				node.net.outputEl.find('#display_'+node.id).remove();
-				for (var p of node.pathsIn)  node.net.outputEl.find('#'+p.pathId).remove();
-				for (var p of node.pathsOut)  node.net.outputEl.find('#'+p.pathId).remove();
-
-				 app.updateBN();
-				 dismissDialogs();
-			}),
-			$('<button type=button>').html('Cancel').on('click', dismissDialogs),
-		]});
-	},*/
-	isAlwaysHidden: function() {
+	isAlwaysHidden() {
 		return this.engineOnly;
-	},
+	}
+
 	lightNodeEdit() {
 		let bn = this.net;
 		let node = this;
@@ -4219,31 +4493,32 @@ Object.assign(Node.prototype, DisplayItem.prototype, {
 			return false;
 		}
 		lightNodeEdit();
-	},
-});
-Node.handleEvents = function(bnComponent) {
-	$(bnComponent).on('contextmenu', '.node.item', event => {
-		let bn = $(bnComponent).data('bn');
-		if (!event.ctrlKey) {
-			let item = bn.getItem(event.currentTarget);
-			bn.clearSelection();
-			item.guiToggleSelect(true);
-			//event.stopImmediatePropagation();
-			event.preventDefault();
-			item.contextMenu(event);
-		}
-	});
+	}
 
-	/// Switch to triggering *only* on header double-click
-	//$(".bnview").on("dblclick", ".node h6, .node .stateName", lightNodeEdit);
-	$(bnComponent).on("dblclick", ".node h6", event=>currentBn.findItem(event.target).lightNodeEdit());
-	$(document).on("keyup", event=> {
-		//onsole.log(event);
-		if (event.key == 'F2' && currentBn.selected.size >= 1) {
-			[...currentBn.selected][0].lightNodeEdit()
-		}
-	});
-};
+	static handleEvents(bnComponent) {
+		$(bnComponent).on('contextmenu', '.node.item', event => {
+			let bn = $(bnComponent).data('bn');
+			if (!event.ctrlKey) {
+				let item = bn.getItem(event.currentTarget);
+				bn.clearSelection();
+				item.guiToggleSelect(true);
+				//event.stopImmediatePropagation();
+				event.preventDefault();
+				item.contextMenu(event);
+			}
+		});
+	
+		/// Switch to triggering *only* on header double-click
+		//$(".bnview").on("dblclick", ".node h6, .node .stateName", lightNodeEdit);
+		$(bnComponent).on("dblclick", ".node h6", event=>currentBn.findItem(event.target).lightNodeEdit());
+		$(document).on("keyup", event=> {
+			//onsole.log(event);
+			if (event.key == 'F2' && currentBn.selected.size >= 1) {
+				[...currentBn.selected][0].lightNodeEdit()
+			}
+		});
+	}
+}
 
 TextBox = class extends TextBox {
 	static DisplayItem = addMixin(this, DisplayItem);
@@ -4252,8 +4527,6 @@ TextBox = class extends TextBox {
 		this.listeners = new Listeners();
 		this.listeners.add('update', msg=>this.refreshView(msg));
 	}
-};
-Object.assign(TextBox.prototype, {
 	update(m, o = {}) {
 		o.withPrevious ??= false;
 		this.net.changes.addAndDo({
@@ -4265,7 +4538,7 @@ Object.assign(TextBox.prototype, {
 				this.listeners.notify('update', cur);
 			}
 		});
-	},
+	}
 	
 	refreshView(m) {
 		console.log('TextBox.refreshView');
@@ -4296,7 +4569,7 @@ Object.assign(TextBox.prototype, {
 					padding: m.format.padding, /// 2023-09:23: Padding in px should be added to outer, in em to inner
 			}, {null:false});
 		}
-	},
+	}
 	
 	/// Like make()
 	displayItem(outputEl, $displayNode, force = false) {
@@ -4318,7 +4591,8 @@ Object.assign(TextBox.prototype, {
 		if (textBox.type)  $displayNode.addClass(textBox.type);
 
 		return $displayNode;
-	},
+	}
+
 	guiAddToNet(net) {
 		let textBox = this;
 		net.changes.addAndDo({
@@ -4334,7 +4608,8 @@ Object.assign(TextBox.prototype, {
 			},
 		});
 		return this;
-	},
+	}
+
 	guiDelete(o = {}) {
 		o = {
 			prompt: false,
@@ -4375,7 +4650,8 @@ Object.assign(TextBox.prototype, {
 		else {
 			doDelete();
 		}		
-	},
+	}
+
 	guiEdit(o = {}) {
 		o.combine ??= false;
 		
@@ -4409,11 +4685,13 @@ Object.assign(TextBox.prototype, {
 			});
 			evts.add(this.el(), 'focusout', closeOut);
 		}, 100);
-	},
+	}
+
 	contextMenu(event) {
 		let menu = new TextContextMenu(this);
 		menu.popup({left: event.clientX, top: event.clientY});
-	},
+	}
+
 	contextMenuOld() {
 		let textBox = this;
 		let net = this.net;
@@ -4560,24 +4838,25 @@ Object.assign(TextBox.prototype, {
 				}},
 			}
 		});
-	},
-});
-TextBox.handleEvents = function(bnComponent) {
-	$(bnComponent).on('contextmenu', '.textBox.item', event => {
-		let bn = $(bnComponent).data('bn');
-		if (!event.ctrlKey) {
-			let item = bn.getItem(event.currentTarget);
-			bn.clearSelection();
-			item.guiToggleSelect(true);
-			event.stopImmediatePropagation();
-			event.preventDefault();
-			item.contextMenu(event);
-		}
-	});
-};
+	}
 
-ImageBox.prototype = Object.assign(ImageBox.prototype, {
-	displayItem: function(outputEl, $displayNode, force = false) {
+	static handleEvents(bnComponent) {
+		$(bnComponent).on('contextmenu', '.textBox.item', event => {
+			let bn = $(bnComponent).data('bn');
+			if (!event.ctrlKey) {
+				let item = bn.getItem(event.currentTarget);
+				bn.clearSelection();
+				item.guiToggleSelect(true);
+				event.stopImmediatePropagation();
+				event.preventDefault();
+				item.contextMenu(event);
+			}
+		});
+	}
+}
+
+ImageBox = class extends ImageBox {
+	displayItem(outputEl, $displayNode, force = false) {
 		if (this.isHidden() && !force)  return null;
 		if (!outputEl && this.net)  outputEl = this.net.outputEl;
 		var imageBox = this;
@@ -4614,7 +4893,8 @@ ImageBox.prototype = Object.assign(ImageBox.prototype, {
 		if (imageBox.type)  $displayNode.addClass(imageBox.type);
 
 		return $displayNode;
-	},
+	}
+
 	guiAddToNet(net) {
 		let imageBox = this;
 		net.changes.addAndDo({
@@ -4630,7 +4910,8 @@ ImageBox.prototype = Object.assign(ImageBox.prototype, {
 			},
 		});
 		return this;
-	},
+	}
+
 	guiDelete(o = {}) {
 		o = {
 			prompt: false,
@@ -4671,7 +4952,8 @@ ImageBox.prototype = Object.assign(ImageBox.prototype, {
 		else {
 			doDelete();
 		}		
-	},
+	}
+
 	guiEdit(o = {}) {
 		o = {
 			combine: false,
@@ -4700,7 +4982,8 @@ ImageBox.prototype = Object.assign(ImageBox.prototype, {
 				undo() { this.exec(this.oldText); },
 			});
 		});
-	},
+	}
+
 	/// NYI
 	contextMenu() {
 		return null;
@@ -4849,19 +5132,70 @@ ImageBox.prototype = Object.assign(ImageBox.prototype, {
 				}},
 			}
 		});
-	},
-});
+	}
+}
 
 /** XXX This is currently just an arc helper, but should probably become a GuiArc class for
     more general management.
 	XXX Yep. Merge into DisplayItem at some point
+
+	An ArcSelector will now always have a defined parent & child.
 **/
 class ArcSelector {
-	constructor(p) {
-		this.path = $(p)[0];
-		/// Can get to clickable area via $(this.path).data('clickable')
+	constructor(parent, child) {
+		console.info(parent.id,child.id);
+		if (parent instanceof HTMLElement) {
+			this.path = $(parent)[0];
+			/// Can get to clickable area via $(this.path).data('clickable')	
+			[this.parent,this.child] = $(this.path).data('endpoints');
+			}
+		else {
+			this.parent = parent;
+			this.child = child;
+			this.path = null;
+		}
 		
 		this.movePoints = [];
+	}
+
+	get arcId() {
+		return this.path ? [...this.path.classList].find(c => c.startsWith('arc-')) : null;
+	}
+
+	updateIds() {
+		this.path.classList.replace(this.arcId, `arc-${this.parent.id}-${this.child.id}`);
+	}
+
+	isPresent() {
+		return this.arcId == `arc-${this.parent.id}-${this.child.id}` && this.parent.children.some(c => c.id == this.child.id);
+	}
+
+	display(outputEl) {
+		outputEl ??= this.parent.net.outputEl;
+
+		let parentBox = draw.getBox(this.parent.el());
+		let childBox = draw.getBox(this.child.el());
+		if (this.path == null) {
+			this.path = draw.drawArrowBetweenBoxes($(outputEl).find('.netSvgCanvas'), parentBox, childBox)[0];
+			$(this.path).data('arcSelector', this);
+			$(this.path).data('endpoints', [this.parent,this.child]);
+			$(this.path).addClass(`arc-${this.parent.id}-${this.child.id}`);
+		}
+		else {
+			$(outputEl).find('.netSvgCanvas').append(this.path);
+			$(outputEl).find('.netSvgCanvas').append(this.clickable);
+			this.path = draw.drawArrowBetweenBoxes($(this.path), parentBox, childBox)[0];
+		}
+
+		let p = parentBox, c = childBox;
+		return draw.maxBounds([p.x, p.y, p.x+p.width, p.y+p.height], [c.x, c.y, c.x+c.width, c.y+c.height]);
+	}
+
+	remove() {
+		if (!this.path)  return;
+		$(this.path).data('clickable')?.remove?.();
+		$(this.path).remove();
+		//this.path = null; // ?? Or keep the path
 	}
 	
 	/// Needs merging with the version in DisplayItem
@@ -4875,10 +5209,12 @@ class ArcSelector {
 		if (o.on !== true && o.off !== false && (bn.selected.has(this) || o.off === true)) {
 			bn.selected.delete(this);
 			this.path.classList.remove('selected');
+			$(this.path).data('clickable')[0].classList.remove('selected');
 		}
 		else {
 			bn.selected.add(this);
 			this.path.classList.add('selected');
+			$(this.path).data('clickable')[0].classList.add('selected');
 		}
 		this.updateMovePointHighlights();
 	}
@@ -4968,8 +5304,7 @@ class ArcSelector {
 	}
 
 	getEndpoints() {
-		let [parent,child] = $(this.path).data('endpoints');
-		return [parent,child];
+		return [this.parent,this.child];
 	}
 	
 	addPoint(x, y, o = {}) {
@@ -5029,12 +5364,20 @@ class ArcSelector {
 	get clickable() {
 		return $(this.path).data('clickable')[0];
 	}
+
+	/** Just add the path (and its gui selector) to the view */
+	addPath() {
+		/// Currently, get the view globally
+		let svg = q('.netSvgCanvas');
+		svg.append($(this.path).data('clickable')[0]);
+		svg.append(this.path);
+	}
 	
-	/** Just removes the path (and it's gui selector) for the arc from the view **/
+	/** Just removes the path (and its gui selector) for the arc from the view **/
 	removePath() {
 		$(this.path).data('clickable').remove();
 		$(this.path).remove();
-		this.path = null;
+		// this.path = null;
 	}
 	
 	/** Deletes the real arc in the graph **/
@@ -5166,6 +5509,24 @@ class ArcSelector {
 			}),
 		]});
 		menu.popup({left:event.clientX, top:event.clientY});
+	}
+
+	static handleEvents(bnComponent) {
+		/** Select arcs **/
+		$(bnComponent).on('click', '.dependencyClickArea', function(event) {
+			if (event.which == 1) {
+				let $p = $(this).data('path');
+				$p.data('arcSelector').guiToggleSelect();
+			}
+		});
+		/** Context menu */
+		$(bnComponent).on("contextmenu", ".dependencyClickArea", function(event) {
+			if (event.shiftKey)  return false;
+			let $p = $(this).data('path');
+			$p.data('arcSelector').guiToggleSelect();
+			$p.data('arcSelector').contextMenu(event);
+			return false;
+		});
 	}
 }
 
@@ -6779,7 +7140,7 @@ var app = {
 		svgXml.querySelectorAll('.dependencyClickArea').forEach(n => n.remove());
 		svgXml.querySelectorAll('[data-z-index]').forEach(n => n.removeAttribute('data-z-index'));
 		svgXml.querySelectorAll('[aria-owns]').forEach(n => n.removeAttribute('aria-owns'));
-		svgXml.querySelectorAll('[id]').forEach(n => !['path','marker','mask'].includes(n.tagName) && n.removeAttribute('id'));
+		svgXml.querySelectorAll('[id]').forEach(n => !['g','path','marker','mask'].includes(n.tagName) && n.removeAttribute('id'));
 		svgXml.querySelectorAll('text').forEach(t => {
 			for (let attr of ['font-size-adjust','font-stretch','font-variant','direction','letter-spacing','text-anchor','text-rendering','unicode-bidi','word-spacing','writing-mode','text-decoration','color','user-select','dominant-baseline']) {
 				t.removeAttribute(attr);
@@ -7113,43 +7474,19 @@ var app = {
 			});
 		});
 	},
-	autoLayout: function(callback, o = {}) {
-		o.direction = o.direction || 'TB';
-		var g = new dagre.graphlib.Graph();
-		g.setGraph({});
-		g.setDefaultEdgeLabel(function(){ return {}; });
+	autoLayout(callback, o = {}) {
+		let newPoses = Object.values(currentBn.calcAutoLayout(o));
 
-		var graphItems = currentBn.getGraphItems();
+		/// Store the startpoints for all arcs
+		// var startArcPositions = {};
+		// $('.dependency').each(function() {
+		// 	var arr = $(this).attr('d').replace(/[a-zA-Z]/g, '').replace(/^\s+|\s+$/g, '').split(/\s+/);
+		// 	for (var i=0; i<arr.length; i++)  arr[i] = parseFloat(arr[i]);
+		// 	startArcPositions[$(this).attr("id")] = arr;
+		// });
+		// console.log("startArcPositions", startArcPositions);
 
-		for (var i=0; i < graphItems.length; i++) {
-			var node = graphItems[i];
-			if (node.isHidden && node.isHidden())  continue;
-			var $node = $("#display_"+node.id);
-			var width = $node.outerWidth();
-			var height = $node.outerHeight();
-			g.setNode(node.id, { label: (node.label || node.id), width: width, height: height} );
-		}
-
-		for (var i=0; i < graphItems.length; i++) {
-			var node = graphItems[i];
-			if (node.isHidden && node.isHidden())  continue;
-			for (var j=0; j < node.pathsOut.length; j++) {
-				//if (node.pathsOut[j].isHidden())  continue;
-				g.setEdge(node.id, node.pathsOut[j].childItem.id);
-			}
-		}
-
-		g.graph().rankdir = o.direction;
-		dagre.layout(g);
-
-		/// Store the endpoints for all arcs
-		var startArcPositions = {};
-		$('.dependency').each(function() {
-			var arr = $(this).attr('d').replace(/[a-zA-Z]/g, '').replace(/^\s+|\s+$/g, '').split(/\s+/);
-			for (var i=0; i<arr.length; i++)  arr[i] = parseFloat(arr[i]);
-			startArcPositions[$(this).attr("id")] = arr;
-		});
-		console.log("startArcPositions", startArcPositions);
+		let graphItems = currentBn.getGraphItems();
 		
 		/// Existing prevailing direction
 		let sumX = 0; countX = 0;
@@ -7167,15 +7504,19 @@ var app = {
 		let swapXYWidthHeight = existing != o.direction;
 		
 		function getXYBounds(xys) {
-			let xs = xys.map(xy => xy.x);
-			let ys = xys.map(xy => xy.y);
+			/// We need to transform everything based on *centre points*.
+			/// The reason for doing this is so that getBounds transform getBounds, returns the same
+			/// bounds before and after. i.e. So that running the auto-layout multiples times always
+			/// gives the exact same results (and bounding box) every time.
+			let xs = xys.map(xy => xy.x + xy.width/2);
+			let ys = xys.map(xy => xy.y + xy.height/2);
 			let bounds = {minX: Math.min(...xs), maxX: Math.max(...xs), minY: Math.min(...ys), maxY: Math.max(...ys)};
 			bounds.width = bounds.maxX - bounds.minX;
 			bounds.height = bounds.maxY - bounds.minY;
 			return bounds;
 		}
-		let origXYBounds = getXYBounds(graphItems.map(n => n.pos));
-		let autoXYBounds = getXYBounds(g.nodes().map(nId => g.node(nId)));
+		let origXYBounds = getXYBounds(graphItems.map(n => draw.getBox(n.el())));
+		let autoXYBounds = getXYBounds(newPoses);
 		/// Original needs to at least not be tiny (auto is quite compact)
 		if (origXYBounds.width >= autoXYBounds.width && origXYBounds.height >= autoXYBounds.height) {
 			let aspectRatio = 1.4; /// Adjust for the fact that nodes tend to take up more horizontal space...
@@ -7187,11 +7528,10 @@ var app = {
 			
 			{
 				let o = origXYBounds, a = autoXYBounds;
-				let xAdjust = x => (x-a.minX)/(a.width)*(o.width)+o.minX;
-				let yAdjust = y => (y-a.minY)/(a.height)*(o.height)+o.minY;
-				g.nodes().forEach(nId => {
-					let p = g.node(nId);
-					p.x = xAdjust(p.x); p.y = yAdjust(p.y);
+				let xAdjust = (x,w) => ((x+w/2)-a.minX)/(a.width)*(o.width)+o.minX-w/2;
+				let yAdjust = (y,h) => ((y+h/2)-a.minY)/(a.height)*(o.height)+o.minY-h/2;
+				newPoses.forEach(p => {
+					p.x = xAdjust(p.x,p.width); p.y = yAdjust(p.y,p.height);
 					//p.x += 100;
 				});
 			}
@@ -7203,44 +7543,34 @@ var app = {
 		/// Do a final layout, to work out where all the arrows end up
 		/// (The layout doesn't actually visibly change, because it
 		/// all changes within one javascript block)
-		g.nodes().forEach(function(nodeId) {
-			var x = Math.round(g.node(nodeId).x), y = Math.round(g.node(nodeId).y);
-			var pos = currentBn.getGraphItemById(nodeId).pos;
+		newPoses.forEach(newPos => {
+			let nodeId = newPos.id;
+			let x = Math.round(newPos.x), y = Math.round(newPos.y);
+			let pos = currentBn.getGraphItemById(nodeId).pos;
 			currentBn.getGraphItemById(nodeId)._prevPos = {x: pos.x, y: pos.y};
 			pos.x = x;
 			pos.y = y;
 			$("#display_"+nodeId).css({top: y, left: x});
 		});
 		/// Layout the arcs and save their positions
+		let endArcPaths = {};
 		for (var i=0; i<graphItems.length; i++) {
 			var node = graphItems[i];
 			if (node.isHidden && node.isHidden())  continue;
-			var $child = $("#display_"+node.id);
-			for (var j=0; j<node.pathsIn.length; j++) {
-				$parent = $("#display_"+node.pathsIn[j].parentItem.id);
-				draw.drawArrowBetweenBoxes($("#"+node.pathsIn[j].pathId), draw.getBox($parent), draw.getBox($child));
+			for (let arc of node.getVisibleParentArcs()) {
+				arc.display();
+				endArcPaths[arc.arcId] = arc.path.getPathData();
 			}
 		}
+		// var m = currentBn.measureCanvasNeeds();
+		// draw.resizeCanvas($('.netSvgCanvas'), autoXYBounds.maxX, autoXYBounds.maxY);
 		var m = currentBn.measureCanvasNeeds();
-		if (m.maxX > $(".netSvgCanvas").width()) {
-			$(".netSvgCanvas").attr("width", m.maxX);
-		}
-		if (m.maxY > $(".netSvgCanvas").height()) {
-			$(".netSvgCanvas").attr("height", m.maxY);
-		}
+		draw.resizeCanvas($('.netSvgCanvas'), m.maxX, m.maxY);
 
-		/// Store the endpoints for all arcs
-		var endArcPositions = {};
-		$('.dependency').each(function() {
-			var arr = $(this).attr('d').replace(/[a-zA-Z]/g, '').replace(/^\s+|\s+$/g, '').split(/\s+/);
-			for (var i=0; i<arr.length; i++)  arr[i] = parseFloat(arr[i]);
-			endArcPositions[$(this).attr("id")] = arr;
-		});
-		console.log("endArcPositions", endArcPositions);
-
-		/// Restore positions
-		g.nodes().forEach(function(nodeId) {
-			var x = currentBn.getGraphItemById(nodeId)._prevPos.x, y = currentBn.getGraphItemById(nodeId)._prevPos.y;
+		/// Restore starting positions
+		newPoses.forEach(pos => {
+			let nodeId = pos.id;
+			let x = currentBn.getGraphItemById(nodeId)._prevPos.x, y = currentBn.getGraphItemById(nodeId)._prevPos.y;
 			delete currentBn.getGraphItemById(nodeId)._prevPos;
 			currentBn.getGraphItemById(nodeId).pos.x = x;
 			currentBn.getGraphItemById(nodeId).pos.y = y;
@@ -7250,55 +7580,32 @@ var app = {
 		for (var i=0; i<graphItems.length; i++) {
 			var node = graphItems[i];
 			if (node.isHidden && node.isHidden())  continue;
-			var $child = $("#display_"+node.id);
-			for (var j=0; j<node.pathsIn.length; j++) {
-				$parent = $("#display_"+node.pathsIn[j].parentItem.id);
-				draw.drawArrowBetweenBoxes($("#"+node.pathsIn[j].pathId), draw.getBox($parent), draw.getBox($child));
+			for (let arc of node.getVisibleParentArcs()) {
+				arc.display();
 			}
 		}
+		//return;
 
 		/// Now, animate the nodes...
-		g.nodes().forEach(function(nodeId) {
-			//console.log(currentBn.getGraphItemById(nodeId));
-			var x = Math.round(g.node(nodeId).x), y = Math.round(g.node(nodeId).y);
-			currentBn.getGraphItemById(nodeId).pos.x = x;
-			currentBn.getGraphItemById(nodeId).pos.y = y;
-			$("#display_"+nodeId).animate({top: y, left: x}, 400);
-		});
-
 		/// ...and animate the arcs
-		/// FIX: Arcs just animate with linear interpolation. They should use same easing function
-		/// as nodes
-		var start = null;
-		var duration = 350;
-		requestAnimationFrame(function step(timestamp) {
-			if (!start)  start = timestamp;
-			var progress = timestamp - start;
-			var propProgress = Math.min(1,progress/duration);
-			//onsole.log(progress, propProgress);
-			var vecLength = 4;
-			for (var i in startArcPositions) {
-				var mixPosition = newArray(vecLength, 0);
-				for (var j=0; j<vecLength; j++) {
-					mixPosition[j] = propProgress*endArcPositions[i][j] + (1-propProgress)*startArcPositions[i][j];
-				}
-				$('#'+i).attr('d', 'M '+mixPosition[0]+' '+mixPosition[1]+' L '+mixPosition[2]+' '+mixPosition[3]);
-				$('#'+i).data('clickable').attr('d', 'M '+mixPosition[0]+' '+mixPosition[1]+' L '+mixPosition[2]+' '+mixPosition[3]);
+		/// Everything should move synchronously and smoothly now
+		qa('.netSvgCanvas, .bnview').forEach(el => el.append(n('style.trans', '* { transition: all .4s; }')));
+		setTimeout(_=>{
+				newPoses.forEach(pos => {
+					let nodeId = pos.id;
+					var x = Math.round(pos.x), y = Math.round(pos.y);
+					currentBn.getGraphItemById(nodeId).pos.x = x;
+					currentBn.getGraphItemById(nodeId).pos.y = y;
+					$("#display_"+nodeId).css({top: y, left: x});
+					//$("#display_"+nodeId).animate({top: y, left: x}, 400);
+				});
+				for (let [arcId,arcPath] of Object.entries(endArcPaths)) {
+				currentBn.getArc(arcId).path.setPathData(arcPath);
 			}
-			if (progress < duration) {
-				requestAnimationFrame(step);
-			}
-			else {
-				currentBn.resizeCanvasToFit();
-				setTimeout(_=>currentBn.resizeCanvasToFit(),300);
-				if (callback)  callback();
-			}
-		});
+			setTimeout(_=>qa('style.trans').forEach(el => el.remove()), 400);
+		}, 5);
 
 		/** End duplication warning. **/
-
-		/*currentBn.display();
-		currentBn.displayBeliefs();*/
 	},
 	autoLayoutNode(node) {
 		if (typeof(node)=='string')  node = currentBn.node[node];
@@ -7860,9 +8167,9 @@ var app = {
 						.node.hasEvidence { background: var(--node-evidence) !important; }
 						.treatOut-cause { background: rgb(168,206,151) !important; }
 						.treatOut-effect { background: rgb(140,161,216) !important; }
-						path.treatOut-direct { stroke: #a8ce9777; }
-						path.treatOut-backdoor { stroke: #f007; }
-						path.treatOut-selectionBias { stroke: #f707; }
+						.treatOut-direct { stroke: #a8ce9777; }
+						.treatOut-backdoor { stroke: #f007; }
+						.treatOut-selectionBias { stroke: #f707; }
 						.treatmentOutcome .fields { grid-template-columns: auto auto auto; width: fit-content; grid-auto-rows: 1fr; justify-items: center; gap: 3px; padding: 5px; }
 						.treatmentOutcome .fields select { width: 100%; }
 						.treatmentOutcome .fields .field > :nth-child(1) { justify-self: left; }
@@ -9458,29 +9765,7 @@ $(document).ready(function() {
 		}
 	});
 	}
-	
-	/** Select arcs **/
-	$('.bnview').on('click', '.dependencyClickArea', function(event) {
-		if (event.which == 1) {
-			/*
-			/// Need to be a bit more forgiving in terms of click area for arcs
-			var $p = $(this).data('path');
-			if (!$(this).is('.selected')) {
-				$(this).addClass('selected');
-				$p.addClass('selected');
-				currentBn.selected.add($p.data('arcSelector'));
-			}
-			else {
-				$(this).removeClass('selected');
-				$p.removeClass('selected');
-				currentBn.selected.delete($p.data('arcSelector'));
-			}
-			*/
-			let $p = $(this).data('path');
-			$p.data('arcSelector').guiToggleSelect();
-		}
-	});
-	
+
 	$(document).on('keydown', function(event) {
 		var $t = $(event.target);
 		if (!$t.closest('.node, .submodel, .text, input, select, textarea, [contenteditable]').length) {
@@ -9581,11 +9866,6 @@ $(document).ready(function() {
 				return false;
 			}
 		}
-	});
-	$('.bnouterview').on("contextmenu", ".dependencyClickArea", function(event) {
-		if (event.shiftKey)  return false;
-		$(this).data('path').data('arcSelector').contextMenu(event);
-		return false;
 	});
 	
 	/// App focus. Not sure how expensive this is.
@@ -9817,6 +10097,7 @@ $(document).ready(function() {
 	
 	Node.handleEvents($('.bnComponent')[0]);
 	TextBox.handleEvents($('.bnComponent')[0]);
+	ArcSelector.handleEvents($('.bnComponent')[0]);
 	
 	$(window).on('beforeunload', function() {
 		if (currentBn && currentBn.unsavedChanges) {
