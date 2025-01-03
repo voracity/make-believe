@@ -378,6 +378,579 @@ DisplayItem.prototype = {
 			if (index !== -1)  this[itemListType].splice(index, 1);
 		}
 	},
+	getBox() {
+		let box = {
+			x: this.pos.x,
+			y: this.pos.y,
+			cx: this.pos.x+this.size.width/2,
+			cy: this.pos.y+this.size.height/2,
+			width: this.size.width,
+			height: this.size.height,
+			left: this.pos.x,
+			right: this.pos.x+this.size.width,
+			top: this.pos.y,
+			bottom: this.pos.y+this.size.height,
+		};
+		return Object.assign([box.left,box.top,box.right,box.bottom], box);
+	},
+	getAvailableBounds() {
+		/// Fix? DisplayItems don't necessarily have a this.net/submodelParent
+		let myBox = this.getBox();
+		let submodel = this.getSubmodelParent();
+		let bounds = [0,0,Infinity,Infinity];
+		for (let item of submodel.getItems()) {
+			let box = item.getBox();
+			/// Get maximum boundary (by finding closest items)
+			if (box.right <= myBox.left)  bounds[0] = Math.max(bounds[0], box.right);
+			if (box.left >= myBox.right)  bounds[2] = Math.min(bounds[2], box.left);
+			if (box.bottom <= myBox.top)  bounds[1] = Math.max(bounds[1], box.bottom);
+			if (box.top >= myBox.bottom)  bounds[3] = Math.min(bounds[3], box.top);
+		}
+		return bounds;
+	},
+	getAvailableBounds() {
+		function approximateMaximalRectangle(point, boxes, bounds) {
+			const [screenLeft, screenTop, screenRight, screenBottom] = bounds;
+			const { x, y } = point;
+		
+			// Start with screen boundaries
+			let leftDist = x - screenLeft;
+			let rightDist = screenRight - x;
+			let bottomDist = y - screenTop;
+			let topDist = screenBottom - y;
+		
+			// Track the minimal Euclidean distance for unaligned boxes
+			let minDiagonalDist = Infinity;
+		
+			for (const box of boxes) {
+				const boxAlignedHorizontally = box.left <= x && x <= box.right;
+				const boxAlignedVertically = box.top <= y && y <= box.bottom;
+		
+				if (boxAlignedHorizontally) {
+					// Point is horizontally aligned: Check vertical distances
+					bottomDist = Math.min(bottomDist, Math.abs(y - box.bottom));
+					topDist = Math.min(topDist, Math.abs(box.top - y));
+				} else if (boxAlignedVertically) {
+					// Point is vertically aligned: Check horizontal distances
+					leftDist = Math.min(leftDist, Math.abs(x - box.right));
+					rightDist = Math.min(rightDist, Math.abs(box.left - x));
+				} else {
+					// Point is diagonally unaligned: Compute distance to the closest corner
+					const corners = [
+						{ x: box.left, y: box.top },
+						{ x: box.left, y: box.bottom },
+						{ x: box.right, y: box.top },
+						{ x: box.right, y: box.bottom },
+					];
+					for (const corner of corners) {
+						const dist = Math.sqrt((corner.x - x) ** 2 + (corner.y - y) ** 2);
+						minDiagonalDist = Math.min(minDiagonalDist, dist);
+					}
+				}
+			}
+		
+			// The closest distance for unaligned boxes is now the diagonal distance
+			const closestDist = Math.min(leftDist, rightDist, topDist, bottomDist, minDiagonalDist);
+		
+			// Initial square based on the closest distance
+			const initialRect = {
+				left: x - closestDist,
+				right: x + closestDist,
+				top: y - closestDist,
+				bottom: y + closestDist,
+			};
+		
+			// Perform two full expansions
+			const rectVH = expandRect(expandRect(initialRect, boxes, bounds, "vertical"), boxes, bounds, "horizontal");
+			const rectHV = expandRect(expandRect(initialRect, boxes, bounds, "horizontal"), boxes, bounds, "vertical");
+		
+			// Compare areas
+			const areaVH = areaOfRect(rectVH);
+			const areaHV = areaOfRect(rectHV);
+		
+			// Return the larger rectangle
+			const bestRect = areaVH > areaHV ? rectVH : rectHV;
+			return [bestRect.left, bestRect.top, bestRect.right, bestRect.bottom];
+		}
+		
+		function expandRect(rect, boxes, bounds, direction) {
+			const expanded = { ...rect };
+			const [screenLeft, screenTop, screenRight, screenBottom] = bounds;
+		
+			if (direction === "vertical") {
+				// Expand up
+				while (expanded.top > screenTop && !collidesWithBoxes(expanded, boxes)) {
+					expanded.top--;
+				}
+				// Expand down
+				while (expanded.bottom < screenBottom && !collidesWithBoxes(expanded, boxes)) {
+					expanded.bottom++;
+				}
+			} else if (direction === "horizontal") {
+				// Expand left
+				while (expanded.left > screenLeft && !collidesWithBoxes(expanded, boxes)) {
+					expanded.left--;
+				}
+				// Expand right
+				while (expanded.right < screenRight && !collidesWithBoxes(expanded, boxes)) {
+					expanded.right++;
+				}
+			}
+		
+			return expanded;
+		}
+		
+		function collidesWithBoxes(rect, boxes) {
+			for (const box of boxes) {
+				if (rectIntersectsBox(rect, box)) {
+					return true;
+				}
+			}
+			return false;
+		}
+		
+		function rectIntersectsBox(rect, box) {
+			return !(rect.right <= box.left || rect.left >= box.right ||
+					 rect.bottom <= box.top || rect.top >= box.bottom);
+		}
+		
+		function areaOfRect(rect) {
+			return (rect.right - rect.left) * (rect.bottom - rect.top);
+		}
+		let myBox = this.getBox();
+		let submodel = this.getSubmodelParent();
+		let boxes = submodel.getItems().filter(i => i!=this).map(item => item.getBox());
+		let bounds = draw.maxBounds(...boxes);
+		return approximateMaximalRectangle(myBox, boxes, bounds);
+	},
+	getPolygon() {
+		function largestConvexHull(C, b) {
+			// Helper function: Cross product of vectors OA and OB (origin at O)
+			function crossProduct(o, a, b) {
+				return (a[0] - o[0]) * (b[1] - o[1]) - (a[1] - o[1]) * (b[0] - o[0]);
+			}
+		
+			// Helper function: Calculate distance between two points
+			function distance(p1, p2) {
+				const dx = p2[0] - p1[0];
+				const dy = p2[1] - p1[1];
+				return Math.sqrt(dx * dx + dy * dy);
+			}
+		
+			// Helper function: Compute the convex hull of a set of points
+			function computeConvexHull(points) {
+				points = [...points];
+				points.sort((p1, p2) => p1[0] === p2[0] ? p1[1] - p2[1] : p1[0] - p2[0]);
+		
+				const lower = [];
+				for (const p of points) {
+					while (lower.length >= 2 && crossProduct(lower[lower.length - 2], lower[lower.length - 1], p) <= 0) {
+						lower.pop();
+					}
+					lower.push(p);
+				}
+		
+				const upper = [];
+				for (let i = points.length - 1; i >= 0; i--) {
+					const p = points[i];
+					while (upper.length >= 2 && crossProduct(upper[upper.length - 2], upper[upper.length - 1], p) <= 0) {
+						upper.pop();
+					}
+					upper.push(p);
+				}
+		
+				upper.pop();
+				lower.pop();
+				return lower.concat(upper);
+			}
+		
+			// Helper function: Calculate the area of a polygon given its vertices
+			function polygonArea(points) {
+				let area = 0;
+				for (let i = 0; i < points.length; i++) {
+					const j = (i + 1) % points.length;
+					area += points[i][0] * points[j][1] - points[j][0] * points[i][1];
+				}
+				return Math.abs(area) / 2;
+			}
+		
+			// Helper function: Check if a point is in or on the hull
+			function isPointInOrOnHull(hull, point) {
+				for (let i = 0; i < hull.length; i++) {
+					const next = (i + 1) % hull.length;
+					if (crossProduct(hull[i], hull[next], point) < 0) {
+						return false;
+					}
+				}
+				return true;
+			}
+		
+			// Sort points by distance to b
+			const sortedPoints = [...C].sort((p1, p2) => 
+				distance(p1, b) - distance(p2, b)
+			);
+		
+			let prevSubset = [];
+			let currentSubset = [];
+			let bestHull = [];
+			let maxArea = 0;
+		
+			// Try adding each point in order of distance
+			for (const point of sortedPoints) {
+				prevSubset = currentSubset.slice();
+				currentSubset.push(point);
+				
+				// Need at least 3 points to form a hull
+				if (currentSubset.length < 3) continue;
+		
+				// Compute hull including point b
+				const hullPoints = [...currentSubset]; //, b];
+				const hull = computeConvexHull(hullPoints);
+		
+				// Check if this hull is valid:
+				// 1. Must contain b
+				// 2. Must not contain any points from C that aren't in currentSubset
+				const isValid = 
+					isPointInOrOnHull(hull, b) &&
+					C.every(pt => 
+						hull.some(subset_pt => 
+							subset_pt[0] === pt[0] && subset_pt[1] === pt[1]
+						) || !isPointInOrOnHull(hull, pt)
+					);
+		
+				if (isValid) {
+					currentSubset = hull.slice();
+					bestHull = hull.slice();
+					/*const area = polygonArea(hull);
+					if (area > maxArea) {
+						maxArea = area;
+						bestHull = hull;
+					}*/
+				}
+				else {
+					currentSubset = prevSubset;
+				}
+			}
+		
+			return bestHull;
+		}
+		function largestConvexHull(C, b) {
+			// Helper function: Calculate distance between two points
+			function distance(p1, p2) {
+				const dx = p2[0] - p1[0];
+				const dy = p2[1] - p1[1];
+				return Math.sqrt(dx * dx + dy * dy);
+			}
+		
+			// Helper function: Compute the maximum area rectangle that contains a set of points
+			function computeMaxRectangle(points) {
+				// Find the minimum and maximum x and y coordinates
+				const xs = points.map(p => p[0]);
+				const ys = points.map(p => p[1]);
+				const minX = Math.min(...xs);
+				const maxX = Math.max(...xs);
+				const minY = Math.min(...ys);
+				const maxY = Math.max(...ys);
+		
+				// Return the four corners of the rectangle
+				return [
+					[minX, minY],
+					[maxX, minY],
+					[maxX, maxY],
+					[minX, maxY]
+				];
+			}
+		
+			// Helper function: Calculate the area of a rectangle given its vertices
+			function polygonArea(points) {
+				const width = points[1][0] - points[0][0];
+				const height = points[2][1] - points[1][1];
+				return width * height;
+			}
+		
+			// Helper function: Check if a point is strictly inside the rectangle (not on boundary)
+			function isPointInside(rect, point) {
+				return point[0] > rect[0][0] && point[0] < rect[1][0] &&
+					   point[1] > rect[0][1] && point[1] < rect[2][1];
+			}
+		
+			// Helper function: Check if a point is on the boundary of the rectangle
+			function isPointOnBoundary(rect, point) {
+				return (
+					// On vertical edges
+					((point[0] === rect[0][0] || point[0] === rect[1][0]) &&
+					 point[1] >= rect[0][1] && point[1] <= rect[2][1]) ||
+					// On horizontal edges
+					((point[1] === rect[0][1] || point[1] === rect[2][1]) &&
+					 point[0] >= rect[0][0] && point[0] <= rect[1][0])
+				);
+			}
+		
+			// Sort points by distance to b
+			const sortedPoints = [...C].sort((p1, p2) => 
+				distance(p1, b) - distance(p2, b)
+			);
+		
+			let currentSubset = [];
+			let bestHull = [];
+			let maxArea = 0;
+		
+			// Try adding each point in order of distance
+			for (const point of sortedPoints) {
+				prevSubset = currentSubset.slice();
+				currentSubset.push(point);
+				
+				// Need at least 2 point to form a rectangle
+				if (currentSubset.length < 2) continue;
+		
+				// Compute rectangle including point b
+				const rectPoints = [...currentSubset, b];
+				const rect = computeMaxRectangle(rectPoints);
+		
+				// Check if:
+				// 1. b is inside or on the rectangle
+				// 2. Points from C must be on or outside the rectangle
+				const isValid = 
+					(isPointInside(rect, b) || isPointOnBoundary(rect, b)) &&
+					C.every(pt => 
+						!isPointInside(rect, pt)
+					);
+		
+				if (isValid) {
+					//currentSubset = hull.slice();
+					bestHull = rect;
+					/*const area = polygonArea(rect);
+					if (area > maxArea) {
+						maxArea = area;
+						bestHull = rect;
+					}*/
+				}
+				else {
+					currentSubset = prevSubset;
+				}
+			}
+		
+			return bestHull;
+		}
+		let myPoint = Object.values(pick(this.getBox(), 'cx', 'cy'));
+		let submodel = this.getSubmodelParent();
+		let points = submodel.getItems().filter(i => i!=this).map(item => Object.values(pick(item.getBox(), 'cx', 'cy')));
+		let boxes = submodel.getItems().map(item => Object.values(item.getBox()));
+		let bounds = draw.maxBounds(...boxes);
+		points.push([bounds[0],bounds[1]], [bounds[0],bounds[3]], [bounds[2],bounds[1]], [bounds[2],bounds[3]]);
+		let hull = largestConvexHull(points, myPoint);
+		console.info(hull);
+		
+		let newBounds = [Infinity,Infinity,0,0];
+		for (let p of hull) {
+				newBounds[0] = Math.min(newBounds[0], p[0]);
+				newBounds[2] = Math.max(newBounds[2], p[0]);
+				newBounds[1] = Math.min(newBounds[1], p[1]);
+				newBounds[3] = Math.max(newBounds[3], p[1]);
+		}
+
+		return newBounds;
+	},
+	getAvailableBounds() {
+		function isPointInside(rect, point) {
+			return point[0] > rect[0] && point[0] < rect[2] &&
+				   point[1] > rect[1] && point[1] < rect[3];
+		}
+
+		function drawBox(b) {
+			q('svg').append(n('s:rect.myBox', {x:b[0],y:b[1],width:b[2]-b[0],height:b[3]-b[1], fill: 'red'}));
+		}
+
+		function addOffsetToBox(box, offset) {
+			let newBox = box.slice();
+			newBox[0] += offset[0];
+			newBox[2] += offset[0];
+			newBox[1] += offset[1];
+			newBox[3] += offset[1];
+			return newBox;
+		}
+
+		function addPoints(p1, p2) {
+			return [p1[0]+p2[0], p1[1]+p2[1]];
+		}
+
+		function getRectangle(points, origin) {
+			/// Everything is relative to origin (until the end)
+			let offset = origin.map(v=>-v);
+			points = points.map(p => addPoints(p, offset));
+
+			let currentBox = [0,0,0,0];
+			let currentWidth = ()=>currentBox[2]-currentBox[0];
+			let currentHeight = ()=>currentBox[3]-currentBox[1];
+
+			/// Stops relative to origin
+			let xStops = [...new Set(points.map(p => p[0]))];
+			let yStops = [...new Set(points.map(p => p[1]))];
+
+			/// Sort by distance (magnitude)
+			xStops.sort((a,b) => Math.abs(a) - Math.abs(b));
+			yStops.sort((a,b) => Math.abs(a) - Math.abs(b));
+
+			/// Stops in each direction
+			let dirStops = [
+				xStops.filter(x => x < 0), // left
+				yStops.filter(y => y < 0), // top
+				xStops.filter(x => x >= 0), // right
+				yStops.filter(y => y >= 0), // bottom
+			];
+
+			let isValid = box => points.every(p => !isPointInside(box, p));
+
+			/// While there are stops available to check in some direction
+			let nextDir;
+			let it = 0;
+			while (dirStops.some(s => s.length) && it++<1000) {
+				/// Find closest point, and make that the next direction to check
+				nextDir = dirStops.reduce((a,s,i) => dirStops[a].length==0 ? i : s.length && Math.abs(s[0]) < Math.abs(dirStops[a][0]) ? i : a, 0);
+				/*
+				/// If we are a square
+				if (currentWidth() == currentHeight()) {
+				}
+				/// If we are shorter along one extent, only check along that direction
+				else if ((currentWidth() < currentHeight() && (dirStops[0].length || dirStops[2].length)) || !(dirStops[1].length || dirStops[3].length)) {
+					if (dirStops[2].length==0 || (dirStops[0].length && Math.abs(dirStops[0]) < Math.abs(dirStops[2]))) {
+						nextDir = 0;
+					}
+					else {
+						nextDir = 2;
+					}
+				}
+				else {
+					if (dirStops[3].length==0 || (dirStops[1].length && Math.abs(dirStops[1]) < Math.abs(dirStops[3]))) {
+						nextDir = 1;
+					}
+					else {
+						nextDir = 3;
+					}
+				}*/
+
+				let proposedBox = currentBox.slice();
+				proposedBox[nextDir] = dirStops[nextDir][0];
+				q('.myBox')?.remove?.();
+				drawBox(addOffsetToBox(proposedBox, origin));
+				if (isValid(proposedBox)) {
+					currentBox = proposedBox;
+					dirStops[nextDir].shift();
+				}
+				else {
+					dirStops[nextDir] = [];
+				}
+			}
+
+			currentBox = addOffsetToBox(currentBox, origin);
+
+			return currentBox;
+		}
+
+		let myPoint = Object.values(pick(this.getBox(), 'cx', 'cy'));
+		let submodel = this.getSubmodelParent();
+		let points = submodel.getItems().filter(i => i!=this).map(item => Object.values(pick(item.getBox(), 'cx', 'cy')));
+		let boxes = submodel.getItems().map(item => Object.values(item.getBox()));
+		let bounds = draw.maxBounds(...boxes);
+		points.push([bounds[0],bounds[1]], [bounds[0],bounds[3]], [bounds[2],bounds[1]], [bounds[2],bounds[3]]);
+
+		return getRectangle(points, myPoint);
+	},
+	getAvailableBounds() {
+		function isPointInside(rect, point) {
+			return point[0] > rect[0] && point[0] < rect[2] &&
+				   point[1] > rect[1] && point[1] < rect[3];
+		}
+
+		function drawBox(b) {
+			let h = Math.floor(Math.random()*360);
+			let s = Math.floor(Math.random()*101);
+			let l = 50;
+			q('svg').append(n('s:rect.myBox', {x:b[0],y:b[1],width:b[2]-b[0],height:b[3]-b[1], fill: `hsl(${h} ${s}% ${l}%)`}));
+		}
+
+		function addOffsetToBox(box, offset) {
+			let newBox = box.slice();
+			newBox[0] += offset[0];
+			newBox[2] += offset[0];
+			newBox[1] += offset[1];
+			newBox[3] += offset[1];
+			return newBox;
+		}
+
+		function addPoints(p1, p2) {
+			return [p1[0]+p2[0], p1[1]+p2[1]];
+		}
+
+		function getRectangle(points, origin, bounds) {
+			/// Everything is relative to origin (until the end)
+			let offset = origin.map(v=>-v);
+			points = points.map(p => addPoints(p, offset));
+
+			bounds = addOffsetToBox(bounds, offset);
+
+			let currentBox = [0,0,0,0];
+			let currentWidth = ()=>currentBox[2]-currentBox[0];
+			let currentHeight = ()=>currentBox[3]-currentBox[1];
+
+			/// Stops relative to origin
+			let xStops = [...new Set(points.map(p => p[0]))];
+			let yStops = [...new Set(points.map(p => p[1]))];
+
+			/// Sort by distance (magnitude)
+			xStops.sort((a,b) => Math.abs(a) - Math.abs(b));
+			yStops.sort((a,b) => Math.abs(a) - Math.abs(b));
+
+			/// Stops in each direction
+			let dirStops = [
+				xStops.filter(x => x < 0), // left
+				yStops.filter(y => y < 0), // top
+				xStops.filter(x => x >= 0), // right
+				yStops.filter(y => y >= 0), // bottom
+			];
+
+			let isValid = box => points.every(p => !isPointInside(box, p)) &&
+				(box[0]>=bounds[0] && box[1]>=bounds[1] && box[2]<=bounds[2] && box[3]<=bounds[3]);
+
+			/// While there are stops available to check in some direction
+			let nextDir = 0;
+			let it = 0;
+			while (dirStops.some(s => s.length) && it++<1000) {
+
+				let proposedBox = currentBox.slice();
+				if (nextDir==2 || nextDir==3) { proposedBox[nextDir]++; } else { proposedBox[nextDir]--; }
+				if (isValid(proposedBox)) {
+					currentBox = proposedBox;
+					//dirStops[nextDir].shift();
+				}
+				else {
+					dirStops[nextDir] = [];
+				}
+
+				for (let i=0; i<4; i++) {
+					nextDir = (nextDir + 1) % 4;
+					if (dirStops[nextDir].length)  break;
+				}
+			}
+
+			currentBox = addOffsetToBox(currentBox, origin);
+			q('.myBox')?.remove?.();
+			drawBox(currentBox);
+
+			return currentBox;
+		}
+
+		let myPoint = Object.values(pick(this.getBox(), 'cx', 'cy'));
+		let submodel = this.getSubmodelParent();
+		let corners = box => [[box[0],box[1]],[box[0],box[3]],[box[2],box[1]],[box[2],box[3]]];
+		let points = submodel.getItems().filter(i => i!=this).map(item => corners(item.getBox())).flat();
+		// let points = submodel.getItems().filter(i => i!=this).map(item => Object.values(pick(item.getBox(), 'cx', 'cy')));
+		let boxes = submodel.getItems().map(item => item.getBox());
+		let bounds = draw.maxBounds(...boxes);
+		points.push([bounds[0],bounds[1]], [bounds[0],bounds[3]], [bounds[2],bounds[1]], [bounds[2],bounds[3]]);
+
+		return getRectangle(points, myPoint, bounds);
+	},
 };
 addMixin(DisplayItem, Mixin);
 
@@ -2531,6 +3104,112 @@ Object.assign(Submodel.prototype, {
 		else {
 			return false;
 		}
+	},
+	insertSpace(x, y, w, h) {
+		let items = this.getItems();
+		for (let item of items) {
+			let itemCx = item.pos.x + item.size.width/2;
+			let itemCy = item.pos.y + item.size.height/2;
+			if (itemCx > x) {
+				item.pos.x += w;
+			}
+			if (itemCy > y) {
+				item.pos.y += h;
+			}
+		}
+	},
+	insertNeededSpace(x, y, w, h) {
+		let items = this.getItems();
+		/// Determine minimum needed space first
+		let isIn = (val,min,max) => val >= min && val <= max;
+		let minWNeeded = 0, minHNeeded = 0;
+		for (let item of items) {
+			if (isIn(item.pos.x, x, x+w)) {
+				minWNeeded = Math.max(minWNeeded, x+w-item.pos.x);
+			}
+			if (isIn(item.pos.y, y, y+h)) {
+				minHNeeded = Math.max(minHNeeded, y+h-item.pos.y);
+			}
+		}
+		this.insertSpace(x, y, minWNeeded, minHNeeded);
+	},
+	insertSpaceCentered(x, y, leftW, rightW, topH, bottomH) {
+		let items = this.getItems();
+		for (let item of items) {
+			let itemCx = item.pos.x + item.size.width/2;
+			let itemCy = item.pos.y + item.size.height/2;
+			if (itemCx > x) {
+				item.pos.x += rightW;
+			}
+			else { // itemCx <= x
+				item.pos.x -= leftW;
+			}
+			if (itemCy > y) {
+				item.pos.y += topH;
+			}
+			else { // itemCy <= y
+				item.pos.y -= bottomH;
+			}
+		}
+	},
+	insertNeededSpaceCentered(x, y, w, h) {
+		let items = this.getItems();
+		/// Determine minimum needed space first
+		let isIn = (val,min,max) => val >= min && val <= max;
+		let minLeftWNeeded = 0, minRightWNeeded = 0, minTopHNeeded = 0, minBottomHNeeded = 0;
+		for (let item of items) {
+			let left = item.pos.x;
+			let right = item.pos.x+item.size.width;
+			let top = item.pos.y;
+			let bottom = item.pos.y+item.size.height;
+			if (isIn(right, x-w/2, x)) {
+				minLeftWNeeded = Math.max(minLeftWNeeded, right - (x-w/2));
+			}
+			if (isIn(left, x, x+w/2)) {
+				minRightWNeeded = Math.max(minRightWNeeded, (x+w/2) - left);
+			}
+			if (isIn(bottom, y-h/2, y)) {
+				minTopHNeeded = Math.max(minTopHNeeded, bottom - (y-h/2));
+			}
+			if (isIn(top, y, y+h/2)) {
+				minBottomHNeeded = Math.max(minBottomHNeeded, (y+h/2) - top);
+			}
+		}
+		this.insertSpaceCentered(x, y, minLeftWNeeded, minRightWNeeded, minTopHNeeded, minBottomHNeeded);
+		let left = x - w/2;
+		let right = left + w;
+		let top = y - h/2;
+		let bottom = top + h;
+		return {
+			left, right, top, bottom,
+			centerX: (left+right)/2, centerY: (top+bottom)/2
+		};
+	},
+	expandBox(currentBox, {w,h}) {
+		let items = this.getItems();
+		/// x and y are shared between the currentBox and the newBox
+		let [x,y,x2,y2] = currentBox;
+		let cw = x2-x;
+		let ch = y2-y;
+		for (let item of items) {
+			if (w > cw) { /// Prevent shrinks
+				if (item.pos.x >= x2) {
+					item.pos.x += (w-cw);
+				}
+				else if (item.pos.x > x) {
+					item.pos.x = (item.pos.x - x)/cw * w + x;
+				}
+			}
+			if (h > ch) { /// Prevent shrinks
+				if (item.pos.y >= y2) {
+					item.pos.y += (h-ch);
+				}
+				else if (item.pos.y > y) {
+					item.pos.y = (item.pos.y - y)/ch * h + y;
+				}
+			}
+		}
+		return {left:x,top:y};
 	},
 	/// Reference management
 	removeNodeRefs(node) {

@@ -7780,17 +7780,66 @@ var app = {
 	/** This will remove all submodel information from a network,
 	    and then relay it out, since otherwise everything will be on top of each other.
 	    XXX Add a method to 'expand inside' so as to preserve the original layout as much as possible. **/
-	flattenNetwork: function() {
-		var bn = currentBn;
-		for (var i=0; i<bn.nodes.length; i++) {
-			bn.nodes[i].submodelPath = [];
+	flattenNetwork() {
+		let bn = currentBn;
+
+		/// fix widths/height in case
+		/// XXX: Need to work out how to handle this generally
+		/// It's kind of OK here because we're already modifying the BN
+		bn.getAllItems().forEach(item => {
+			let $el = item.displayItem(q('.bnview'),null,true);
+			item.size.width = $el.width();
+			item.size.height = $el.height();
+			$el.remove();
+		});
+
+		let submodelsToVisit = Object.values(bn.submodelsById).filter(s => s.getSubmodelPathStr()=='/');
+		let itemBounds = currentBn.getItems().map(i => [i.pos.x, i.pos.y, i.pos.x+i.size.width, i.pos.y+i.size.height]);
+		let origMaxBounds = draw.maxBounds(...itemBounds);
+		while ( (submodel = submodelsToVisit.shift()) ) {
+			submodelsToVisit.push(...Object.values(submodel.submodelsById));
+
+			console.info('visiting',submodel.id);
+			let {x:sx,y:sy} = submodel.pos;
+			let {width:sw,height:sh} = submodel.size;
+			sx += sw/2; sy += sh/2;
+			let itemBounds = submodel.getItems().map(i => [i.pos.x, i.pos.y, i.pos.x+i.size.width, i.pos.y+i.size.height]);
+			let maxBounds = draw.maxBounds(...itemBounds);
+			let [minX,minY] = maxBounds;
+			let w = maxBounds[2] - maxBounds[0];
+			let h = maxBounds[3] - maxBounds[1];
+			// let {left,top} = submodel.getSubmodelParent().insertNeededSpaceCentered(sx, sy, w, h);
+			/// Remove it now, otherwise it interferes with layout
+			delete submodel.getSubmodelParent().submodelsById[submodel.id];
+			let currentBox = submodel.getAvailableBounds();
+			let m = 40; // margin on the bounds
+			let {left,top} = submodel.getSubmodelParent().expandBox(currentBox, {w:w+2*m, h:h+2*m});
+			left += m;
+			top += m;
+			submodel.getItems().forEach(item => {
+				item.moveToSubmodel([]);
+				console.info(item.id, item.submodelPath);
+				item.pos.x = item.pos.x - minX + left;
+				item.pos.y = item.pos.y - minY + top;
+			});
+			bn.display();
+
+			console.info(Object.values(submodel.submodelsById));
 		}
+		itemBounds = currentBn.getItems().map(i => [i.pos.x, i.pos.y, i.pos.x+i.size.width, i.pos.y+i.size.height]);
+		newMaxBounds = draw.maxBounds(...itemBounds);
+		let adjustX = -newMaxBounds[0] + origMaxBounds[0];
+		let adjustY = -newMaxBounds[1] + origMaxBounds[1];
+		currentBn.getItems().forEach(item => { item.pos.x += adjustX; item.pos.y += adjustY; });
+		// for (var i=0; i<bn.nodes.length; i++) {
+		// 	bn.nodes[i].submodelPath = [];
+		// }
 		bn.currentSubmodel = [];
 		bn.submodelsById = {};
 		bn.subNodes = bn.nodes.slice();
 		bn.display();
 		bn.displayBeliefs();
-		app.autoLayout();
+		//app.autoLayout();
 	},
 	compareNetwork() {
 		$('#openDataFile').one('change', function() {
