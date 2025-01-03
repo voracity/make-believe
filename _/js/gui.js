@@ -1145,12 +1145,12 @@ DisplayItem = class extends DisplayItem {
 		/// If in a supermodel, it's not visible
 		if (this.submodelPath.length < this.net.currentSubmodel.length)  return null;
 
-		/// Make sure path matches current model
+		/// Make sure item's path is inside current model's path
 		for (let [i,currentPathEl] of this.net.currentSubmodel.entries()) {
 			let pathEl = this.submodelPath[i];
 			if (pathEl != currentPathEl)  return null;
 		}
-		/// Return matching submodel
+		/// Return matching submodel (the one that's visible in the current model)
 		return this.net.getSubmodel(this.submodelPath.slice(0, this.net.currentSubmodel.length+1));
 	}
 
@@ -1171,8 +1171,10 @@ DisplayItem = class extends DisplayItem {
 	
 	guiMoveToSubmodel(pathOrSubmodel) {
 		let path = pathOrSubmodel;
-		if (pathOrSubmodel instanceof Submodel) {
-			path = pathOrSubmodel.submodelPath.concat([pathOrSubmodel.id]);
+		/// XXX: This probably needs fixing, but that's due to how BNs behave differently to submodels still
+		/// (As often the case, the fix might be making BN contain a submodel, rather than being a submodel)
+		if (pathOrSubmodel._type == 'Submodel') {
+			path = pathOrSubmodel.submodelPath.concat(pathOrSubmodel.id ? [pathOrSubmodel.id] : []);
 		}
 		
 		this.net.changes.addAndDo({
@@ -2253,11 +2255,13 @@ BN = class extends BN {
 		return this.getDisplayItems().filter(i => i.isVisible());
 	}
 
+	/// At the moment, this function returns currently visible graph items. It should probably return *all* graph items,
+	/// then another function can return the visible ones.
 	getGraphItems() {
-		var currentSubmodel = this.getSubmodel(this.currentSubmodel);
-		var graphItems = currentSubmodel.subNodes.slice();
-		for (var subId in currentSubmodel.submodelsById)  graphItems.push(currentSubmodel.submodelsById[subId]);
-		return graphItems;
+		let currentSubmodel = this.getSubmodel(this.currentSubmodel);
+		let currentNodes = currentSubmodel.subNodes;
+		let currentSubmodels = Object.values(currentSubmodel.submodelsById).filter(s => s.isVisible());
+		return [...currentNodes, ...currentSubmodels];
 	}
 
 	getGraphItemById(id) {
@@ -2876,11 +2880,11 @@ Submodel = class extends Submodel {
 
 	getVisibleParents() {
 		let nodes = this.getAllNodes();
-		return [...new Set(nodes.map(n1 => n1.getAncestors({stopAfter: n=> n!=n1 && n.getVisibleItem()})).flat().map(n=>n.getVisibleItem()))];
+		return [...new Set(nodes.map(n1 => n1.getAncestors({stopAfter: n=> n!=n1 && n.getVisibleItem()})).flat().map(n=>n.getVisibleItem()))].filter(p => p!=this);
 	}
 	getVisibleChildren() {
 		let nodes = this.getAllNodes();
-		return [...new Set(nodes.map(n1 => n1.getDescendants({stopAfter: n=>n!=n1 && n.getVisibleItem()})).flat().map(n=>n.getVisibleItem()))];
+		return [...new Set(nodes.map(n1 => n1.getDescendants({stopAfter: n=>n!=n1 && n.getVisibleItem()})).flat().map(n=>n.getVisibleItem()))].filter(p => p!=this);
 	}
 }
 
@@ -5167,7 +5171,12 @@ class ArcSelector {
 	}
 
 	isPresent() {
-		return this.arcId == `arc-${this.parent.id}-${this.child.id}` && this.parent.children.some(c => c.id == this.child.id);
+		let {parent,child} = this;
+		let possibleParents = parent.getAllItems?.() ?? [parent];
+		let possibleChildren = child.getAllItems?.() ?? [child];
+		let anArcPresent = possibleParents.some(p => p.children.some(c => c.id == child.id));
+
+		return this.arcId == `arc-${this.parent.id}-${this.child.id}` && anArcPresent;
 	}
 
 	display(outputEl) {
@@ -6970,9 +6979,9 @@ var app = {
 		/** XXX Add window mgmt */
 		document.querySelectorAll('.bnouterview > :not(.bnmidview)').forEach(el => el.remove());
 		currentBn = bn;
+		$('.bnComponent').data('bn', currentBn);
 		if (!o.restored)  sessionStorage.setItem('openBn', currentBn.stringify());
 		currentBn.clearSidebar();
-		$('.bnComponent').data('bn', currentBn);
 		/// The first lastSave is always 0
 		let lastSave = 0;
 		currentBn.changes.undoListeners.push(event => {

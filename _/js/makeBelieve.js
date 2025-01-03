@@ -1687,6 +1687,9 @@ Object.assign(Node.prototype, {
 	getSubmodelPathStr: function() {
 		return BN.makeSubmodelPathStr(this.submodelPath);
 	},
+	getSubmodelParent() {
+		return this.net.getSubmodel(this.submodelPath);
+	},
 	/// Move this node to the given submodel. |path| is a left-to-right array
 	/// representing the path.
 	moveToSubmodel: function(path) {
@@ -1703,9 +1706,9 @@ Object.assign(Node.prototype, {
 			}
 		}
 
-		if (path instanceof Submodel) {
-			path = path.submodelPath.concat([path.id]);
-		}
+		// if (path instanceof Submodel) {
+		// 	path = path.submodelPath.concat([path.id]);
+		// }
 
 		/// Save new path
 		this.submodelPath = path.slice();
@@ -2099,9 +2102,9 @@ Object.assign(TextBox.prototype, {
 			if (index != -1)  oldSubmodel.subItems.splice(index, 1);
 		}
 
-		if (path instanceof Submodel) {
-			path = path.submodelPath.concat([path.id]);
-		}
+		// if (path instanceof Submodel) {
+		// 	path = path.submodelPath.concat([path.id]);
+		// }
 
 		/// Save new path
 		this.submodelPath = path.slice();
@@ -2166,6 +2169,23 @@ Object.assign(ImageBox.prototype, TextBox.prototype, {
 
 var Submodel = class {
 	static DisplayItem = addMixin(this, DisplayItem);
+	static Convert = addMixin(this, Convert);
+	static convert = {
+		toJSON: {
+			_omit: ['net','listeners','_elCached','outputEl'],
+			subNodes(val) { return val.map(n => n.id); },
+			subItems(val) { return val.map(i => i.id); },
+		},
+		/// Current check: checkHydrationRoundtrip(currentBn, null, {omit:key => ['movePointsIn','updateViewer'].includes(key)})
+		from: {
+			_extern: ['net'],
+			_when: {allNodesAvailable: ['subNodes','subItems']},
+
+			subNodes(val) { return val.map(nId => this.net.node[nId]); },
+			subItems(val) { return val.map(id => this.net.basicItems.find(item => item.id == id)); },
+		},
+	};
+
 	constructor(o = {}) {
 		this._type = "Submodel";
 
@@ -2426,6 +2446,7 @@ Object.assign(Submodel.prototype, {
 	},
 	setSubmodelPath: Node.prototype.setSubmodelPath,
 	getSubmodelPathStr: Node.prototype.getSubmodelPathStr,
+	getSubmodelParent: Node.prototype.getSubmodelParent,
 	/// Move this node to the given submodel. |path| is a left-to-right array
 	/// representing the path --- or the submodel itself;
 	moveToSubmodel: function(path) {
@@ -2441,9 +2462,9 @@ Object.assign(Submodel.prototype, {
 		/// Save old path
 		var oldPath = this.submodelPath.slice();
 
-		if (path instanceof Submodel) {
-			path = path.submodelPath.concat([path.id]);
-		}
+		// if (path instanceof Submodel) {
+		// 	path = path.submodelPath.concat([path.id]);
+		// }
 
 		/// Save new path
 		this.submodelPath = path.slice();
@@ -2527,7 +2548,7 @@ var BN = class extends Submodel {
 	static convert = {
 		toJSON: {
 			_omit: ['outputEl','objs','onload','saveListeners','saveListeners','listeners','changes','el','expectedValue',
-				'nodesById','needsCompile','source','_workers'],
+				'nodesById','needsCompile','source','_workers','net','node','submodel'],
 			// nodes(val) { return val. },
 			subNodes(val) { return val.map(n => n.id); },
 			subItems(val) { return val.map(i => i.id); },
@@ -2542,6 +2563,7 @@ var BN = class extends Submodel {
 			nodes(val, context) { return val.map(n => Node.from(n, {...context, extern:{net: this}})); },
 			nodesById(val, context) { return Object.fromEntries(this.nodes.map(n=>[n.id,n])); },
 			basicItems(val, context) { return val.map(b => BN.ItemTypes[b._type].from(b, {...context, extern:{net: this}})); },
+			submodelsById(val, context) { return Object.fromEntries(Object.keys(val).map(k => [k,Submodel.from(val[k], {...context, extern:{net: this}})])); },
 			subNodes(val) { return val.length ? val.map(nId => this.node[nId]) : this.nodes.slice(); },
 			subItems(val) { return val.length ? val.map(id => this.basicItems.find(item => item.id == id)) : this.basicItems.slice(); },
 			__utilityNodes(val) { return val.map(nId => this.node[nId]); },
@@ -2557,6 +2579,9 @@ var BN = class extends Submodel {
 	static ItemTypes = {};
 	
 	constructor(o = {}) {
+		/// NOTE: Don't add ._type for now, as the type should be 'Submodel',
+		/// which it inherits from Submodel.
+
 		console.log("BNINDEX", __newBnIndex);
 		/// This implements the 'submodel' interface ({id/node/submodels/pos/size})
 		//Submodel.apply(this);
@@ -2616,13 +2641,9 @@ var BN = class extends Submodel {
 		addObjectLinks(this);
 	}
 	
-	get node() {
-		return this.nodesById;
-	}
-	
-	get submodel() {
-		return this.submodelsById;
-	}
+	get net() { return this; }
+	get node() { return this.nodesById; }
+	get submodel() { return this.submodelsById; }
 
 	calcAutoLayout(o = {}) {
 		o.direction = o.direction || 'TB';
