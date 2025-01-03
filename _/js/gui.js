@@ -7831,15 +7831,11 @@ var app = {
 		let adjustX = -newMaxBounds[0] + origMaxBounds[0];
 		let adjustY = -newMaxBounds[1] + origMaxBounds[1];
 		currentBn.getItems().forEach(item => { item.pos.x += adjustX; item.pos.y += adjustY; });
-		// for (var i=0; i<bn.nodes.length; i++) {
-		// 	bn.nodes[i].submodelPath = [];
-		// }
 		bn.currentSubmodel = [];
 		bn.submodelsById = {};
 		bn.subNodes = bn.nodes.slice();
 		bn.display();
 		bn.displayBeliefs();
-		//app.autoLayout();
 	},
 	compareNetwork() {
 		$('#openDataFile').one('change', function() {
