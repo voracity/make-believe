@@ -378,6 +378,119 @@ DisplayItem.prototype = {
 			if (index !== -1)  this[itemListType].splice(index, 1);
 		}
 	},
+	getBox() {
+		let box = {
+			x: this.pos.x,
+			y: this.pos.y,
+			cx: this.pos.x+this.size.width/2,
+			cy: this.pos.y+this.size.height/2,
+			width: this.size.width,
+			height: this.size.height,
+			left: this.pos.x,
+			right: this.pos.x+this.size.width,
+			top: this.pos.y,
+			bottom: this.pos.y+this.size.height,
+		};
+		return Object.assign([box.left,box.top,box.right,box.bottom], box);
+	},
+	getAvailableBounds() {
+		function isPointInside(rect, point) {
+			return point[0] > rect[0] && point[0] < rect[2] &&
+				   point[1] > rect[1] && point[1] < rect[3];
+		}
+
+		function drawBox(b) {
+			let h = Math.floor(Math.random()*360);
+			let s = Math.floor(Math.random()*101);
+			let l = 50;
+			q('svg').append(n('s:rect.myBox', {x:b[0],y:b[1],width:b[2]-b[0],height:b[3]-b[1], fill: `hsl(${h} ${s}% ${l}%)`}));
+		}
+
+		function addOffsetToBox(box, offset) {
+			let newBox = box.slice();
+			newBox[0] += offset[0];
+			newBox[2] += offset[0];
+			newBox[1] += offset[1];
+			newBox[3] += offset[1];
+			return newBox;
+		}
+
+		function addPoints(p1, p2) {
+			return [p1[0]+p2[0], p1[1]+p2[1]];
+		}
+
+		function getRectangle(points, origin, bounds) {
+			/// Everything is relative to origin (until the end)
+			let offset = origin.map(v=>-v);
+			points = points.map(p => addPoints(p, offset));
+
+			bounds = addOffsetToBox(bounds, offset);
+
+			let currentBox = [0,0,0,0];
+			let currentWidth = ()=>currentBox[2]-currentBox[0];
+			let currentHeight = ()=>currentBox[3]-currentBox[1];
+
+			/// Stops relative to origin
+			let xStops = [...new Set(points.map(p => p[0]))];
+			let yStops = [...new Set(points.map(p => p[1]))];
+
+			/// Sort by distance (magnitude)
+			xStops.sort((a,b) => Math.abs(a) - Math.abs(b));
+			yStops.sort((a,b) => Math.abs(a) - Math.abs(b));
+
+			/// Stops in each direction
+			let dirStops = [
+				xStops.filter(x => x < 0), // left
+				yStops.filter(y => y < 0), // top
+				xStops.filter(x => x >= 0), // right
+				yStops.filter(y => y >= 0), // bottom
+			];
+
+			let isValid = box => points.every(p => !isPointInside(box, p)) &&
+				(box[0]>=bounds[0] && box[1]>=bounds[1] && box[2]<=bounds[2] && box[3]<=bounds[3]);
+
+			/// While there are stops available to check in some direction
+			let nextDir = 0;
+			let it = 0;
+			/// This still needs cleaning up. If I do something
+			/// to improve performance, I can take advantage of knowing
+			/// where the next critical tests are, rather than just growing 1px at a time.
+			while (dirStops.some(s => s.length) && it++<1000) {
+
+				let proposedBox = currentBox.slice();
+				if (nextDir==2 || nextDir==3) { proposedBox[nextDir]++; } else { proposedBox[nextDir]--; }
+				if (isValid(proposedBox)) {
+					currentBox = proposedBox;
+					//dirStops[nextDir].shift();
+				}
+				else {
+					dirStops[nextDir] = [];
+				}
+
+				for (let i=0; i<4; i++) {
+					nextDir = (nextDir + 1) % 4;
+					if (dirStops[nextDir].length)  break;
+				}
+			}
+
+			currentBox = addOffsetToBox(currentBox, origin);
+			// q('.myBox')?.remove?.();
+			// drawBox(currentBox);
+
+			return currentBox;
+		}
+
+		let myPoint = Object.values(pick(this.getBox(), 'cx', 'cy'));
+		let submodel = this.getSubmodelParent();
+		let corners = box => [[box[0],box[1]],[box[0],box[3]],[box[2],box[1]],[box[2],box[3]]];
+		let points = submodel.getItems().filter(i => i!=this).map(item => corners(item.getBox())).flat();
+		// let points = submodel.getItems().filter(i => i!=this).map(item => Object.values(pick(item.getBox(), 'cx', 'cy')));
+		let boxes = submodel.getItems().map(item => item.getBox());
+		let bounds = draw.maxBounds(...boxes);
+		points.push([bounds[0],bounds[1]], [bounds[0],bounds[3]], [bounds[2],bounds[1]], [bounds[2],bounds[3]]);
+
+		return getRectangle(points, myPoint, bounds);
+	},
 };
 addMixin(DisplayItem, Mixin);
 
@@ -2531,6 +2644,49 @@ Object.assign(Submodel.prototype, {
 		else {
 			return false;
 		}
+	},
+	/// This isn't used anywhere currently. (expandBox() replaced it in flattenNetwork use case)
+	insertSpace(x, y, w, h) {
+		let items = this.getItems();
+		for (let item of items) {
+			let itemCx = item.pos.x + item.size.width/2;
+			let itemCy = item.pos.y + item.size.height/2;
+			if (itemCx > x) {
+				item.pos.x += w;
+			}
+			if (itemCy > y) {
+				item.pos.y += h;
+			}
+		}
+	},
+	/// This will proportionally expand (not shrink) the space,
+	/// in the vertical and horizontal directions,
+	/// as if the space were being stretched.
+	expandBox(currentBox, {w,h}) {
+		let items = this.getItems();
+		/// x and y are shared between the currentBox and the newBox
+		let [x,y,x2,y2] = currentBox;
+		let cw = x2-x;
+		let ch = y2-y;
+		for (let item of items) {
+			if (w > cw) { /// Prevent shrinks
+				if (item.pos.x >= x2) {
+					item.pos.x += (w-cw);
+				}
+				else if (item.pos.x > x) {
+					item.pos.x = (item.pos.x - x)/cw * w + x;
+				}
+			}
+			if (h > ch) { /// Prevent shrinks
+				if (item.pos.y >= y2) {
+					item.pos.y += (h-ch);
+				}
+				else if (item.pos.y > y) {
+					item.pos.y = (item.pos.y - y)/ch * h + y;
+				}
+			}
+		}
+		return {left:x,top:y};
 	},
 	/// Reference management
 	removeNodeRefs(node) {
